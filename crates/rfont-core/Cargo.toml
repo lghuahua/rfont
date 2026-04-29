@@ -2,11 +2,14 @@
 name = "rfont-core"
 version = "0.1.0"
 edition = "2021"
+description = "rfont 字体库的核心功能模块"
+authors = ["rfont Team"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 rfont-types = { path = "../rfont-types" }
 font_macros = { path = "../../font_macros" }
-chrono = "0.4.31"
-encoding_rs = "0.8.33"
-lru = "0.12"
-brotli = "6.0"
+chrono = { workspace = true }
+encoding_rs = { workspace = true }
+lru = { workspace = true }
+brotli = { workspace = true }

@@ -2,8 +2,11 @@
 name = "rfont-types"
 version = "0.1.0"
 edition = "2021"
+description = "rfont 字体库的类型定义和基础 trait"
+authors = ["rfont Team"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-chrono = "0.4.31"
+chrono = { workspace = true }
 font_macros = { path = "../../font_macros" }
-thiserror = "1.0"
+thiserror = { workspace = true }

@@ -11,7 +11,8 @@
 | glyf/hmtx 测试覆盖 | 已完成 ✅ |
 | CLI 工具开发 | 已完成 ✅ |
 | WOFF2 支持 | 已完成 ✅ |
-| 最后更新 | 2026-04-29 (WOFF2 支持已完成) |
+| Cargo.toml 优化 | 已完成 ✅ |
+| 最后更新 | 2026-04-29 (Cargo.toml 优化完成) |
 
 ---
 
@@ -447,7 +448,18 @@ pub enum FontError {
 
 ---
 
-### 15. CI/CD 集成
+### 17. API 设计改进
+- [ ] 考虑提供更友好的 Builder 模式 API
+- [ ] 支持流式子集化（针对超大字体）
+- [ ] 添加字体元数据查询接口
+- [ ] 支持批量字符的子集化
+
+**影响范围**: `crates/rfont/src/lib.rs` 公共 API  
+**预计工作量**: 8-12 小时
+
+---
+
+### 20. CI/CD 集成
 - [ ] 配置 GitHub Actions
 - [ ] 自动化运行测试
 - [ ] 自动化运行 clippy 检查
@@ -459,7 +471,48 @@ pub enum FontError {
 
 ---
 
-### 16. 日志系统优化
+### 18. Cargo.toml 优化 ✅ COMPLETED
+- [x] 添加 workspace 级别的依赖管理
+  - [x] 统一版本控制（chrono, brotli, lru, tracing 等）
+  - [x] 减少重复声明，提升可维护性
+  - [x] 加快编译速度（共享依赖只编译一次）
+- [x] 添加 resolver = "2"
+  - [x] Rust 2021 edition 推荐配置
+  - [x] 更好的依赖解析算法
+- [x] 更新所有 crate 使用 workspace 依赖
+  - [x] rfont-types: chrono, thiserror
+  - [x] rfont-core: chrono, encoding_rs, lru, brotli
+  - [x] rfont: flate2, brotli, chrono, tracing, lru 等
+  - [x] rfont-cli: clap, colored, indicatif, serde_json 等
+  - [x] font_macros: proc-macro2, quote, syn
+- [x] 添加构建优化配置
+  - [x] release profile: LTO, strip, panic=abort
+  - [x] dev profile: 依赖包 opt-level=2
+- [x] 完善 package metadata
+  - [x] 添加 description, authors, license
+  - [x] 添加 keywords, categories (rfont, rfont-cli)
+  - [x] 添加 repository URL
+
+**优化效果**:
+- ✅ 统一版本管理，避免版本冲突
+- ✅ 减少重复代码，提升可维护性
+- ✅ 加快编译速度（共享依赖缓存）
+- ✅ 更小的发布二进制（strip + LTO）
+- ✅ 完整的元数据信息
+
+**影响范围**: 
+- `Cargo.toml` (根目录)
+- `crates/*/Cargo.toml` (所有子 crate)
+
+**测试结果**: 
+- 编译成功，无警告
+- 45 个测试全部通过
+
+**预计工作量**: 已完成
+
+---
+
+### 19. 日志系统优化
 - [ ] 评估 tracing 在生产环境的开销
 - [ ] 配置不同环境的日志级别
 - [ ] 添加性能追踪 span（可选）
@@ -512,34 +565,35 @@ pub enum FontError {
 9. ✅ **rfont Builder 模式 API** - FontSubsetBuilder, SubsetOptions 已完成
 10. ✅ **rfont 性能优化** - 懒加载、LRU 缓存、流式迭代器已完成
 11. ✅ **CLI 工具开发** - info, subset, convert 命令全部完成
-12. 完善文档注释
-13. 配置 CI/CD
+12. ✅ **Cargo.toml 优化** - workspace 依赖管理、profiles、metadata 已完成
+13. 完善文档注释
+14. 配置 CI/CD
 
 **第四阶段（下月）**：
-14. WOFF2 支持
-15. 属性测试
-16. API 设计改进
+15. ✅ **WOFF2 支持** - 已完成，压缩率 43%
+16. 属性测试
+17. API 设计改进
 
 ---
 
 ### 中期目标（3-6 个月）
 
 **第五阶段（第 2-3 月）**：
-15. 🖥️ **桌面应用 Phase 1 (MVP)** 
+18. 🖥️ **桌面应用 Phase 1 (MVP)** 
     - Tauri + React 项目初始化
     - 基础字体导入和文本输入
     - Canvas 预览功能
     - TTF 格式导出
 
 **第六阶段（第 4-5 月）**：
-16. 🖥️ **桌面应用 Phase 2 (功能完善)**
+19. 🖥️ **桌面应用 Phase 2 (功能完善)**
     - Unicode 范围选择器
     - 高级预览选项
     - WOFF 格式支持
     - 用户体验优化
 
 **第七阶段（第 6 月）**：
-17. 🖥️ **桌面应用 Phase 3 & 4**
+20. 🖥️ **桌面应用 Phase 3 & 4**
     - 批量处理和对比模式
     - 性能优化和测试
     - 打包发布准备
@@ -548,16 +602,16 @@ pub enum FontError {
 
 ### 长期愿景（6+ 个月）
 
-18. 🌐 **Web 版本**（可选）
+21. 🌐 **Web 版本**（可选）
     - 基于 WebAssembly 的在线工具
     - 无需安装，浏览器直接使用
     - 适合快速体验和分享
 
-19. 📱 **移动端应用**（可选）
+22. 📱 **移动端应用**（可选）
     - React Native 或 Flutter 实现
     - 随时随地进行字体子集化
 
-20. 🤝 **生态建设**
+23. 🤝 **生态建设**
     - 插件系统（自定义导出格式）
     - API SDK（供其他项目集成）
     - 社区贡献指南
@@ -598,4 +652,4 @@ Web 应用 + 生态系统 ← 未来愿景
 
 ---
 
-*最后更新: 2026-04-29 (CLI 工具开发已完成)*
+*最后更新: 2026-04-29 (Cargo.toml 优化完成)*

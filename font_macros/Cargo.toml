@@ -2,6 +2,9 @@
 name = "font_macros"
 version = "0.1.0"
 edition = "2021"
+description = "字体库的 proc-macro 宏定义"
+authors = ["rfont Team"]
+license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -9,6 +12,6 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0.70"
-quote = "1.0.33"
-syn = "2.0.39"
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }
