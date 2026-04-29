@@ -1,0 +1,8 @@
+[package]
+name = "rfont-types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4.31"
+font_macros = { path = "../../font_macros" }

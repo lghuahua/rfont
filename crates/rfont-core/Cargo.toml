@@ -1,0 +1,10 @@
+[package]
+name = "rfont-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rfont-types = { path = "../rfont-types" }
+font_macros = { path = "../../font_macros" }
+chrono = "0.4.31"
+encoding_rs = "0.8.33"

@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "font_macros",
+    "crates/rfont-types",
+    "crates/rfont-core",
+    "crates/rfont"
+]

@@ -1,0 +1,12 @@
+[package]
+name = "rfont"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rfont-core = { path = "../rfont-core" }
+rfont-types = { path = "../rfont-types" }
+flate2 = "1.0"
+chrono = "0.4.31"
+tracing = "0.1"
+tracing-subscriber = "0.3"
