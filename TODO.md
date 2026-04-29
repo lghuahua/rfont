@@ -1,9 +1,19 @@
 # rfont 项目优化 TODO List
 
+## 📊 当前状态
+
+| 指标 | 数值 |
+|------|------|
+| 单元测试总数 | 20 |
+| 测试通过率 | 100% ✅ |
+| 编译状态 | 无警告 ✅ |
+| 最后更新 | 2026-04-29 |
+
+---
 
 ## 🔴 高优先级（核心功能完善）
 
-### 0. 命令行工具 (CLI) 开发 ⭐ NEW
+### 1. 命令行工具 (CLI) 开发
 - [ ] 创建 `rfont-cli` crate 结构
 - [ ] 集成 `clap` v4 作为 CLI 框架
 - [ ] 实现 `info` 命令：字体信息查询
@@ -44,16 +54,6 @@
 
 ---
 
-### 1. 修复 hhea 表测试
-- [ ] 调试 `derive(ReadBytes)` 对包装类型（FWord/UFWord）的处理问题
-- [ ] 补充完整的 hhea 表解析单元测试
-- [ ] 验证所有度量字段的正确性
-
-**影响范围**: `crates/rfont-core/src/tables/hhea.rs`  
-**预计工作量**: 2-4 小时
-
----
-
 ### 2. glyf 表单元测试
 - [ ] 添加简单字形（Simple Glyph）解析测试
 - [ ] 添加复合字形（Composite Glyph）解析测试
@@ -75,7 +75,98 @@
 
 ---
 
-### 3b. 桌面应用程序 (Desktop App) ⭐ NEW
+### 4. rfont 核心库优化（适配 CLI 和桌面应用）
+
+#### A. API 层优化
+- [ ] **异步支持**
+  - [ ] 为耗时操作添加 async/await 支持（字体加载、子集化）
+  - [ ] 使用 `tokio` 或 `async-std` 运行时
+  - [ ] 提供同步和异步两套 API
+  
+- [ ] **进度反馈机制**
+  - [ ] 定义 `ProgressCallback` trait
+    ```rust
+    pub trait ProgressCallback: FnMut(u32, u32) + Send {}
+    ```
+  - [ ] 在子集化过程中定期调用回调
+  - [ ] 支持取消操作（通过返回 `Result<(), Cancelled>`）
+
+#### B. 性能优化
+- [ ] **懒加载机制**
+  - [ ] 使用 `OnceCell` 或 `Lazy` 缓存已解析的表
+  - [ ] 按需加载大型表（glyf、cmap）
+  - [ ] 提供 `preload_tables()` 方法预加载常用表
+  
+- [ ] **查询缓存**
+  - [ ] 缓存 Unicode → GlyphID 映射结果
+  - [ ] 使用 LRU Cache 限制内存占用
+  - [ ] 提供缓存清除接口
+
+- [ ] **流式处理支持**
+  - [ ] 实现 `Iterator` trait 用于逐字形处理
+  - [ ] 支持分块读取大型 glyf 表
+  - [ ] 减少内存峰值占用
+
+#### C. 功能增强
+- [ ] **字体元数据查询 API**
+  - [ ] `get_font_info()` - 返回字体基本信息
+    ```rust
+    pub struct FontInfo {
+        pub family_name: String,
+        pub style_name: String,
+        pub version: String,
+        pub glyph_count: u16,
+        pub units_per_em: u16,
+        pub tables: Vec<TableInfo>,
+    }
+    ```
+  - [ ] `get_table_list()` - 列出所有表及其大小
+  - [ ] `get_supported_characters()` - 返回字体支持的所有 Unicode 字符
+
+- [ ] **批量处理支持**
+  - [ ] 提供 `batch_subset()` 方法
+  - [ ] 支持并行处理（使用 `rayon`）
+  - [ ] 返回处理统计信息
+
+- [ ] **格式检测增强**
+  - [ ] 自动检测 TTF/OTF/WOFF/WOFF2
+  - [ ] 提供更详细的格式信息
+
+#### D. 配置选项
+- [ ] **子集化配置结构体**
+  ```rust
+  pub struct SubsetOptions {
+      pub optimize_post_table: bool,     // 是否优化 post 表
+      pub strip_glyph_names: bool,       // 是否移除字形名称
+      pub compression_level: u8,         // WOFF 压缩级别 (0-9)
+      pub keep_hinting: bool,            // 是否保留 hinting 数据
+      pub progress_callback: Option<Box<dyn ProgressCallback>>,
+  }
+  ```
+
+- [ ] **Builder 模式 API**
+  ```rust
+  let subset_data = Font::load("font.ttf")?
+      .subset_builder()
+      .text("你好世界")
+      .optimize_post(true)
+      .compression_level(9)
+      .on_progress(|current, total| println!("{}%", current * 100 / total))
+      .build()?;
+  ```
+
+**依赖新增**:
+- `tokio` 或 `async-std` - 异步运行时（可选 feature）
+- `lru` - LRU 缓存
+- `rayon` - 并行处理（可选 feature）
+
+**影响范围**: `crates/rfont/src/lib.rs`, `crates/rfont-core/src/`  
+**预计工作量**: 12-16 小时  
+**优先级说明**: 这是 CLI 和桌面应用的基础，应优先完成
+
+---
+
+### 5. 桌面应用程序 (Desktop App)
 - [ ] **Phase 1: MVP 基础框架** (2-3 周)
   - [ ] 初始化 Tauri + Vue3 项目结构
   - [ ] 配置 Rust 后端依赖（rfont、image、font-kit）
@@ -181,7 +272,7 @@
 
 ## 🟡 中优先级（性能与健壮性）
 
-### 4. 懒加载机制实现
+### 6. 懒加载机制实现
 - [ ] 为大型表（glyf、cmap）实现真正的懒加载
 - [ ] 使用 `OnceCell` 或 `Lazy` 缓存解析结果
 - [ ] 避免重复解析相同的表数据
@@ -192,7 +283,7 @@
 
 ---
 
-### 5. 错误处理增强
+### 7. 错误处理增强
 - [ ] 定义结构化的 `FontError` 枚举类型
 - [ ] 添加错误上下文信息（表名、偏移量、期望值等）
 - [ ] 实现 `std::error::Error` trait
@@ -214,7 +305,7 @@ pub enum FontError {
 
 ---
 
-### 6. WOFF2 格式支持
+### 8. WOFF2 格式支持
 - [ ] 添加 brotli 解压缩依赖
 - [ ] 实现 WOFF2 签名检测
 - [ ] 实现 WOFF2 到 SFNT 的转换
@@ -226,7 +317,7 @@ pub enum FontError {
 
 ---
 
-### 7. post 表子集化优化
+### 9. post 表子集化优化
 - [ ] 在子集化时自动将 post format 2.0 降级为 3.0
 - [ ] 移除不必要的字形名称数组
 - [ ] 减小子集字体体积（可减少数十 KB）
@@ -239,7 +330,7 @@ pub enum FontError {
 
 ## 🟢 低优先级（代码质量与生态）
 
-### 8. 清理废弃代码
+### 10. 清理废弃代码
 - [ ] 删除或重构 `src/a.rs` 和 `src/tables1.rs`（如果仍存在）
 - [ ] 移除未使用的导入和变量
 - [ ] 统一代码风格（使用 `cargo fmt`）
@@ -249,7 +340,7 @@ pub enum FontError {
 
 ---
 
-### 9. 文档注释完善
+### 11. 文档注释完善
 - [ ] 为所有公共 API 添加 rustdoc 注释
 - [ ] 添加使用示例到文档中
 - [ ] 生成并检查文档质量（`cargo doc --open`）
@@ -259,7 +350,7 @@ pub enum FontError {
 
 ---
 
-### 10. 属性测试（Property-based Testing）
+### 12. 属性测试（Property-based Testing）
 - [ ] 引入 `proptest` 或 `quickcheck`
 - [ ] 为校验和计算添加随机测试
 - [ ] 为字节序转换添加模糊测试
@@ -271,7 +362,7 @@ pub enum FontError {
 
 ---
 
-### 11. 性能基准测试
+### 13. 性能基准测试
 - [ ] 引入 `criterion` 基准测试框架
 - [ ] 测量字体加载时间
 - [ ] 测量子集化性能
@@ -283,7 +374,7 @@ pub enum FontError {
 
 ---
 
-### 12. 代码覆盖率报告
+### 14. 代码覆盖率报告
 - [ ] 集成 `tarpaulin` 或 `grcov`
 - [ ] 生成 HTML 覆盖率报告
 - [ ] 识别未覆盖的代码路径
@@ -294,7 +385,7 @@ pub enum FontError {
 
 ---
 
-### 13. CI/CD 集成
+### 15. CI/CD 集成
 - [ ] 配置 GitHub Actions
 - [ ] 自动化运行测试
 - [ ] 自动化运行 clippy 检查
@@ -306,7 +397,7 @@ pub enum FontError {
 
 ---
 
-### 14. 日志系统优化
+### 16. 日志系统优化
 - [ ] 评估 tracing 在生产环境的开销
 - [ ] 配置不同环境的日志级别
 - [ ] 添加性能追踪 span（可选）
@@ -318,7 +409,7 @@ pub enum FontError {
 
 ---
 
-### 15. API 设计改进
+### 17. API 设计改进
 - [ ] 考虑提供更友好的 Builder 模式 API
 - [ ] 支持流式子集化（针对超大字体）
 - [ ] 添加字体元数据查询接口
@@ -344,26 +435,25 @@ pub enum FontError {
 ### 短期目标（1-2 个月）
 
 **第一阶段（本周）**：
-1. ✅ **命令行工具基础框架** - 创建 crate 结构，实现 `info` 命令
-2. 修复 hhea 表测试
-3. 添加 glyf 表基础测试
+1. ✅ **rfont 核心库优化** - 结构化错误处理、模块分离已完成
+2. ⭐ **命令行工具基础框架** - 创建 crate 结构，实现 `info` 命令
+3. glyf 表单元测试
 
 **第二阶段（下周）**：
-4. ✅ **CLI 核心功能** - 实现 `subset` 和 `convert` 命令
-5. 实现 post 表子集化优化
-6. 增强错误处理
-7. 完善文档注释
+4. ⭐ **CLI 核心功能** - 实现 `subset` 和 `convert` 命令
+5. rfont 性能优化 - 懒加载机制、查询缓存
+6. hmtx 表完整测试
 
 **第三阶段（本月）**：
-8. ✅ **CLI 高级功能** - 实现 `batch` 命令和用户体验优化
-9. 实现懒加载机制
-10. 添加性能基准测试
-11. 配置 CI/CD
+7. ⭐ **CLI 高级功能** - 实现 `batch` 命令和用户体验优化
+8. rfont 高级功能 - Builder API、批量处理支持
+9. 完善文档注释
+10. 配置 CI/CD
 
 **第四阶段（下月）**：
-12. WOFF2 支持
-13. 属性测试
-14. API 设计改进
+11. WOFF2 支持
+12. 属性测试
+13. API 设计改进
 
 ---
 
@@ -418,8 +508,8 @@ pub enum FontError {
 - ✅ 删除未使用的导入
 - ✅ 添加缺失的 rustdoc 注释（关键 API）
 - ✅ 更新 README 中的测试章节
+- ✅ **结构化错误处理** - 已完成，使用 thiserror 定义 FontError
 - ⭐ **创建 CLI 项目骨架** - 初始化 `rfont-cli` crate 和基础结构
-- ⭐ **创建桌面应用项目目录** - 初始化 Tauri 项目结构（仅框架）
 
 ---
 

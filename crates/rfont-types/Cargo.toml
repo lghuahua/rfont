@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 chrono = "0.4.31"
 font_macros = { path = "../../font_macros" }
+thiserror = "1.0"

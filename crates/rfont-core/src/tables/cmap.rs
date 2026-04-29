@@ -99,7 +99,7 @@ impl Cmap {
             0 => Self::parse_format0(reader),
             4 => Self::parse_format4(reader),
             12 => Self::parse_format12(reader),
-            _ => Err(FontError(format!("Unsupported cmap format: {}", format))),
+            _ => Err(FontError::UnsupportedCmapFormat { format }),
         }
     }
 

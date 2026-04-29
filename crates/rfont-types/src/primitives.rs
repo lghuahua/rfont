@@ -47,7 +47,7 @@ impl<'a> ReadBytes<'a> for LONGDATETIME {
         let low = reader.read_u32()? as i64;
         let seconds = (high << 32) | low;
         
-        let start = LONGDATETIME::get_start().ok_or(FontError("Invalid base date".to_string()))?;
+        let start = LONGDATETIME::get_start().ok_or(FontError::InvalidBaseDate)?;
         
         // chrono::Duration::seconds 的范围是 i64::MIN / 1_000_000_000 到 i64::MAX / 1_000_000_000
         // 大约 ±292 年。字体时间戳可能超出此范围，需要安全处理。
@@ -68,7 +68,7 @@ impl<'a> ReadBytes<'a> for LONGDATETIME {
 
 impl WriteBytes for LONGDATETIME {
     fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
-        let start = LONGDATETIME::get_start().ok_or(FontError("Invalid base date".to_string()))?;
+        let start = LONGDATETIME::get_start().ok_or(FontError::InvalidBaseDate)?;
         let duration = self.0.signed_duration_since(start);
         writer.write_u32(duration.num_seconds() as u32)?;
         writer.write_u32(0)?; // High 32 bits

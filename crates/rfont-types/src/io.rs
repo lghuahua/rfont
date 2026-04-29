@@ -1,3 +1,5 @@
+use crate::error::FontError;
+
 /// Trait for reading bytes from a stream.
 pub trait ReadBytes<'a> {
     fn read_from(reader: &mut Reader<'a>) -> Result<Self, FontError>
@@ -9,20 +11,6 @@ pub trait ReadBytes<'a> {
 pub trait WriteBytes {
     fn write_to(&self, writer: &mut Writer) -> Result<(), FontError>;
 }
-
-// Placeholder for error type and IO structs to be implemented in rfont-core
-use std::fmt;
-
-#[derive(Debug)]
-pub struct FontError(pub String);
-
-impl fmt::Display for FontError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "FontError: {}", self.0)
-    }
-}
-
-impl std::error::Error for FontError {}
 
 pub struct Reader<'a> {
     pub data: &'a [u8],
@@ -36,7 +24,10 @@ impl<'a> Reader<'a> {
 
     pub fn read_u8(&mut self) -> Result<u8, FontError> {
         if self.offset + 1 > self.data.len() {
-            return Err(FontError("Unexpected end of data".to_string()));
+            return Err(FontError::UnexpectedEndOfData { 
+                offset: self.offset, 
+                needed: 1 
+            });
         }
         let v = self.data[self.offset];
         self.offset += 1;
@@ -45,7 +36,10 @@ impl<'a> Reader<'a> {
 
     pub fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], FontError> {
         if self.offset + len > self.data.len() {
-            return Err(FontError("Unexpected end of data".to_string()));
+            return Err(FontError::UnexpectedEndOfData { 
+                offset: self.offset, 
+                needed: len 
+            });
         }
         let bytes = &self.data[self.offset..self.offset + len];
         self.offset += len;
@@ -59,7 +53,10 @@ impl<'a> Reader<'a> {
 
     pub fn read_u16_at(&self, offset: usize) -> Result<u16, FontError> {
         if offset + 2 > self.data.len() {
-            return Err(FontError("Unexpected end of data".to_string()));
+            return Err(FontError::UnexpectedEndOfData { 
+                offset, 
+                needed: 2 
+            });
         }
         let bytes = &self.data[offset..offset + 2];
         Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
@@ -67,7 +64,10 @@ impl<'a> Reader<'a> {
 
     pub fn read_u32(&mut self) -> Result<u32, FontError> {
         if self.offset + 4 > self.data.len() {
-            return Err(FontError("Unexpected end of data".to_string()));
+            return Err(FontError::UnexpectedEndOfData { 
+                offset: self.offset, 
+                needed: 4 
+            });
         }
         let v = u32::from_be_bytes([
             self.data[self.offset],
@@ -99,7 +99,11 @@ impl<'a> Reader<'a> {
 
     pub fn slice(&self, offset: usize, len: usize) -> Result<Reader<'a>, FontError> {
         if offset + len > self.data.len() {
-            return Err(FontError("Slice out of bounds".to_string()));
+            return Err(FontError::InvalidOffset { 
+                table: "slice".to_string(),
+                offset: offset as u32,
+                max: self.data.len() as u32
+            });
         }
         Ok(Reader {
             data: &self.data[offset..offset + len],

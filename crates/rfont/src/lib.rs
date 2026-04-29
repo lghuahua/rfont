@@ -115,7 +115,7 @@ impl FontData {
         T: for<'a> ReadBytes<'a>
     {
         let bytes = self.get_table_bytes(tag)
-            .ok_or_else(|| FontError(format!("Table {:?} not found", tag)))?;
+            .ok_or_else(|| FontError::TableNotFound { tag: format!("{:?}", tag) })?;
         T::read_from(&mut Reader::new(bytes))
     }
 }
@@ -140,7 +140,7 @@ impl Font {
         let _enter = span.enter();
         
         info!("开始加载字体文件");
-        let data = std::fs::read(path).map_err(|e| FontError(e.to_string()))?;
+        let data = std::fs::read(path).map_err(|e| FontError::Io(e))?;
         
         debug!(size = data.len(), "字体文件读取完成");
         
@@ -173,18 +173,18 @@ impl Font {
         
         // loca 需要 head 的参数
         let loca_bytes = font_data.get_table_bytes(Tag(*b"loca"))
-            .ok_or(FontError("loca table not found".to_string()))?;
+            .ok_or(FontError::TableNotFound { tag: "loca".to_string() })?;
         let loca = Loca::read_from(&mut Reader::new(loca_bytes), head.index_to_loc_format, maxp.num_glyphs)?;
         debug!(offsets_count = loca.offsets.len(), "Loca 表解析完成");
         
         let cmap_bytes = font_data.get_table_bytes(Tag(*b"cmap"))
-            .ok_or(FontError("cmap table not found".to_string()))?;
+            .ok_or(FontError::TableNotFound { tag: "cmap".to_string() })?;
         let cmap = Cmap::read_from(&mut Reader::new(cmap_bytes))?;
         debug!(unicode_map_size = cmap.unicode_map.len(), "Cmap 表解析完成");
         
         // hmtx 需要 hhea 和 maxp 的参数
         let hmtx_bytes = font_data.get_table_bytes(Tag(*b"hmtx"))
-            .ok_or(FontError("hmtx table not found".to_string()))?;
+            .ok_or(FontError::TableNotFound { tag: "hmtx".to_string() })?;
         let hmtx = Hmtx::read_from(&mut Reader::new(hmtx_bytes), hhea.number_of_h_metrics, maxp.num_glyphs)?;
         debug!(metrics_count = hmtx.metrics.len(), "Hmtx 表解析完成");
         
@@ -260,7 +260,9 @@ impl Font {
                 // 已压缩，需要解压（只使用实际压缩长度）
                 let mut decoder = ZlibDecoder::new(&compressed_data[..comp_length]);
                 let mut buf = Vec::with_capacity(orig_length);
-                decoder.read_to_end(&mut buf).map_err(|e| FontError(format!("Failed to decompress table {:?}: {}", entry.tag, e)))?;
+                decoder.read_to_end(&mut buf).map_err(|e| FontError::WoffDecompressionError { 
+                    message: format!("Failed to decompress table {:?}: {}", entry.tag, e)
+                })?;
                 buf
             };
             
@@ -352,7 +354,7 @@ impl Font {
         
         // 获取 hhea 数据（不变）
         let hhea_data = self.font_data.get_table_bytes(Tag(*b"hhea"))
-            .ok_or(FontError("hhea table not found".to_string()))?;
+            .ok_or(FontError::TableNotFound { tag: "hhea".to_string() })?;
 
         // 7. 复制其他不变的表（name, os2, post 等，排除 hhea）
         let other_tables = self.copy_unchanged_tables()?;
@@ -435,7 +437,7 @@ impl Font {
                 if start < end {
                     // 获取原始 glyf 表的字节数据
                     let glyf_bytes = self.font_data.get_table_bytes(Tag(*b"glyf"))
-                        .ok_or(FontError("glyf table not found".to_string()))?;
+                        .ok_or(FontError::TableNotFound { tag: "glyf".to_string() })?;
                     
                     if (end as usize) <= glyf_bytes.len() {
                         new_glyf_data.extend_from_slice(&glyf_bytes[start as usize..end as usize]);
@@ -488,9 +490,9 @@ impl Font {
         new_unicode_map.sort_by_key(|&(unicode, _)| unicode);
         
         if new_unicode_map.is_empty() {
-            return Err(FontError("No glyphs in cmap".to_string()));
+            return Err(FontError::Generic("No glyphs in cmap".to_string()));
         }
-        
+
         println!("  cmap 字符统计: {} 个字符", new_unicode_map.len());
         
         // 检查是否有非 BMP 字符（> 0xFFFF）
@@ -799,13 +801,13 @@ impl Font {
     /// 更新 head 表（包含校验和调整和时间戳）
     fn update_head(&self, checksum_adjustment: u32) -> Result<Vec<u8>, FontError> {
         let mut head_data = self.font_data.get_table_bytes(Tag(*b"head"))
-            .ok_or(FontError("head table not found".to_string()))?
+            .ok_or(FontError::TableNotFound { tag: "head".to_string() })?
             .to_vec();
         
         if head_data.len() < HEAD_TABLE_SIZE {
-            return Err(FontError("head table too short".to_string()));
+            return Err(FontError::Generic("head table too short".to_string()));
         }
-        
+
         // 更新 checkSumAdjustment（偏移量 8-11）
         head_data[8..12].copy_from_slice(&checksum_adjustment.to_be_bytes());
         
@@ -860,7 +862,7 @@ impl Font {
     /// 子集化 post 表
     fn subset_post_table(&self, original_post: &[u8]) -> Result<Vec<u8>, FontError> {
         if original_post.len() < POST_TABLE_MIN_SIZE {
-            return Err(FontError("post table too short".to_string()));
+            return Err(FontError::Generic("post table too short".to_string()));
         }
         
         // 读取 post 表版本
@@ -878,7 +880,7 @@ impl Font {
     /// 子集化 post v2 表
     fn subset_post_v2(&self, original_post: &[u8]) -> Result<Vec<u8>, FontError> {
         if original_post.len() < POST_V2_MIN_SIZE {
-            return Err(FontError("post v2 table too short".to_string()));
+            return Err(FontError::Generic("post v2 table too short".to_string()));
         }
         
         // 简化策略：对于只有几个字形的情况，直接使用 post version 3.0（无名称）

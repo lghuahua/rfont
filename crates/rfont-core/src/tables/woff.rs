@@ -21,7 +21,10 @@ pub struct WoffHeader {
 impl WoffHeader {
     pub fn validate(&self) -> Result<(), FontError> {
         if self.signature != 0x774F4646 { // "wOFF"
-            return Err(FontError("Invalid WOFF signature".to_string()));
+            return Err(FontError::InvalidMagicNumber { 
+                expected: 0x774F4646, 
+                actual: self.signature 
+            });
         }
         Ok(())
     }
