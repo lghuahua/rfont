@@ -19,6 +19,89 @@ const HEAD_TABLE_SIZE: usize = 54;
 const POST_TABLE_MIN_SIZE: usize = 32;
 const POST_V2_MIN_SIZE: usize = 36;
 
+/// 字体表信息
+#[derive(Debug, Clone)]
+pub struct TableInfo {
+    /// 表标签（如 "head", "cmap"）
+    pub tag: String,
+    /// 校验和
+    pub checksum: u32,
+    /// 偏移量
+    pub offset: u32,
+    /// 长度（字节）
+    pub length: u32,
+}
+
+impl TableInfo {
+    fn from_record(record: &TableRecord) -> Self {
+        let tag_str = String::from_utf8_lossy(&record.tag.0).to_string();
+        TableInfo {
+            tag: tag_str,
+            checksum: record.checksum,
+            offset: record.offset,
+            length: record.length,
+        }
+    }
+}
+
+/// 字体基本信息
+#[derive(Debug, Clone)]
+pub struct FontInfo {
+    /// 字体家族名称（从 name 表提取，暂为 None）
+    pub family_name: Option<String>,
+    /// 字体样式名称（从 name 表提取，暂为 None）
+    pub style_name: Option<String>,
+    /// 字体版本
+    pub version: Option<String>,
+    /// 字形总数
+    pub glyph_count: u16,
+    /// 每 EM 单位数
+    pub units_per_em: u16,
+    /// 最小 x 坐标
+    pub x_min: i16,
+    /// 最小 y 坐标
+    pub y_min: i16,
+    /// 最大 x 坐标
+    pub x_max: i16,
+    /// 最大 y 坐标
+    pub y_max: i16,
+    /// 水平度量数量
+    pub number_of_h_metrics: u16,
+    /// ascender（上升高度）
+    pub ascender: i16,
+    /// descender（下降高度）
+    pub descender: i16,
+    /// line gap（行间距）
+    pub line_gap: i16,
+    /// 所有表的列表
+    pub tables: Vec<TableInfo>,
+    /// 支持的 Unicode 字符数量
+    pub supported_char_count: usize,
+}
+
+impl FontInfo {
+    /// 创建空的 FontInfo
+    pub fn new() -> Self {
+        FontInfo {
+            family_name: None,
+            style_name: None,
+            version: None,
+            glyph_count: 0,
+            units_per_em: 0,
+            x_min: 0,
+            y_min: 0,
+            x_max: 0,
+            y_max: 0,
+            number_of_h_metrics: 0,
+            ascender: 0,
+            descender: 0,
+            line_gap: 0,
+            tables: Vec::new(),
+            supported_char_count: 0,
+        }
+    }
+}
+
 /// cmap Format 4 段结构
 #[derive(Debug, Clone)]
 struct CmapSegment {
@@ -117,6 +200,11 @@ impl FontData {
         let bytes = self.get_table_bytes(tag)
             .ok_or_else(|| FontError::TableNotFound { tag: format!("{:?}", tag) })?;
         T::read_from(&mut Reader::new(bytes))
+    }
+    
+    /// 获取所有表记录的引用
+    pub fn get_table_records(&self) -> &HashMap<Tag, TableRecord> {
+        &self.table_map
     }
 }
 
@@ -309,6 +397,69 @@ impl Font {
         &self.font_data
     }
     
+    /// 获取字体元数据信息
+    pub fn get_font_info(&self) -> FontInfo {
+        let mut info = FontInfo::new();
+        
+        // 从 head 表提取信息
+        info.units_per_em = self.head.units_per_em;
+        info.x_min = self.head.x_min;
+        info.y_min = self.head.y_min;
+        info.x_max = self.head.x_max;
+        info.y_max = self.head.y_max;
+        
+        // 从 maxp 表提取字形数量
+        info.glyph_count = self.maxp.num_glyphs;
+        
+        // 从 hhea 表提取水平度量信息
+        info.number_of_h_metrics = self.hhea.number_of_h_metrics;
+        info.ascender = self.hhea.ascender.0;  // FWord 包装类型，需要解包
+        info.descender = self.hhea.descender.0;
+        info.line_gap = self.hhea.line_gap.0;
+        
+        // 提取表列表
+        info.tables = self.font_data.get_table_records().values()
+            .map(TableInfo::from_record)
+            .collect();
+        
+        // 统计支持的字符数量
+        info.supported_char_count = self.cmap.unicode_map.len();
+        
+        // TODO: 从 name 表提取 family_name, style_name, version
+        // 这需要解析 name 表，暂时留为 None
+        
+        info
+    }
+
+    /// 获取所有表的列表
+    pub fn get_table_list(&self) -> Vec<TableInfo> {
+        self.font_data.get_table_records().values()
+            .map(TableInfo::from_record)
+            .collect()
+    }
+
+    /// 获取字体支持的所有 Unicode 字符
+    pub fn get_supported_characters(&self) -> Vec<u32> {
+        let mut chars: Vec<u32> = self.cmap.unicode_map.keys().cloned().collect();
+        chars.sort();
+        chars
+    }
+
+    /// 检查字体是否支持特定字符
+    pub fn supports_character(&self, unicode: u32) -> bool {
+        self.cmap.unicode_map.contains_key(&unicode)
+    }
+
+    /// 将文本转换为字形 ID 列表
+    pub fn text_to_glyph_ids(&self, text: &str) -> Vec<u16> {
+        text.chars()
+            .filter_map(|ch| {
+                let unicode = ch as u32;
+                self.cmap.unicode_map.get(&unicode).copied()
+            })
+            .collect()
+    }
+
     /// 根据文本获取 GlyphID 列表
     pub fn get_glyph_ids_for_text(&self, text: &str) -> Vec<u16> {
         let span = span!(Level::TRACE, "get_glyph_ids_for_text", text_len = text.len());

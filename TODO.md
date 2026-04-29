@@ -108,20 +108,19 @@
   - [ ] 减少内存峰值占用
 
 #### C. 功能增强
-- [ ] **字体元数据查询 API**
-  - [ ] `get_font_info()` - 返回字体基本信息
-    ```rust
-    pub struct FontInfo {
-        pub family_name: String,
-        pub style_name: String,
-        pub version: String,
-        pub glyph_count: u16,
-        pub units_per_em: u16,
-        pub tables: Vec<TableInfo>,
-    }
-    ```
-  - [ ] `get_table_list()` - 列出所有表及其大小
-  - [ ] `get_supported_characters()` - 返回字体支持的所有 Unicode 字符
+- [x] **字体元数据查询 API** ✅ COMPLETED
+  - [x] `get_font_info()` - 返回字体基本信息（字形数、units per EM、边界框等）
+  - [x] `get_table_list()` - 列出所有表及其大小、偏移量、校验和
+  - [x] `get_supported_characters()` - 返回字体支持的所有 Unicode 字符
+  - [x] `supports_character()` - 检查是否支持特定字符
+  - [x] `text_to_glyph_ids()` - 将文本转换为字形 ID 列表
+  
+  **新增结构体**:
+  - `FontInfo` - 包含完整的字体元数据
+  - `TableInfo` - 表信息（标签、校验和、偏移量、长度）
+  
+  **影响文件**: `crates/rfont/src/lib.rs`  
+  **示例代码**: `crates/rfont/examples/font_info_demo.rs`
 
 - [ ] **批量处理支持**
   - [ ] 提供 `batch_subset()` 方法
@@ -446,14 +445,15 @@ pub enum FontError {
 
 **第三阶段（本月）**：
 7. ⭐ **CLI 高级功能** - 实现 `batch` 命令和用户体验优化
-8. rfont 高级功能 - Builder API、批量处理支持
-9. 完善文档注释
-10. 配置 CI/CD
+8. ✅ **rfont 字体元数据 API** - get_font_info(), get_table_list() 等已完成
+9. rfont 性能优化 - Builder API、批量处理支持
+10. 完善文档注释
+11. 配置 CI/CD
 
 **第四阶段（下月）**：
-11. WOFF2 支持
-12. 属性测试
-13. API 设计改进
+12. WOFF2 支持
+13. 属性测试
+14. API 设计改进
 
 ---
 
