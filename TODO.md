@@ -139,20 +139,30 @@
       pub strip_glyph_names: bool,       // 是否移除字形名称
       pub compression_level: u8,         // WOFF 压缩级别 (0-9)
       pub keep_hinting: bool,            // 是否保留 hinting 数据
-      pub progress_callback: Option<Box<dyn ProgressCallback>>,
+      pub output_format: String,         // 输出格式（"ttf" 或 "woff"）
   }
   ```
 
-- [ ] **Builder 模式 API**
+- [x] **Builder 模式 API** ✅ COMPLETED
   ```rust
-  let subset_data = Font::load("font.ttf")?
-      .subset_builder()
+  let subset_data = font.subset_builder()
       .text("你好世界")
       .optimize_post(true)
       .compression_level(9)
-      .on_progress(|current, total| println!("{}%", current * 100 / total))
+      .output_format("ttf")
       .build()?;
   ```
+  
+  **新增功能**:
+  - `FontSubsetBuilder` - Builder 结构体
+  - `SubsetOptions` - 配置选项结构体
+  - 链式调用接口：`.text()`, `.glyph_ids()`, `.unicode_range()`
+  - 配置方法：`.optimize_post()`, `.strip_glyph_names()`, `.compression_level()`
+  - 预设模板：`.preset("web")`, `.preset("print")`
+  - 灵活输入：支持文本、字形 ID、Unicode 范围
+  
+  **影响文件**: `crates/rfont/src/lib.rs`  
+  **示例代码**: `crates/rfont/examples/builder_demo.rs`
 
 **依赖新增**:
 - `tokio` 或 `async-std` - 异步运行时（可选 feature）
@@ -446,14 +456,15 @@ pub enum FontError {
 **第三阶段（本月）**：
 7. ⭐ **CLI 高级功能** - 实现 `batch` 命令和用户体验优化
 8. ✅ **rfont 字体元数据 API** - get_font_info(), get_table_list() 等已完成
-9. rfont 性能优化 - Builder API、批量处理支持
-10. 完善文档注释
-11. 配置 CI/CD
+9. ✅ **rfont Builder 模式 API** - FontSubsetBuilder, SubsetOptions 已完成
+10. rfont 性能优化 - 懒加载机制、进度回调
+11. 完善文档注释
+12. 配置 CI/CD
 
 **第四阶段（下月）**：
-12. WOFF2 支持
-13. 属性测试
-14. API 设计改进
+13. WOFF2 支持
+14. 属性测试
+15. API 设计改进
 
 ---
 

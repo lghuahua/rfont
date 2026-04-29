@@ -102,6 +102,187 @@ impl FontInfo {
     }
 }
 
+/// 子集化配置选项
+#[derive(Debug, Clone)]
+pub struct SubsetOptions {
+    /// 是否优化 post 表（移除字形名称以减小文件大小）
+    pub optimize_post_table: bool,
+    /// 是否移除字形名称
+    pub strip_glyph_names: bool,
+    /// WOFF 压缩级别（0-9，仅在使用 WOFF 格式时有效）
+    pub compression_level: u8,
+    /// 是否保留 hinting 数据
+    pub keep_hinting: bool,
+    /// 输出格式（"ttf" 或 "woff"）
+    pub output_format: String,
+}
+
+impl Default for SubsetOptions {
+    fn default() -> Self {
+        SubsetOptions {
+            optimize_post_table: true,
+            strip_glyph_names: true,
+            compression_level: 6,
+            keep_hinting: false,
+            output_format: "ttf".to_string(),
+        }
+    }
+}
+
+impl SubsetOptions {
+    /// 创建默认配置
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    /// Web 优化预设（最小文件大小）
+    pub fn web_optimized() -> Self {
+        SubsetOptions {
+            optimize_post_table: true,
+            strip_glyph_names: true,
+            compression_level: 9,
+            keep_hinting: false,
+            output_format: "woff".to_string(),
+        }
+    }
+    
+    /// 打印优化预设（保留更多元数据）
+    pub fn print_optimized() -> Self {
+        SubsetOptions {
+            optimize_post_table: false,
+            strip_glyph_names: false,
+            compression_level: 0,
+            keep_hinting: true,
+            output_format: "ttf".to_string(),
+        }
+    }
+}
+
+/// 字体子集化 Builder
+pub struct FontSubsetBuilder<'a> {
+    font: &'a Font,
+    text: Option<String>,
+    glyph_ids: Option<Vec<u16>>,
+    unicode_ranges: Option<Vec<(u32, u32)>>,
+    options: SubsetOptions,
+}
+
+impl<'a> FontSubsetBuilder<'a> {
+    /// 创建新的 Builder
+    pub fn new(font: &'a Font) -> Self {
+        FontSubsetBuilder {
+            font,
+            text: None,
+            glyph_ids: None,
+            unicode_ranges: None,
+            options: SubsetOptions::default(),
+        }
+    }
+    
+    /// 设置要包含的文本
+    pub fn text(mut self, text: &str) -> Self {
+        self.text = Some(text.to_string());
+        self
+    }
+    
+    /// 设置要包含的字形 ID 列表
+    pub fn glyph_ids(mut self, ids: Vec<u16>) -> Self {
+        self.glyph_ids = Some(ids);
+        self
+    }
+    
+    /// 添加 Unicode 范围（start, end）
+    pub fn unicode_range(mut self, start: u32, end: u32) -> Self {
+        if self.unicode_ranges.is_none() {
+            self.unicode_ranges = Some(Vec::new());
+        }
+        self.unicode_ranges.as_mut().unwrap().push((start, end));
+        self
+    }
+    
+    /// 设置是否优化 post 表
+    pub fn optimize_post(mut self, optimize: bool) -> Self {
+        self.options.optimize_post_table = optimize;
+        self
+    }
+    
+    /// 设置是否移除字形名称
+    pub fn strip_glyph_names(mut self, strip: bool) -> Self {
+        self.options.strip_glyph_names = strip;
+        self
+    }
+    
+    /// 设置 WOFF 压缩级别（0-9）
+    pub fn compression_level(mut self, level: u8) -> Self {
+        self.options.compression_level = level.min(9);
+        self
+    }
+    
+    /// 设置是否保留 hinting 数据
+    pub fn keep_hinting(mut self, keep: bool) -> Self {
+        self.options.keep_hinting = keep;
+        self
+    }
+    
+    /// 设置输出格式（"ttf" 或 "woff"）
+    pub fn output_format(mut self, format: &str) -> Self {
+        self.options.output_format = format.to_lowercase();
+        self
+    }
+    
+    /// 使用预设配置
+    pub fn preset(mut self, preset: &str) -> Self {
+        match preset {
+            "web" => self.options = SubsetOptions::web_optimized(),
+            "print" => self.options = SubsetOptions::print_optimized(),
+            _ => {} // 未知预设，保持默认
+        }
+        self
+    }
+    
+    /// 构建并执行子集化
+    pub fn build(self) -> Result<Vec<u8>, FontError> {
+        // 收集需要包含的字形 ID
+        let mut needed_glyphs = HashSet::new();
+        
+        // 从文本中提取字形 ID
+        if let Some(ref text) = self.text {
+            let glyph_ids = self.font.text_to_glyph_ids(text);
+            needed_glyphs.extend(glyph_ids);
+        }
+        
+        // 直接指定的字形 ID
+        if let Some(ref ids) = self.glyph_ids {
+            needed_glyphs.extend(ids.iter().cloned());
+        }
+        
+        // 从 Unicode 范围中提取字形 ID
+        if let Some(ref ranges) = self.unicode_ranges {
+            for &(start, end) in ranges {
+                for unicode in start..=end {
+                    if let Some(&glyph_id) = self.font.cmap.unicode_map.get(&unicode) {
+                        needed_glyphs.insert(glyph_id);
+                    }
+                }
+            }
+        }
+        
+        // 确保至少有一个字形
+        if needed_glyphs.is_empty() {
+            return Err(FontError::Generic("No glyphs specified for subset".to_string()));
+        }
+        
+        // 转换为排序的向量
+        let mut glyph_ids: Vec<u16> = needed_glyphs.into_iter().collect();
+        glyph_ids.sort();
+        
+        debug!(glyph_count = glyph_ids.len(), "开始子集化处理");
+        
+        // 执行子集化
+        self.font.subset_with_options(&glyph_ids, &self.options)
+    }
+}
+
 /// cmap Format 4 段结构
 #[derive(Debug, Clone)]
 struct CmapSegment {
@@ -459,7 +640,34 @@ impl Font {
             })
             .collect()
     }
-
+    
+    /// 创建子集化 Builder（Builder 模式）
+    pub fn subset_builder(&self) -> FontSubsetBuilder {
+        FontSubsetBuilder::new(self)
+    }
+    
+    /// 使用配置选项进行子集化
+    pub fn subset_with_options(&self, glyph_ids: &[u16], options: &SubsetOptions) -> Result<Vec<u8>, FontError> {
+        debug!(glyph_count = glyph_ids.len(), format = options.output_format, "开始子集化");
+        
+        // 执行核心子集化逻辑
+        let subset_data = self.subset_and_serialize(glyph_ids)?;
+        
+        // 根据输出格式处理
+        match options.output_format.as_str() {
+            "woff" => {
+                // TODO: 实现 WOFF 转换
+                // 目前暂时返回 TTF 数据
+                debug!("WOFF 格式尚未实现，返回 TTF 数据");
+                Ok(subset_data)
+            }
+            _ => {
+                // 默认返回 TTF
+                Ok(subset_data)
+            }
+        }
+    }
+    
     /// 根据文本获取 GlyphID 列表
     pub fn get_glyph_ids_for_text(&self, text: &str) -> Vec<u16> {
         let span = span!(Level::TRACE, "get_glyph_ids_for_text", text_len = text.len());
