@@ -9,3 +9,4 @@ font_macros = { path = "../../font_macros" }
 chrono = "0.4.31"
 encoding_rs = "0.8.33"
 lru = "0.12"
+brotli = "6.0"

@@ -9,7 +9,7 @@ pub struct SubsetOptions {
     pub compression_level: u8,
     /// 是否保留 hinting 数据
     pub keep_hinting: bool,
-    /// 输出格式（"ttf" 或 "woff"）
+    /// 输出格式（"ttf"、"woff" 或 "woff2"）
     pub output_format: String,
 }
 

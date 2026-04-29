@@ -12,8 +12,8 @@ pub fn run(
 ) -> Result<()> {
     // 验证目标格式
     let format = format.to_lowercase();
-    if format != "ttf" && format != "woff" {
-        return Err(anyhow::anyhow!("不支持的格式: {} (仅支持 ttf 和 woff)", format));
+    if format != "ttf" && format != "woff" && format != "woff2" {
+        return Err(anyhow::anyhow!("不支持的格式: {} (仅支持 ttf, woff 和 woff2)", format));
     }
 
     // 加载字体
@@ -43,8 +43,17 @@ pub fn run(
             .compression_level(compression)
             .build()
             .context("转换为 WOFF 失败")?
+    } else if format == "woff2" {
+        // TTF → WOFF2：使用所有字形 ID
+        let all_glyph_ids: Vec<u16> = (0..font.get_font_info().glyph_count as u16).collect();
+        font.subset_builder()
+            .glyph_ids(all_glyph_ids)
+            .output_format("woff2")
+            .compression_level(compression)
+            .build()
+            .context("转换为 WOFF2 失败")?
     } else {
-        // WOFF → TTF（或其他情况）
+        // WOFF/WOFF2 → TTF（或其他情况）
         let all_glyph_ids: Vec<u16> = (0..font.get_font_info().glyph_count as u16).collect();
         font.subset_builder()
             .glyph_ids(all_glyph_ids)
@@ -60,7 +69,13 @@ pub fn run(
         Some(p) => p.to_path_buf(),
         None => {
             let stem = input.file_stem().unwrap().to_str().unwrap();
-            let ext = if format == "woff" { "woff" } else { "ttf" };
+            let ext = if format == "woff" { 
+                "woff" 
+            } else if format == "woff2" {
+                "woff2"
+            } else { 
+                "ttf" 
+            };
             input.with_file_name(format!("{}_converted.{}", stem, ext))
         }
     };
@@ -84,7 +99,7 @@ pub fn run(
     println!("  转换后大小: {}", format_size(converted_size));
     println!("  大小比例:   {:.1}%", ratio);
     
-    if format == "woff" && converted_size < original_size {
+    if (format == "woff" || format == "woff2") && converted_size < original_size {
         let saved = original_size - converted_size;
         println!("  节省空间:   {}", format_size(saved));
     }

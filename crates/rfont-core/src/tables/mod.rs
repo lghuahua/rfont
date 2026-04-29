@@ -6,3 +6,4 @@ pub mod loca;
 pub mod glyf;
 pub mod cmap;
 pub mod woff;
+pub mod woff2;

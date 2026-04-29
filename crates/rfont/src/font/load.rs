@@ -1,7 +1,9 @@
 use rfont_core::{Head, Maxp, Hhea, Loca, Cmap, Hmtx};
 use rfont_core::tables::woff::{WoffHeader, WoffTableDirectoryEntry};
+use rfont_core::tables::woff2::{Woff2Header, Woff2TableDirectoryEntry, WOFF2_KNOWN_TAGS};
 use rfont_types::{FontError, Reader, Tag, ReadBytes};
 use flate2::read::ZlibDecoder;
+use brotli::Decompressor;
 use std::io::Read;
 use tracing::{debug, info, span, Level};
 
@@ -32,8 +34,13 @@ impl Font {
         
         debug!(size = data.len(), "字体文件读取完成");
         
+        // 检查是否为 WOFF2 格式
+        if data.len() >= 4 && &data[0..4] == b"wOF2" {
+            info!("检测到 WOFF2 格式");
+            Self::load_woff2(&data)
+        }
         // 检查是否为 WOFF 格式
-        if data.len() >= 4 && &data[0..4] == b"wOFF" {
+        else if data.len() >= 4 && &data[0..4] == b"wOFF" {
             info!("检测到 WOFF 格式");
             Self::load_woff(&data)
         } else {
@@ -186,6 +193,101 @@ impl Font {
         }
 
         println!("Table directory written at offset {}, {} entries", table_dir_start, decompressed_tables.len());
+        
+        // 使用重组后的 SFNT 数据创建 Font
+        Self::load_ttf(&sfnt_data)
+    }
+
+    /// 加载 WOFF2 格式字体
+    fn load_woff2(data: &[u8]) -> Result<Self, FontError> {
+        let span = span!(Level::DEBUG, "load_woff2");
+        let _enter = span.enter();
+        
+        let mut reader = Reader::new(data);
+        
+        // 解析 WOFF2 Header
+        let woff2_header = Woff2Header::read_from(&mut reader)?;
+        debug!(flavor = format!("0x{:08X}", woff2_header.flavor), num_tables = woff2_header.num_tables, "WOFF2 Header 解析完成");
+        
+        // 解析表目录
+        let mut table_entries = Vec::new();
+        for _ in 0..woff2_header.num_tables {
+            table_entries.push(Woff2TableDirectoryEntry::read_from(&mut reader, &WOFF2_KNOWN_TAGS)?);
+        }
+        
+        debug!(table_count = table_entries.len(), "WOFF2 表目录解析完成");
+
+        // 解压缩并重组为 SFNT 数据
+        let mut sfnt_data = Vec::with_capacity(woff2_header.total_sfnt_size as usize);
+        
+        // 写入 Offset Table
+        sfnt_data.extend_from_slice(&woff2_header.flavor.to_be_bytes());
+        sfnt_data.extend_from_slice(&woff2_header.num_tables.to_be_bytes());
+        
+        // 计算 searchRange, entrySelector, rangeShift
+        let num_tables = woff2_header.num_tables as u32;
+        let max_pow2: u32 = if num_tables > 0 { 1 << (31 - num_tables.leading_zeros()) } else { 1 };
+        let search_range = max_pow2 * 16;
+        let entry_selector = max_pow2.trailing_zeros() as u16;
+        let range_shift = ((num_tables as u32) * 16).saturating_sub(search_range) as u16;
+
+        sfnt_data.extend_from_slice(&(search_range as u16).to_be_bytes());
+        sfnt_data.extend_from_slice(&entry_selector.to_be_bytes());
+        sfnt_data.extend_from_slice(&range_shift.to_be_bytes());
+        
+        // 先写入 Table Directory（占位，稍后回填偏移量）
+        let table_dir_start = sfnt_data.len();
+        for _ in &table_entries {
+            sfnt_data.extend_from_slice(&[0u8; TABLE_DIR_ENTRY_SIZE]); // 每个表目录项 16 字节
+        }
+        
+        // 读取并解压缩所有表数据
+        let compressed_data_offset = reader.offset;
+        let compressed_data = &data[compressed_data_offset..];
+        
+        // 使用 Brotli 解压缩整个数据块
+        let mut decompressor = Decompressor::new(compressed_data, 4096);
+        let mut decompressed_buffer = Vec::with_capacity(woff2_header.total_sfnt_size as usize);
+        decompressor.read_to_end(&mut decompressed_buffer).map_err(|e| FontError::Generic(
+            format!("WOFF2: Failed to decompress with Brotli: {}", e)
+        ))?;
+        
+        debug!(decompressed_size = decompressed_buffer.len(), expected_size = woff2_header.total_sfnt_size, "Brotli 解压缩完成");
+        
+        // 验证解压缩大小
+        if decompressed_buffer.len() != woff2_header.total_sfnt_size as usize {
+            return Err(FontError::Generic(format!(
+                "WOFF2: Decompressed size mismatch. Expected {}, got {}",
+                woff2_header.total_sfnt_size,
+                decompressed_buffer.len()
+            )));
+        }
+        
+        // 将解压缩的数据复制到 sfnt_data（跳过已写入的 header 和 directory）
+        sfnt_data.extend_from_slice(&decompressed_buffer);
+        
+        // 回填 Table Directory
+        let mut current_offset = (table_dir_start + table_entries.len() * TABLE_DIR_ENTRY_SIZE) as u32;
+        for (i, entry) in table_entries.iter().enumerate() {
+            let dir_offset = table_dir_start + i * TABLE_DIR_ENTRY_SIZE;
+            
+            if let Some(tag) = entry.tag {
+                sfnt_data[dir_offset..dir_offset+4].copy_from_slice(&tag.0);
+            } else {
+                // 如果没有标签，使用默认值
+                sfnt_data[dir_offset..dir_offset+4].copy_from_slice(b"????");
+            }
+            
+            sfnt_data[dir_offset+4..dir_offset+8].copy_from_slice(&0u32.to_be_bytes()); // checksum
+            sfnt_data[dir_offset+8..dir_offset+12].copy_from_slice(&current_offset.to_be_bytes());
+            sfnt_data[dir_offset+12..dir_offset+16].copy_from_slice(&entry.orig_length.to_be_bytes());
+            
+            // 更新下一个表的偏移量（对齐到 4 字节边界）
+            let padding = (4 - (entry.orig_length % 4)) % 4;
+            current_offset += entry.orig_length + padding;
+        }
+        
+        println!("WOFF2 Table directory written at offset {}, {} entries", table_dir_start, table_entries.len());
         
         // 使用重组后的 SFNT 数据创建 Font
         Self::load_ttf(&sfnt_data)

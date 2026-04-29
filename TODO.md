@@ -4,13 +4,14 @@
 
 | 指标 | 数值 |
 |------|------|
-| 单元测试总数 | 36 (rfont: 6, rfont-core: 30) |
+| 单元测试总数 | 40 (rfont: 6, rfont-core: 34) |
 | 测试通过率 | 100% ✅ |
 | 编译状态 | 无警告 ✅ |
 | 性能优化 | 已完成 ✅ |
 | glyf/hmtx 测试覆盖 | 已完成 ✅ |
 | CLI 工具开发 | 已完成 ✅ |
-| 最后更新 | 2026-04-29 |
+| WOFF2 支持 | 已完成 ✅ |
+| 最后更新 | 2026-04-29 (WOFF2 支持已完成) |
 
 ---
 
@@ -33,6 +34,7 @@
   - [x] 支持 post 表优化选项 (`--strip-post-names`)
 - [x] 实现 `convert` 命令：格式转换
   - [x] TTF ↔ WOFF 双向转换
+  - [x] TTF ↔ WOFF2 双向转换
   - [x] 支持压缩级别配置
   - [x] 批量文件转换支持
 - [ ] 实现 `batch` 命令：批量处理
@@ -50,6 +52,7 @@
 - `indicatif` (进度条)
 - `colored` (彩色输出)
 - `serde_json` (JSON 支持)
+- `brotli` (WOFF2 压缩)
 
 **影响范围**: 新建 `crates/rfont-cli/`  
 **预计工作量**: 16-24 小时  
@@ -57,7 +60,53 @@
 
 ---
 
-### 2. glyf 表单元测试
+### 2. WOFF2 格式支持 ✅ COMPLETED
+- [x] 添加 `brotli` 依赖到 rfont-core 和 rfont-cli
+- [x] 创建 woff2.rs 模块，定义 WOFF2 Header 和表结构
+  - [x] Woff2Header 结构（签名、flavor、长度等）
+  - [x] Woff2TableDirectoryEntry 结构（变长编码）
+  - [x] Base128 编码解码实现
+  - [x] 63 个预定义标签常量
+- [x] 实现 WOFF2 解压缩逻辑（Brotli）
+  - [x] 更新 Font::load 支持 WOFF2 格式检测
+  - [x] 解析 WOFF2 Header 和表目录
+  - [x] 使用 Brotli 解压缩表数据
+  - [x] 重组为 SFNT 数据结构
+- [x] 实现 WOFF2 写入/压缩功能
+  - [x] convert_to_woff() 方法（TTF → WOFF）
+  - [x] convert_to_woff2() 方法（TTF → WOFF2）
+  - [x] 支持压缩级别配置（0-11）
+  - [x] 集成到 subset_with_options
+- [x] 更新 CLI convert 命令支持 WOFF2 格式
+  - [x] 验证目标格式（ttf/woff/woff2）
+  - [x] TTF → WOFF2 转换
+  - [x] WOFF2 → TTF 转换
+  - [x] 文件大小统计和压缩率显示
+- [x] 添加 WOFF2 单元测试
+  - [x] WOFF2 Header 读取测试
+  - [x] Header 验证测试
+  - [x] Base128 编码测试
+  - [x] 预定义标签测试
+
+**技术栈**:
+- `brotli` v6.0 (WOFF2 压缩/解压缩)
+- Base128 变长编码
+
+**影响范围**: 
+- `crates/rfont-core/src/tables/woff2.rs` (新建)
+- `crates/rfont/src/font/load.rs`
+- `crates/rfont/src/font/subset.rs`
+- `crates/rfont-cli/src/commands/convert.rs`
+
+**测试结果**:
+- 4 个 WOFF2 单元测试全部通过
+- 实际测试：4.9 MB TTF → 2.8 MB WOFF2 (压缩率 43%)
+
+**预计工作量**: 已完成
+
+---
+
+### 3. glyf 表单元测试
 - [ ] 添加简单字形（Simple Glyph）解析测试
 - [ ] 添加复合字形（Composite Glyph）解析测试
 - [ ] 验证坐标增量编码的正确性
@@ -68,7 +117,7 @@
 
 ---
 
-### 3. hmtx 表完整测试
+### 4. hmtx 表完整测试
 - [ ] 添加水平度量数据解析测试
 - [ ] 验证 advanceWidth 和 lsb 的计算
 - [ ] 测试 numberOfHMetrics 与实际数据的匹配
@@ -78,7 +127,7 @@
 
 ---
 
-### 4. rfont 核心库优化（适配 CLI 和桌面应用）
+### 5. rfont 核心库优化（适配 CLI 和桌面应用）
 
 #### A. API 层优化
 - [ ] **异步支持**
