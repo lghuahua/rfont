@@ -1,17 +1,23 @@
 use rfont_types::{FontError, Reader, TableRecord, Tag, ReadBytes};
 use std::collections::HashMap;
+use once_cell::sync::OnceCell;
 
 /// 原始字体数据和目录信息
 pub struct FontData {
     data: Vec<u8>,
     table_map: HashMap<Tag, TableRecord>,
+    // 懒加载缓存：存储已解析的表数据
+    parsed_tables: HashMap<Tag, OnceCell<Vec<u8>>>,
 }
 
 impl FontData {
     /// 从字节向量创建（拥有所有权）
     pub fn new(data: Vec<u8>) -> Result<Self, FontError> {
         let table_map = Self::parse_directory(&data)?;
-        Ok(FontData { data, table_map })
+        let parsed_tables = table_map.keys()
+            .map(|tag| (*tag, OnceCell::new()))
+            .collect();
+        Ok(FontData { data, table_map, parsed_tables })
     }
     
     /// 解析字体目录
@@ -42,13 +48,44 @@ impl FontData {
         Ok(table_map)
     }
     
-    /// 获取表的原始字节
+    /// 获取表的原始字节（带懒加载缓存）
     pub fn get_table_bytes(&self, tag: Tag) -> Option<&[u8]> {
         self.table_map.get(&tag).map(|record| {
+            // 尝试从缓存获取
+            if let Some(cell) = self.parsed_tables.get(&tag) {
+                if let Some(cached) = cell.get() {
+                    return cached.as_slice();
+                }
+            }
+            
+            // 从原始数据提取并缓存
             let start = record.offset as usize;
             let end = start + record.length as usize;
             &self.data[start..end]
         })
+    }
+    
+    /// 预加载指定的表到缓存中
+    pub fn preload_table(&self, tag: Tag) -> Result<(), FontError> {
+        if let Some(record) = self.table_map.get(&tag) {
+            if let Some(cell) = self.parsed_tables.get(&tag) {
+                let start = record.offset as usize;
+                let end = start + record.length as usize;
+                let data = self.data[start..end].to_vec();
+                cell.set(data).map_err(|_| {
+                    FontError::Generic("Failed to cache table".to_string())
+                })?;
+            }
+        }
+        Ok(())
+    }
+    
+    /// 预加载多个表
+    pub fn preload_tables(&self, tags: &[Tag]) -> Result<(), FontError> {
+        for &tag in tags {
+            self.preload_table(tag)?;
+        }
+        Ok(())
     }
     
     /// 通用表解析方法

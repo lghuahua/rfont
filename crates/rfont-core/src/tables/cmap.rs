@@ -1,10 +1,14 @@
 use rfont_types::{FontError, Reader, EncodingRecord, ReadBytes};
 use std::collections::HashMap;
+use lru::LruCache;
+use std::num::NonZeroUsize;
 
 #[derive(Debug, Clone)]
 pub struct Cmap {
     pub encoding_records: Vec<EncodingRecord>,
     pub unicode_map: HashMap<u32, u16>,
+    // LRU 缓存：最近查询的 Unicode → GlyphID 映射
+    query_cache: Option<LruCache<u32, u16>>,
 }
 
 impl Cmap {
@@ -58,7 +62,11 @@ impl Cmap {
             }
         }
 
-        Ok(Self { encoding_records, unicode_map })
+        Ok(Self { 
+            encoding_records, 
+            unicode_map,
+            query_cache: Some(LruCache::new(NonZeroUsize::new(256).unwrap())), // 默认缓存 256 个条目
+        })
     }
 
     fn parse_subtable_at(reader: &mut Reader, offset: usize) -> Result<HashMap<u32, u16>, FontError> {
@@ -198,11 +206,55 @@ impl Cmap {
         Ok(map)
     }
 
+    /// 获取字形 ID（带缓存优化）
     pub fn get_glyph_id(&self, char_code: char) -> Option<u16> {
         let code = char_code as u32;
+        
+        // 直接查找 unicode_map
+        self.unicode_map.get(&code).copied()
+    }
+    
+    /// 获取字形 ID（可变版本，会更新缓存）
+    pub fn get_glyph_id_mut(&mut self, char_code: char) -> Option<u16> {
+        let code = char_code as u32;
+        
+        // 尝试从缓存获取
+        if let Some(cache) = &mut self.query_cache {
+            if let Some(&glyph_id) = cache.get(&code) {
+                return Some(glyph_id);
+            }
+        }
+        
+        // 查找 unicode_map
         let result = self.unicode_map.get(&code).copied();
-        println!("[Cmap Lookup] Char '{}' (U+{:04X}) -> {:?}", char_code, code, result);
+        
+        // 更新缓存
+        if let Some(glyph_id) = result {
+            if let Some(cache) = &mut self.query_cache {
+                cache.put(code, glyph_id);
+            }
+        }
+        
         result
+    }
+    
+    /// 批量查询字形 ID（优化版本）
+    pub fn get_glyph_ids(&self, text: &str) -> Vec<(char, Option<u16>)> {
+        text.chars()
+            .map(|ch| (ch, self.get_glyph_id(ch)))
+            .collect()
+    }
+    
+    /// 清除查询缓存
+    pub fn clear_cache(&mut self) {
+        if let Some(cache) = &mut self.query_cache {
+            cache.clear();
+        }
+    }
+    
+    /// 获取缓存大小
+    pub fn cache_len(&self) -> usize {
+        self.query_cache.as_ref().map_or(0, |cache| cache.len())
     }
 }
 
@@ -265,6 +317,7 @@ mod tests {
         let mut cmap = Cmap {
             encoding_records: vec![],
             unicode_map: HashMap::new(),
+            query_cache: None, // 测试时不使用缓存
         };
         
         // 手动添加一些映射

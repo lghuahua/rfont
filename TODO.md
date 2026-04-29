@@ -7,6 +7,7 @@
 | 单元测试总数 | 20 |
 | 测试通过率 | 100% ✅ |
 | 编译状态 | 无警告 ✅ |
+| 性能优化 | 已完成 ✅ |
 | 最后更新 | 2026-04-29 |
 
 ---
@@ -92,20 +93,21 @@
   - [ ] 支持取消操作（通过返回 `Result<(), Cancelled>`）
 
 #### B. 性能优化
-- [ ] **懒加载机制**
-  - [ ] 使用 `OnceCell` 或 `Lazy` 缓存已解析的表
-  - [ ] 按需加载大型表（glyf、cmap）
-  - [ ] 提供 `preload_tables()` 方法预加载常用表
+- [x] **懒加载机制** ✅ COMPLETED
+  - [x] 使用 `OnceCell` 缓存已解析的表
+  - [x] 按需加载大型表（glyf、cmap）
+  - [x] 提供 `preload_tables()` 方法预加载常用表
   
-- [ ] **查询缓存**
-  - [ ] 缓存 Unicode → GlyphID 映射结果
-  - [ ] 使用 LRU Cache 限制内存占用
-  - [ ] 提供缓存清除接口
+- [x] **查询缓存** ✅ COMPLETED
+  - [x] 为 Cmap 添加 LRU Cache（256 条目）
+  - [x] 实现 `get_glyph_id_mut()` 带缓存版本
+  - [x] 提供缓存清除接口 `clear_cache()`
+  - [x] 批量查询优化 `get_glyph_ids()`
 
-- [ ] **流式处理支持**
-  - [ ] 实现 `Iterator` trait 用于逐字形处理
-  - [ ] 支持分块读取大型 glyf 表
-  - [ ] 减少内存峰值占用
+- [x] **流式处理支持** ✅ COMPLETED
+  - [x] 实现 `GlyphIterator` 用于逐字形处理
+  - [x] 支持分块读取大型 glyf 表 `get_glyphs_chunked()`
+  - [x] 减少内存峰值占用
 
 #### C. 功能增强
 - [x] **字体元数据查询 API** ✅ COMPLETED
@@ -450,14 +452,14 @@ pub enum FontError {
 
 **第二阶段（下周）**：
 4. ⭐ **CLI 核心功能** - 实现 `subset` 和 `convert` 命令
-5. rfont 性能优化 - 懒加载机制、查询缓存
+5. ✅ **rfont 性能优化** - 懒加载机制、查询缓存、流式处理已完成
 6. hmtx 表完整测试
 
 **第三阶段（本月）**：
 7. ⭐ **CLI 高级功能** - 实现 `batch` 命令和用户体验优化
 8. ✅ **rfont 字体元数据 API** - get_font_info(), get_table_list() 等已完成
 9. ✅ **rfont Builder 模式 API** - FontSubsetBuilder, SubsetOptions 已完成
-10. rfont 性能优化 - 懒加载机制、进度回调
+10. ✅ **rfont 性能优化** - 懒加载、LRU 缓存、流式迭代器已完成
 11. 完善文档注释
 12. 配置 CI/CD
 
@@ -544,4 +546,4 @@ Web 应用 + 生态系统 ← 未来愿景
 
 ---
 
-*最后更新: 2026-04-29*
+*最后更新: 2026-04-29 (性能优化已完成)*

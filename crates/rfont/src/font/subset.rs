@@ -75,6 +75,49 @@ impl Font {
             .collect()
     }
     
+    /// 流式字形迭代器：逐字形处理，减少内存峰值
+    pub fn glyph_iter(&self) -> GlyphIterator<'_> {
+        GlyphIterator {
+            font: self,
+            current_index: 0,
+            total_glyphs: self.maxp.num_glyphs as usize,
+        }
+    }
+    
+    /// 批量获取字形数据（分块处理）
+    pub fn get_glyphs_chunked<F>(&self, chunk_size: usize, mut processor: F) -> Result<(), FontError>
+    where
+        F: FnMut(Vec<(u16, &[u8])>) -> Result<(), FontError>,
+    {
+        let total_glyphs = self.maxp.num_glyphs as usize;
+        let mut chunk = Vec::with_capacity(chunk_size);
+        
+        for glyph_id in 0..total_glyphs {
+            if (glyph_id as usize) < self.loca.offsets.len() - 1 {
+                let start = self.loca.offsets[glyph_id];
+                let end = self.loca.offsets[glyph_id + 1];
+                
+                if start < end {
+                    if let Some(glyf_bytes) = self.font_data.get_table_bytes(Tag(*b"glyf")) {
+                        if end as usize <= glyf_bytes.len() {
+                            let glyph_data = &glyf_bytes[start as usize..end as usize];
+                            chunk.push((glyph_id as u16, glyph_data));
+                        }
+                    }
+                }
+            }
+            
+            // 当块达到指定大小或处理完所有字形时，调用处理器
+            if chunk.len() >= chunk_size || glyph_id == total_glyphs - 1 {
+                if !chunk.is_empty() {
+                    processor(std::mem::take(&mut chunk))?;
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
     /// 创建子集化 Builder（Builder 模式）
     pub fn subset_builder(&self) -> FontSubsetBuilder<'_> {
         FontSubsetBuilder::new(self)
@@ -393,5 +436,47 @@ impl Font {
         }
         
         Ok(font_data)
+    }
+}
+
+/// 流式字形迭代器
+pub struct GlyphIterator<'a> {
+    font: &'a Font,
+    current_index: usize,
+    total_glyphs: usize,
+}
+
+impl<'a> Iterator for GlyphIterator<'a> {
+    type Item = (u16, Option<&'a [u8]>);
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_index >= self.total_glyphs {
+            return None;
+        }
+        
+        let glyph_id = self.current_index as u16;
+        let mut glyph_data = None;
+        
+        // 获取字形数据
+        if self.current_index < self.font.loca.offsets.len() - 1 {
+            let start = self.font.loca.offsets[self.current_index];
+            let end = self.font.loca.offsets[self.current_index + 1];
+            
+            if start < end {
+                if let Some(glyf_bytes) = self.font.font_data.get_table_bytes(Tag(*b"glyf")) {
+                    if end as usize <= glyf_bytes.len() {
+                        glyph_data = Some(&glyf_bytes[start as usize..end as usize]);
+                    }
+                }
+            }
+        }
+        
+        self.current_index += 1;
+        Some((glyph_id, glyph_data))
+    }
+    
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.total_glyphs - self.current_index;
+        (remaining, Some(remaining))
     }
 }

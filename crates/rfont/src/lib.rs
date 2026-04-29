@@ -10,6 +10,7 @@ pub use font::Font;
 pub use font_data::FontData;
 pub use info::{FontInfo, TableInfo};
 pub use subset::{FontSubsetBuilder, SubsetOptions};
+pub use font::GlyphIterator;
 
 #[cfg(test)]
 mod tests {
