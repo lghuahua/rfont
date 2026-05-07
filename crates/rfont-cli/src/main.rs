@@ -76,13 +76,45 @@ enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// 目标格式（ttf 或 woff）
+        /// 目标格式（ttf、woff 或 woff2）
         #[arg(short, long)]
         format: String,
 
-        /// WOFF 压缩级别（0-9，仅用于 WOFF 输出）
+        /// WOFF/WOFF2 压缩级别（0-9，仅用于 WOFF/WOFF2 输出）
         #[arg(long, default_value = "6")]
         compression: u8,
+    },
+
+    /// 批量处理字体文件
+    Batch {
+        /// 子命令：convert（批量转换）
+        #[command(subcommand)]
+        command: BatchCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum BatchCommands {
+    /// 批量转换字体格式
+    Convert {
+        /// 文件匹配模式（支持通配符，如 *.ttf）
+        pattern: String,
+
+        /// 目标格式（可指定多个，如 -f woff -f woff2）
+        #[arg(short, long = "format", required = true)]
+        formats: Vec<String>,
+
+        /// 输出目录（默认为输入文件所在目录）
+        #[arg(short, long)]
+        output_dir: Option<PathBuf>,
+
+        /// WOFF/WOFF2 压缩级别（0-9）
+        #[arg(long, default_value = "6")]
+        compression: u8,
+
+        /// 覆盖已存在的文件
+        #[arg(long)]
+        overwrite: bool,
     },
 }
 
@@ -128,6 +160,26 @@ fn main() -> Result<()> {
             compression,
         } => {
             commands::convert::run(&input, output.as_deref(), &format, compression)?;
+        }
+        Commands::Batch { command } => {
+            match command {
+                BatchCommands::Convert {
+                    pattern,
+                    formats,
+                    output_dir,
+                    compression,
+                    overwrite,
+                } => {
+                    let args = commands::batch::BatchConvertArgs {
+                        pattern,
+                        formats,
+                        output_dir,
+                        compression,
+                        overwrite,
+                    };
+                    commands::batch::run(&args)?;
+                }
+            }
         }
     }
 
