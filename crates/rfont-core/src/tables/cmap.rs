@@ -100,13 +100,27 @@ impl Cmap {
 
     fn parse_subtable(reader: &mut Reader) -> Result<HashMap<u32, u16>, FontError> {
         let format = reader.read_u16()?;
-        let _length = reader.read_u16()?;
-        let _language = reader.read_u16()?;
 
         match format {
-            0 => Self::parse_format0(reader),
-            4 => Self::parse_format4(reader),
-            12 => Self::parse_format12(reader),
+            0 => {
+                // Format 0: format(2) + length(2) + language(2)
+                let _length = reader.read_u16()?;
+                let _language = reader.read_u16()?;
+                Self::parse_format0(reader)
+            }
+            4 => {
+                // Format 4: format(2) + length(2) + language(2)
+                let _length = reader.read_u16()?;
+                let _language = reader.read_u16()?;
+                Self::parse_format4(reader)
+            }
+            12 => {
+                // Format 12: format(2) + reserved(2) + length(4) + language(4)
+                let _reserved = reader.read_u16()?;
+                let _length = reader.read_u32()?;
+                let _language = reader.read_u32()?;
+                Self::parse_format12(reader)
+            }
             _ => Err(FontError::UnsupportedCmapFormat { format }),
         }
     }
@@ -188,9 +202,7 @@ impl Cmap {
     }
 
     fn parse_format12(reader: &mut Reader) -> Result<HashMap<u32, u16>, FontError> {
-        let _reserved = reader.read_u16()?;
-        let _length = reader.read_u32()?;
-        let _language = reader.read_u32()?;
+        // 注意：reserved、length、language 已经在 parse_subtable 中读取
         let n_groups = reader.read_u32()?;
 
         let mut map = HashMap::new();
