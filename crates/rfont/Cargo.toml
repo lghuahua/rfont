@@ -19,6 +19,11 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 once_cell = { workspace = true }
 lru = { workspace = true }
+rayon = { workspace = true, optional = true }
+
+[features]
+default = []
+parallel = ["dep:rayon"]
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -12,6 +12,8 @@ pub struct BatchConvertArgs {
     pub output_dir: Option<PathBuf>, // 输出目录
     pub compression: u8,           // 压缩级别
     pub overwrite: bool,           // 是否覆盖已存在的文件
+    #[cfg(feature = "parallel")]
+    pub jobs: Option<usize>,       // 并行任务数
 }
 
 /// 单个文件的转换结果
@@ -71,50 +73,22 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
     );
     overall_progress.set_message("处理中...");
 
-    // 4. 逐个处理文件
-    let mut all_results = Vec::new();
-    
-    for (index, input_path) in files.iter().enumerate() {
-        let filename = input_path.file_name().unwrap().to_str().unwrap().to_string();
-        
-        overall_progress.set_message(format!("处理 {}/{}: {}", 
-            index + 1, 
-            files.len(), 
-            filename
-        ));
+    // 4. 处理文件（并行或串行）
+    #[cfg(feature = "parallel")]
+    let all_results = if let Some(jobs) = args.jobs {
+        // 使用指定的线程数
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(jobs)
+            .build_global()
+            .ok();
+        process_files_parallel(&files, &args.formats, &args.output_dir, args.compression, args.overwrite, &multi_progress, &overall_progress)?
+    } else {
+        // 使用默认线程数（CPU 核心数）
+        process_files_parallel(&files, &args.formats, &args.output_dir, args.compression, args.overwrite, &multi_progress, &overall_progress)?
+    };
 
-        // 为每个格式创建转换结果
-        for format in &args.formats {
-            // 创建单个文件的进度条
-            let file_progress = multi_progress.insert_after(
-                &overall_progress,
-                ProgressBar::new(100)
-            );
-            file_progress.set_style(
-                ProgressStyle::default_bar()
-                    .template("  {spinner:.yellow} [{bar:20.green/blue}] {pos:>3}% {msg}")
-                    .unwrap()
-                    .progress_chars("=> ")
-            );
-            file_progress.set_message(format!("{} → {}", filename, format.to_uppercase()));
-
-            // 执行转换
-            let result = convert_single_file(
-                input_path,
-                format,
-                &args.output_dir,
-                args.compression,
-                args.overwrite,
-                &file_progress,
-            );
-
-            // 更新进度
-            file_progress.finish_and_clear();
-            overall_progress.inc(1);
-
-            all_results.push(result);
-        }
-    }
+    #[cfg(not(feature = "parallel"))]
+    let all_results = process_files_sequential(&files, &args.formats, &args.output_dir, args.compression, args.overwrite, &multi_progress, &overall_progress);
 
     overall_progress.finish_with_message("批量转换完成！");
 
@@ -362,5 +336,183 @@ fn format_size(bytes: u64) -> String {
         format!("{:.1} KB", bytes as f64 / 1024.0)
     } else {
         format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+/// 串行处理文件（未启用 parallel feature 时使用）
+fn process_files_sequential(
+    files: &[PathBuf],
+    formats: &[String],
+    output_dir: &Option<PathBuf>,
+    compression: u8,
+    overwrite: bool,
+    multi_progress: &MultiProgress,
+    overall_progress: &ProgressBar,
+) -> Vec<ConvertResult> {
+    let mut all_results = Vec::new();
+    
+    for (index, input_path) in files.iter().enumerate() {
+        let filename = input_path.file_name().unwrap().to_str().unwrap().to_string();
+        
+        overall_progress.set_message(format!("处理 {}/{}: {}", 
+            index + 1, 
+            files.len(), 
+            filename
+        ));
+
+        for format in formats {
+            let file_progress = multi_progress.insert_after(
+                overall_progress,
+                ProgressBar::new(100)
+            );
+            file_progress.set_style(
+                ProgressStyle::default_bar()
+                    .template("  {spinner:.yellow} [{bar:20.green/blue}] {pos:>3}% {msg}")
+                    .unwrap()
+                    .progress_chars("=> ")
+            );
+            file_progress.set_message(format!("{} → {}", filename, format.to_uppercase()));
+
+            let result = convert_single_file(
+                input_path,
+                format,
+                output_dir,
+                compression,
+                overwrite,
+                &file_progress,
+            );
+
+            file_progress.finish_and_clear();
+            overall_progress.inc(1);
+
+            all_results.push(result);
+        }
+    }
+    
+    all_results
+}
+
+/// 并行处理文件（启用 parallel feature 时使用）
+#[cfg(feature = "parallel")]
+fn process_files_parallel(
+    files: &[PathBuf],
+    formats: &[String],
+    output_dir: &Option<PathBuf>,
+    compression: u8,
+    overwrite: bool,
+    multi_progress: &MultiProgress,
+    overall_progress: &ProgressBar,
+) -> Result<Vec<ConvertResult>> {
+    use rayon::prelude::*;
+    use std::sync::Mutex;
+    
+    // 创建线程安全的进度计数器
+    let completed = Mutex::new(0u64);
+    let total = (files.len() * formats.len()) as u64;
+    
+    // 并行处理所有文件和格式的组合
+    let results: Vec<ConvertResult> = files.par_iter()
+        .flat_map(|input_path| {
+            formats.par_iter()
+                .map(|format| {
+                    // 注意：并行模式下不使用单个文件的进度条，因为会混乱
+                    // 只更新总体进度
+                    let result = convert_single_file_simple(
+                        input_path,
+                        format,
+                        output_dir,
+                        compression,
+                        overwrite,
+                    );
+                    
+                    // 更新总体进度
+                    {
+                        let mut count = completed.lock().unwrap();
+                        *count += 1;
+                        overall_progress.set_position(*count);
+                        overall_progress.set_message(format!("处理 {}/{}", *count, total));
+                    }
+                    
+                    result
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    
+    Ok(results)
+}
+
+/// 简化的转换函数（用于并行模式，不带进度条）
+#[cfg(feature = "parallel")]
+fn convert_single_file_simple(
+    input_path: &Path,
+    format: &str,
+    output_dir: &Option<PathBuf>,
+    compression: u8,
+    overwrite: bool,
+) -> ConvertResult {
+    let original_size = std::fs::metadata(input_path).unwrap().len();
+    
+    // 加载字体
+    let font = match Font::load(input_path.to_str().unwrap()) {
+        Ok(f) => f,
+        Err(e) => {
+            return ConvertResult {
+                input_path: input_path.to_path_buf(),
+                output_path: PathBuf::new(),
+                success: false,
+                error: Some(format!("加载字体失败: {}", e)),
+                original_size,
+                converted_size: 0,
+            };
+        }
+    };
+    
+    // 确定输出路径
+    let output_path = determine_output_path(input_path, format, output_dir);
+    
+    // 检查是否已存在
+    if !overwrite && output_path.exists() {
+        return ConvertResult {
+            input_path: input_path.to_path_buf(),
+            output_path,
+            success: false,
+            error: Some("文件已存在，使用 --overwrite 覆盖".to_string()),
+            original_size,
+            converted_size: 0,
+        };
+    }
+    
+    // 执行转换
+    match perform_conversion(&font, format, compression) {
+        Ok(data) => {
+            let converted_size = data.len() as u64;
+            if let Err(e) = std::fs::write(&output_path, &data) {
+                return ConvertResult {
+                    input_path: input_path.to_path_buf(),
+                    output_path,
+                    success: false,
+                    error: Some(format!("写入文件失败: {}", e)),
+                    original_size,
+                    converted_size: 0,
+                };
+            }
+            ConvertResult {
+                input_path: input_path.to_path_buf(),
+                output_path,
+                success: true,
+                error: None,
+                original_size,
+                converted_size,
+            }
+        },
+        Err(e) => ConvertResult {
+            input_path: input_path.to_path_buf(),
+            output_path,
+            success: false,
+            error: Some(format!("{}", e)),
+            original_size,
+            converted_size: 0,
+        },
     }
 }

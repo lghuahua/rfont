@@ -22,3 +22,8 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 glob = "0.3"
+rayon = { workspace = true, optional = true }
+
+[features]
+default = []
+parallel = ["dep:rayon", "rfont/parallel"]

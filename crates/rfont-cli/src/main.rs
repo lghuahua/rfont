@@ -115,6 +115,11 @@ enum BatchCommands {
         /// 覆盖已存在的文件
         #[arg(long)]
         overwrite: bool,
+
+        /// 并行任务数（默认使用 CPU 核心数，需要启用 parallel feature）
+        #[cfg(feature = "parallel")]
+        #[arg(long, short = 'j')]
+        jobs: Option<usize>,
     },
 }
 
@@ -169,6 +174,8 @@ fn main() -> Result<()> {
                     output_dir,
                     compression,
                     overwrite,
+                    #[cfg(feature = "parallel")]
+                    jobs,
                 } => {
                     let args = commands::batch::BatchConvertArgs {
                         pattern,
@@ -176,6 +183,8 @@ fn main() -> Result<()> {
                         output_dir,
                         compression,
                         overwrite,
+                        #[cfg(feature = "parallel")]
+                        jobs,
                     };
                     commands::batch::run(&args)?;
                 }

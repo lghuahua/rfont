@@ -12,6 +12,44 @@ pub use info::{FontInfo, TableInfo};
 pub use subset::{FontSubsetBuilder, SubsetOptions};
 pub use font::GlyphIterator;
 
+/// 批量子集化处理（并行版本）
+/// 
+/// 当启用 `parallel` feature 时，使用 Rayon 进行并行处理，
+/// 可显著提升大批量子集化任务的性能。
+/// 
+/// # 示例
+/// ```no_run
+/// use rfont::{Font, subset_batch_parallel};
+/// 
+/// let font = Font::load("font.ttf").unwrap();
+/// let texts = vec!["你好", "世界", "字体"];
+/// 
+/// // 并行处理多个文本的子集化
+/// let results = subset_batch_parallel(&font, &texts, &Default::default());
+/// 
+/// for (i, result) in results.iter().enumerate() {
+///     match result {
+///         Ok(data) => println!("文本 {} 子集化成功: {} bytes", i, data.len()),
+///         Err(e) => eprintln!("文本 {} 子集化失败: {}", i, e),
+///     }
+/// }
+/// ```
+#[cfg(feature = "parallel")]
+pub fn subset_batch_parallel(
+    font: &Font,
+    texts: &[&str],
+    options: &SubsetOptions,
+) -> Vec<Result<Vec<u8>, rfont_types::FontError>> {
+    use rayon::prelude::*;
+    
+    texts.par_iter()
+        .map(|text| {
+            let glyph_ids = font.text_to_glyph_ids(text);
+            font.subset_with_options(&glyph_ids, options)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
 

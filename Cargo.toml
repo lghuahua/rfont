@@ -30,6 +30,7 @@ anyhow = "1.0"
 
 # 开发依赖
 criterion = "0.5"
+rayon = "1.8"
 
 # proc-macro 依赖
 proc-macro2 = "1.0.70"
