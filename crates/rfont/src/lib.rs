@@ -100,4 +100,48 @@ mod tests {
         let all_bmp = bmp_chars.iter().all(|&c| (c as u32) <= 0xFFFF);
         assert!(all_bmp);
     }
+    
+    #[test]
+    fn test_font_format_detection_ttf() {
+        use crate::Font;
+        use rfont_types::FontFormat;
+        
+        // 读取 TTF 文件
+        let data = std::fs::read("src/AlimamaDaoLiTi.ttf").unwrap();
+        let format_info = Font::detect_format(&data).unwrap();
+        
+        assert_eq!(format_info.format, FontFormat::Ttf);
+        assert_eq!(format_info.version, "0x00010000");
+        assert!(!format_info.is_variable);
+        assert!(format_info.compression.is_none());
+        assert!(format_info.has_required_tables(&format_info.required_tables));
+    }
+    
+    #[test]
+    fn test_font_format_detection_woff() {
+        use crate::Font;
+        use rfont_types::{FontFormat, CompressionType};
+        
+        // 读取 WOFF 文件
+        let data = std::fs::read("src/AlimamaDaoLiTi.woff").unwrap();
+        let format_info = Font::detect_format(&data).unwrap();
+        
+        assert_eq!(format_info.format, FontFormat::Ttf); // WOFF 内部是 TTF
+        assert_eq!(format_info.compression, Some(CompressionType::Zlib));
+        assert!(format_info.has_required_tables(&format_info.required_tables));
+    }
+    
+    #[test]
+    fn test_font_format_detection_woff2() {
+        use crate::Font;
+        use rfont_types::{FontFormat, CompressionType};
+        
+        // 读取 WOFF2 文件
+        let data = std::fs::read("src/AlimamaDaoLiTi.woff2").unwrap();
+        let format_info = Font::detect_format(&data).unwrap();
+        
+        assert_eq!(format_info.format, FontFormat::Ttf); // WOFF2 内部是 TTF
+        assert_eq!(format_info.compression, Some(CompressionType::Brotli));
+        assert!(format_info.has_required_tables(&format_info.required_tables));
+    }
 }

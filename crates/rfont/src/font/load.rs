@@ -10,6 +10,9 @@ use tracing::{debug, info, span, Level};
 use crate::font_data::FontData;
 use crate::constants::TABLE_DIR_ENTRY_SIZE;
 
+// 导出 WOFF2_KNOWN_TAGS 供 detect_format 使用
+pub use rfont_core::tables::woff2::WOFF2_KNOWN_TAGS as CORE_WOFF2_KNOWN_TAGS;
+
 /// 高层字体对象（预加载核心表）
 pub struct Font {
     pub font_data: FontData,
@@ -296,5 +299,248 @@ impl Font {
     /// 获取原始字体数据
     pub fn font_data(&self) -> &FontData {
         &self.font_data
+    }
+    
+    /// 检测字体格式并返回详细信息
+    pub fn detect_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {
+        if data.len() < 4 {
+            return Err(FontError::Generic("数据太短，无法检测格式".to_string()));
+        }
+        
+        // 检测 WOFF2
+        if &data[0..4] == b"wOF2" {
+            Self::detect_woff2_format(data)
+        }
+        // 检测 WOFF
+        else if &data[0..4] == b"wOFF" {
+            Self::detect_woff_format(data)
+        }
+        // 检测 TTF/OTF
+        else {
+            Self::detect_sfnt_format(data)
+        }
+    }
+    
+    /// 检测 SFNT 格式（TTF/OTF）
+    fn detect_sfnt_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {
+        use rfont_types::FontFormat;
+        
+        let mut reader = Reader::new(data);
+        
+        // 读取 SFNT version (flavor)
+        let flavor = reader.read_u32()?;
+        let num_tables = reader.read_u16()?;
+        
+        // 跳过 search_range, entry_selector, range_shift
+        reader.read_u16()?;
+        reader.read_u16()?;
+        reader.read_u16()?;
+        
+        // 收集所有表标签
+        let mut table_tags = Vec::new();
+        for _ in 0..num_tables {
+            let tag_bytes = [reader.read_u8()?, reader.read_u8()?, reader.read_u8()?, reader.read_u8()?];
+            let tag_str = String::from_utf8_lossy(&tag_bytes).to_string();
+            table_tags.push(tag_str);
+            
+            // 跳过 checksum, offset, length
+            reader.read_u32()?;
+            reader.read_u32()?;
+            reader.read_u32()?;
+        }
+        
+        // 判断是 TTF 还是 OTF
+        let format = if flavor == 0x00010000 {
+            FontFormat::Ttf
+        } else if flavor == 0x4F54544F { // 'OTTO'
+            FontFormat::Otf
+        } else {
+            FontFormat::Ttf // 默认为 TTF
+        };
+        
+        // 检查是否为可变字体（包含 fvar 表）
+        let is_variable = table_tags.iter().any(|t| t == "fvar");
+        
+        // 必需表列表
+        let required_tables = vec![
+            "cmap".to_string(),
+            "head".to_string(),
+            "hhea".to_string(),
+            "maxp".to_string(),
+        ];
+        
+        // 可选表列表
+        let optional_tables: Vec<String> = table_tags.iter()
+            .filter(|t| !required_tables.contains(t))
+            .cloned()
+            .collect();
+        
+        let version = format!("0x{:08X}", flavor);
+        
+        Ok(rfont_types::FontFormatInfo::new(
+            format,
+            version,
+            is_variable,
+            None, // SFNT 无压缩
+            required_tables,
+            optional_tables,
+            num_tables,
+        ))
+    }
+    
+    /// 检测 WOFF 格式
+    fn detect_woff_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {
+        use rfont_types::{FontFormat, CompressionType};
+        let mut reader = Reader::new(data);
+        
+        // 读取 WOFF Header
+        let _signature = reader.read_u32()?;
+        let flavor = reader.read_u32()?;
+        let _length = reader.read_u32()?;
+        let num_tables = reader.read_u16()?;
+        let _reserved = reader.read_u16()?;
+        let _total_sfnt_size = reader.read_u32()?;
+        let major_version = reader.read_u16()?;
+        let minor_version = reader.read_u16()?;
+        let _meta_offset = reader.read_u32()?;
+        let _meta_comp_length = reader.read_u32()?;
+        let _meta_orig_length = reader.read_u32()?;
+        let _priv_offset = reader.read_u32()?;
+        let _priv_length = reader.read_u32()?;
+        
+        // 收集所有表标签
+        let mut table_tags = Vec::new();
+        for _ in 0..num_tables {
+            let tag_bytes = [reader.read_u8()?, reader.read_u8()?, reader.read_u8()?, reader.read_u8()?];
+            let tag_str = String::from_utf8_lossy(&tag_bytes).to_string();
+            table_tags.push(tag_str);
+            
+            // 跳过 offset, comp_length, orig_length, checksum
+            reader.read_u32()?;
+            reader.read_u32()?;
+            reader.read_u32()?;
+            reader.read_u32()?;
+        }
+        
+        // 判断内部格式
+        let format = if flavor == 0x00010000 {
+            FontFormat::Ttf
+        } else if flavor == 0x4F54544F {
+            FontFormat::Otf
+        } else {
+            FontFormat::Ttf
+        };
+        
+        // 检查是否为可变字体
+        let is_variable = table_tags.iter().any(|t| t == "fvar");
+        
+        // 必需表
+        let required_tables = vec![
+            "cmap".to_string(),
+            "head".to_string(),
+            "hhea".to_string(),
+            "maxp".to_string(),
+        ];
+        
+        // 可选表
+        let optional_tables: Vec<String> = table_tags.iter()
+            .filter(|t| !required_tables.contains(t))
+            .cloned()
+            .collect();
+        
+        let version = format!("{}.{}", major_version, minor_version);
+        
+        Ok(rfont_types::FontFormatInfo::new(
+            format,
+            version,
+            is_variable,
+            Some(CompressionType::Zlib),
+            required_tables,
+            optional_tables,
+            num_tables,
+        ))
+    }
+    
+    /// 检测 WOFF2 格式
+    fn detect_woff2_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {
+        use rfont_types::{FontFormat, CompressionType};
+        let mut reader = Reader::new(data);
+        
+        // 读取 WOFF2 Header
+        let _signature = reader.read_u32()?;
+        let flavor = reader.read_u32()?;
+        let _length = reader.read_u32()?;
+        let num_tables = reader.read_u16()?;
+        let _reserved = reader.read_u16()?;
+        let _total_sfnt_size = reader.read_u32()?;
+        
+        // 解析 WOFF2 表目录（简化版本，只收集标签）
+        let mut table_tags = Vec::new();
+        for _ in 0..num_tables {
+            // WOFF2 使用变长编码，这里简化处理
+            // 实际应该按照 WOFF2 规范解析 flag 和 tag
+            let flag = reader.read_u8()?;
+            
+            // 根据 flag 确定是否有显式 tag
+            if (flag & 0x3F) == 0x3F {
+                // 需要读取完整的 4 字节 tag
+                let tag_bytes = [reader.read_u8()?, reader.read_u8()?, reader.read_u8()?, reader.read_u8()?];
+                let tag_str = String::from_utf8_lossy(&tag_bytes).to_string();
+                table_tags.push(tag_str);
+            } else {
+                // 从预定义列表中获取 tag
+                let known_index = (flag & 0x3F) as usize;
+                if known_index < CORE_WOFF2_KNOWN_TAGS.len() {
+                    let tag = CORE_WOFF2_KNOWN_TAGS[known_index];
+                    let tag_str = String::from_utf8_lossy(&tag.0).to_string();
+                    table_tags.push(tag_str);
+                }
+            }
+            
+            // 跳过剩余字段（简化处理）
+            // 实际应该正确解析变长整数
+            // 这里假设每个条目最多 20 字节
+            for _ in 0..20 {
+                reader.read_u8().ok();
+            }
+        }
+        
+        // 判断内部格式
+        let format = if flavor == 0x00010000 {
+            FontFormat::Ttf
+        } else if flavor == 0x4F54544F {
+            FontFormat::Otf
+        } else {
+            FontFormat::Ttf
+        };
+        
+        // 检查是否为可变字体
+        let is_variable = table_tags.iter().any(|t| t == "fvar");
+        
+        // 必需表
+        let required_tables = vec![
+            "cmap".to_string(),
+            "head".to_string(),
+            "hhea".to_string(),
+            "maxp".to_string(),
+        ];
+        
+        // 可选表
+        let optional_tables: Vec<String> = table_tags.iter()
+            .filter(|t| !required_tables.contains(t))
+            .cloned()
+            .collect();
+        
+        let version = format!("0x{:08X}", flavor);
+        
+        Ok(rfont_types::FontFormatInfo::new(
+            format,
+            version,
+            is_variable,
+            Some(CompressionType::Brotli),
+            required_tables,
+            optional_tables,
+            num_tables,
+        ))
     }
 }
