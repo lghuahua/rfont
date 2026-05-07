@@ -75,6 +75,7 @@ fn build_cmap_segments(unicode_map: &[(u32, u16)]) -> Vec<CmapSegment> {
         let start_code = unicode_map[i].0 as u16;
         let start_gid = unicode_map[i].1;
         let mut end_code = start_code;
+        let mut end_gid = start_gid;
         let mut j = i + 1;
         
         // 向后查找连续的码点
@@ -82,10 +83,10 @@ fn build_cmap_segments(unicode_map: &[(u32, u16)]) -> Vec<CmapSegment> {
             let next_code = unicode_map[j].0 as u16;
             let next_gid = unicode_map[j].1;
             
-            // 检查是否连续：码点连续 且 glyph ID 差值相同
-            if next_code == end_code + 1 && 
-               (next_gid as i32 - start_gid as i32) == (end_code as i32 - start_code as i32) {
+            // 检查是否连续：码点连续 且 glyph ID 也连续
+            if next_code == end_code + 1 && next_gid == end_gid + 1 {
                 end_code = next_code;
+                end_gid = next_gid;
                 j += 1;
             } else {
                 break;
