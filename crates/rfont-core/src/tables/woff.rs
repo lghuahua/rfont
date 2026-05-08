@@ -51,3 +51,103 @@ impl<'a> ReadBytes<'a> for WoffTableDirectoryEntry {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rfont_types::io::Reader;
+
+    #[test]
+    fn test_woff_header_valid() {
+        let data = vec![
+            0x77, 0x4F, 0x46, 0x46, // signature = 'wOFF'
+            0x00, 0x01, 0x00, 0x00, // flavor = TrueType
+            0x00, 0x00, 0x10, 0x00, // length = 4096
+            0x00, 0x05,             // num_tables = 5
+            0x00, 0x00,             // reserved = 0
+            0x00, 0x00, 0x08, 0x00, // total_sfnt_size = 2048
+            0x00, 0x01,             // major_version = 1
+            0x00, 0x00,             // minor_version = 0
+            0x00, 0x00, 0x00, 0x00, // meta_offset = 0
+            0x00, 0x00, 0x00, 0x00, // meta_comp_length = 0
+            0x00, 0x00, 0x00, 0x00, // meta_orig_length = 0
+            0x00, 0x00, 0x00, 0x00, // priv_offset = 0
+            0x00, 0x00, 0x00, 0x00, // priv_length = 0
+        ];
+        let mut reader = Reader::new(&data);
+        let header = WoffHeader::read_from(&mut reader).unwrap();
+        
+        assert_eq!(header.signature, 0x774F4646);
+        assert_eq!(header.flavor, 0x00010000);
+        assert_eq!(header.num_tables, 5);
+        assert_eq!(header.major_version, 1);
+        
+        header.validate().unwrap();
+    }
+
+    #[test]
+    fn test_woff_header_invalid_signature() {
+        let mut data = vec![
+            0x00, 0x00, 0x00, 0x00, // invalid signature
+            0x00, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x10, 0x00,
+            0x00, 0x01,
+            0x00, 0x00,
+            0x00, 0x00, 0x08, 0x00,
+            0x00, 0x01,
+            0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        let mut reader = Reader::new(&data);
+        let header = WoffHeader::read_from(&mut reader).unwrap();
+        
+        assert!(header.validate().is_err());
+    }
+
+    #[test]
+    fn test_woff_table_directory_entry() {
+        let data = vec![
+            b'h', b'e', b'a', b'd', // tag = 'head'
+            0x00, 0x00, 0x00, 0x30, // offset = 48
+            0x00, 0x00, 0x00, 0x36, // comp_length = 54
+            0x00, 0x00, 0x00, 0x36, // orig_length = 54
+            0x12, 0x34, 0x56, 0x78, // checksum
+        ];
+        let mut reader = Reader::new(&data);
+        let entry = WoffTableDirectoryEntry::read_from(&mut reader).unwrap();
+        
+        assert_eq!(entry.tag.as_str(), "head");
+        assert_eq!(entry.offset, 48);
+        assert_eq!(entry.comp_length, 54);
+        assert_eq!(entry.orig_length, 54);
+        assert_eq!(entry.checksum, 0x12345678);
+    }
+
+    #[test]
+    fn test_woff_cff_flavor() {
+        let data = vec![
+            0x77, 0x4F, 0x46, 0x46, // signature = 'wOFF'
+            0x4F, 0x54, 0x54, 0x4F, // flavor = 'OTTO' (CFF)
+            0x00, 0x00, 0x10, 0x00,
+            0x00, 0x01,
+            0x00, 0x00,
+            0x00, 0x00, 0x08, 0x00,
+            0x00, 0x01,
+            0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        let mut reader = Reader::new(&data);
+        let header = WoffHeader::read_from(&mut reader).unwrap();
+        
+        assert_eq!(header.flavor, 0x4F54544F); // 'OTTO'
+        header.validate().unwrap();
+    }
+}

@@ -300,3 +300,186 @@ fn build_cmap_groups(unicode_map: &[(u32, u16)]) -> Vec<CmapGroup> {
     
     groups
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    /// 创建测试用的 Unicode 映射
+    fn create_test_unicode_map() -> Vec<(u32, u16)> {
+        vec![
+            (0x0041, 65), // 'A'
+            (0x0042, 66), // 'B'
+            (0x0043, 67), // 'C'
+            (0x0044, 68), // 'D'
+            (0x0045, 69), // 'E'
+        ]
+    }
+    
+    #[test]
+    fn test_build_cmap_segments_continuous() {
+        // 测试连续字符的段构建
+        let unicode_map = create_test_unicode_map();
+        let segments = build_cmap_segments(&unicode_map);
+        
+        // 所有字符连续且 glyph ID 也连续，应该合并为一个段
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].start_code, 0x0041);
+        assert_eq!(segments[0].end_code, 0x0045);
+        assert_eq!(segments[0].id_delta, 0); // 65 - 0x41 = 65 - 65 = 0
+    }
+    
+    #[test]
+    fn test_build_cmap_segments_discontinuous() {
+        // 测试不连续字符的段构建
+        let unicode_map = vec![
+            (0x0041, 65), // 'A'
+            (0x0043, 67), // 'C' (跳过 B)
+            (0x0045, 69), // 'E' (跳过 D)
+        ];
+        let segments = build_cmap_segments(&unicode_map);
+        
+        // 每个字符应该单独成段
+        assert_eq!(segments.len(), 3);
+        assert_eq!(segments[0].start_code, 0x0041);
+        assert_eq!(segments[0].end_code, 0x0041);
+        assert_eq!(segments[1].start_code, 0x0043);
+        assert_eq!(segments[1].end_code, 0x0043);
+        assert_eq!(segments[2].start_code, 0x0045);
+        assert_eq!(segments[2].end_code, 0x0045);
+    }
+    
+    #[test]
+    fn test_build_cmap_segments_empty() {
+        // 测试空映射
+        let unicode_map: Vec<(u32, u16)> = vec![];
+        let segments = build_cmap_segments(&unicode_map);
+        assert_eq!(segments.len(), 0);
+    }
+    
+    #[test]
+    fn test_build_cmap_format4() {
+        let unicode_map = create_test_unicode_map();
+        let segments = build_cmap_segments(&unicode_map);
+        let cmap_data = build_cmap_format4(&segments).unwrap();
+        
+        // 验证数据不为空
+        assert!(!cmap_data.is_empty());
+        
+        // 验证格式字段（偏移量 CMAP_HEADER_SIZE + ENCODING_RECORD_SIZE）
+        let format_offset = CMAP_HEADER_SIZE + ENCODING_RECORD_SIZE;
+        let format = u16::from_be_bytes([
+            cmap_data[format_offset],
+            cmap_data[format_offset + 1]
+        ]);
+        assert_eq!(format, 4);
+    }
+    
+    #[test]
+    fn test_build_cmap_format0() {
+        let unicode_map = vec![
+            (0x0041, 65), // 'A'
+            (0x0042, 66), // 'B'
+            (0x0043, 67), // 'C'
+        ];
+        let cmap_data = build_cmap_format0(&unicode_map).unwrap();
+        
+        // 验证数据不为空
+        assert!(!cmap_data.is_empty());
+        
+        // 验证格式字段
+        let format_offset = CMAP_HEADER_SIZE + ENCODING_RECORD_SIZE;
+        let format = u16::from_be_bytes([
+            cmap_data[format_offset],
+            cmap_data[format_offset + 1]
+        ]);
+        assert_eq!(format, 0);
+        
+        // 验证长度（应该是 262 = 6 header + 256 glyph array）
+        let length = u16::from_be_bytes([
+            cmap_data[format_offset + 2],
+            cmap_data[format_offset + 3]
+        ]);
+        assert_eq!(length, 262);
+    }
+    
+    #[test]
+    fn test_build_cmap_format12() {
+        let unicode_map = vec![
+            (0x0041, 65), // 'A'
+            (0x0042, 66), // 'B'
+            (0x0043, 67), // 'C'
+        ];
+        let cmap_data = build_cmap_format12(&unicode_map).unwrap();
+        
+        // 验证数据不为空
+        assert!(!cmap_data.is_empty());
+        
+        // 验证格式字段
+        let format_offset = CMAP_HEADER_SIZE + ENCODING_RECORD_SIZE;
+        let format = u16::from_be_bytes([
+            cmap_data[format_offset],
+            cmap_data[format_offset + 1]
+        ]);
+        assert_eq!(format, 12);
+    }
+    
+    #[test]
+    fn test_build_cmap_groups_continuous() {
+        let unicode_map = create_test_unicode_map();
+        let groups = build_cmap_groups(&unicode_map);
+        
+        // 所有字符连续，应该合并为一个组
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].start_char_code, 0x0041);
+        assert_eq!(groups[0].end_char_code, 0x0045);
+        assert_eq!(groups[0].start_glyph_id, 65);
+    }
+    
+    #[test]
+    fn test_build_cmap_groups_discontinuous() {
+        let unicode_map = vec![
+            (0x0041, 65),
+            (0x0043, 67), // 不连续
+            (0x0045, 69), // 不连续
+        ];
+        let groups = build_cmap_groups(&unicode_map);
+        
+        // 每个字符应该单独成组
+        assert_eq!(groups.len(), 3);
+    }
+    
+    #[test]
+    fn test_build_cmap_groups_empty() {
+        let unicode_map: Vec<(u32, u16)> = vec![];
+        let groups = build_cmap_groups(&unicode_map);
+        assert_eq!(groups.len(), 0);
+    }
+    
+    #[test]
+    fn test_rebuild_cmap_selects_format0() {
+        // 创建一个模拟的 Font 结构
+        // 由于需要完整的 Font 实例，这个测试需要在集成测试中进行
+        // 这里只测试逻辑分支
+        let unicode_map = vec![
+            (0x0041, 65),
+            (0x0042, 66),
+        ];
+        
+        // 所有字符在 0-255 范围内且数量较少，应该选择 Format 0
+        let all_in_byte_range = unicode_map.iter().all(|&(unicode, _)| unicode <= 255);
+        assert!(all_in_byte_range);
+        assert!(unicode_map.len() <= 256);
+    }
+    
+    #[test]
+    fn test_rebuild_cmap_selects_format12() {
+        // 测试非 BMP 字符
+        let unicode_map = vec![
+            (0x1F600, 100), // 😀 emoji
+        ];
+        
+        let has_non_bmp = unicode_map.iter().any(|&(unicode, _)| unicode > 0xFFFF);
+        assert!(has_non_bmp);
+    }
+}

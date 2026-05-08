@@ -111,3 +111,213 @@ impl FontError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_invalid_magic_number_error() {
+        let err = FontError::InvalidMagicNumber {
+            expected: 0x00010000,
+            actual: 0x12345678,
+        };
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("0x00010000"));
+        assert!(msg.contains("0x12345678"));
+        
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+        assert!(suggestion.unwrap().contains("字体格式"));
+    }
+
+    #[test]
+    fn test_table_not_found_error() {
+        let err = FontError::TableNotFound {
+            tag: "glyf".to_string(),
+        };
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("glyf"));
+        
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+    }
+
+    #[test]
+    fn test_invalid_offset_error() {
+        let err = FontError::InvalidOffset {
+            table: "cmap".to_string(),
+            offset: 1000,
+            max: 500,
+        };
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("cmap"));
+        assert!(msg.contains("1000"));
+        assert!(msg.contains("500"));
+    }
+
+    #[test]
+    fn test_unsupported_cmap_format_error() {
+        let err = FontError::UnsupportedCmapFormat {
+            format: 99,
+        };
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("99"));
+    }
+
+    #[test]
+    fn test_invalid_checksum_error() {
+        let err = FontError::InvalidChecksum {
+            tag: "head".to_string(),
+            expected: 0xB1B0AFBA,
+            actual: 0x00000000,
+        };
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("head"));
+        
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+        assert!(suggestion.unwrap().contains("损坏"));
+    }
+
+    #[test]
+    fn test_unexpected_end_of_data_error() {
+        let err = FontError::UnexpectedEndOfData {
+            offset: 100,
+            needed: 50,
+        };
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("100"));
+        assert!(msg.contains("50"));
+        
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+        assert!(suggestion.unwrap().contains("截断"));
+    }
+
+    #[test]
+    fn test_invalid_glyph_index_error() {
+        let err = FontError::InvalidGlyphIndex {
+            glyph_id: 1000,
+            max_glyphs: 500,
+        };
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("1000"));
+        assert!(msg.contains("500"));
+    }
+
+    #[test]
+    fn test_invalid_units_per_em_error() {
+        let err = FontError::InvalidUnitsPerEm {
+            value: 10,
+        };
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("10"));
+        assert!(msg.contains("16"));
+        assert!(msg.contains("16384"));
+    }
+
+    #[test]
+    fn test_woff_decompression_error() {
+        let err = FontError::WoffDecompressionError {
+            message: "invalid data".to_string(),
+        };
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("invalid data"));
+        
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+    }
+
+    #[test]
+    fn test_parse_error() {
+        let err = FontError::ParseError {
+            table: "glyf".to_string(),
+            offset: 42,
+            reason: "invalid flag".to_string(),
+        };
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("glyf"));
+        assert!(msg.contains("42"));
+        assert!(msg.contains("invalid flag"));
+    }
+
+    #[test]
+    fn test_invalid_base_date_error() {
+        let err = FontError::InvalidBaseDate;
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("LONGDATETIME"));
+    }
+
+    #[test]
+    fn test_generic_error() {
+        let err = FontError::Generic("something went wrong".to_string());
+        
+        let msg = format!("{}", err);
+        assert!(msg.contains("something went wrong"));
+    }
+
+    #[test]
+    fn test_new_error() {
+        let err = FontError::new("custom error");
+        
+        match err {
+            FontError::Generic(msg) => assert_eq!(msg, "custom error"),
+            _ => panic!("Expected Generic error"),
+        }
+    }
+
+    #[test]
+    fn test_suggestion_none_for_generic() {
+        let err = FontError::Generic("test".to_string());
+        assert!(err.suggestion().is_none());
+    }
+
+    #[test]
+    fn test_suggestion_none_for_parse_error() {
+        let err = FontError::ParseError {
+            table: "test".to_string(),
+            offset: 0,
+            reason: "test".to_string(),
+        };
+        assert!(err.suggestion().is_none());
+    }
+
+    #[test]
+    fn test_io_error_from_std() {
+        let std_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let err: FontError = FontError::from(std_err);
+        
+        match &err {
+            FontError::Io(e) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
+            }
+            _ => panic!("Expected Io error"),
+        }
+        
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+        assert!(suggestion.unwrap().contains("文件不存在"));
+    }
+
+    #[test]
+    fn test_io_error_permission_denied() {
+        let std_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
+        let err: FontError = FontError::from(std_err);
+        
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+        assert!(suggestion.unwrap().contains("权限"));
+    }
+}

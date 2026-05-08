@@ -95,3 +95,158 @@ impl FontFormatInfo {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_font_format_display() {
+        assert_eq!(format!("{}", FontFormat::Ttf), "TrueType (TTF)");
+        assert_eq!(format!("{}", FontFormat::Otf), "OpenType (OTF/CFF)");
+        assert_eq!(format!("{}", FontFormat::Woff), "WOFF");
+        assert_eq!(format!("{}", FontFormat::Woff2), "WOFF2");
+    }
+
+    #[test]
+    fn test_compression_type_display() {
+        assert_eq!(format!("{}", CompressionType::Zlib), "Zlib");
+        assert_eq!(format!("{}", CompressionType::Brotli), "Brotli");
+    }
+
+    #[test]
+    fn test_font_format_info_new() {
+        let info = FontFormatInfo::new(
+            FontFormat::Ttf,
+            "0x00010000".to_string(),
+            false,
+            None,
+            vec!["cmap".to_string(), "head".to_string()],
+            vec!["glyf".to_string()],
+            3,
+        );
+
+        assert_eq!(info.format, FontFormat::Ttf);
+        assert_eq!(info.version, "0x00010000");
+        assert!(!info.is_variable);
+        assert!(info.compression.is_none());
+        assert_eq!(info.required_tables.len(), 2);
+        assert_eq!(info.optional_tables.len(), 1);
+        assert_eq!(info.total_tables, 3);
+    }
+
+    #[test]
+    fn test_has_required_tables_all_present() {
+        let info = FontFormatInfo::new(
+            FontFormat::Ttf,
+            "0x00010000".to_string(),
+            false,
+            None,
+            vec!["cmap".to_string(), "head".to_string()],
+            vec![],
+            2,
+        );
+
+        let available = vec!["cmap".to_string(), "head".to_string()];
+        assert!(info.has_required_tables(&available));
+    }
+
+    #[test]
+    fn test_has_required_tables_missing() {
+        let info = FontFormatInfo::new(
+            FontFormat::Ttf,
+            "0x00010000".to_string(),
+            false,
+            None,
+            vec!["cmap".to_string(), "head".to_string(), "maxp".to_string()],
+            vec![],
+            3,
+        );
+
+        let available = vec!["cmap".to_string(), "head".to_string()];
+        assert!(!info.has_required_tables(&available));
+    }
+
+    #[test]
+    fn test_missing_required_tables() {
+        let info = FontFormatInfo::new(
+            FontFormat::Ttf,
+            "0x00010000".to_string(),
+            false,
+            None,
+            vec!["cmap".to_string(), "head".to_string(), "maxp".to_string()],
+            vec![],
+            3,
+        );
+
+        let available = vec!["cmap".to_string(), "head".to_string()];
+        let missing = info.missing_required_tables(&available);
+        
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0], "maxp");
+    }
+
+    #[test]
+    fn test_missing_required_tables_none() {
+        let info = FontFormatInfo::new(
+            FontFormat::Ttf,
+            "0x00010000".to_string(),
+            false,
+            None,
+            vec!["cmap".to_string(), "head".to_string()],
+            vec![],
+            2,
+        );
+
+        let available = vec!["cmap".to_string(), "head".to_string(), "extra".to_string()];
+        let missing = info.missing_required_tables(&available);
+        
+        assert_eq!(missing.len(), 0);
+    }
+
+    #[test]
+    fn test_font_format_equality() {
+        assert_eq!(FontFormat::Ttf, FontFormat::Ttf);
+        assert_ne!(FontFormat::Ttf, FontFormat::Otf);
+        assert_eq!(FontFormat::Woff, FontFormat::Woff);
+        assert_ne!(FontFormat::Woff, FontFormat::Woff2);
+    }
+
+    #[test]
+    fn test_compression_type_equality() {
+        assert_eq!(CompressionType::Zlib, CompressionType::Zlib);
+        assert_ne!(CompressionType::Zlib, CompressionType::Brotli);
+    }
+
+    #[test]
+    fn test_font_format_info_with_compression() {
+        let info = FontFormatInfo::new(
+            FontFormat::Woff,
+            "wOFF".to_string(),
+            false,
+            Some(CompressionType::Zlib),
+            vec![],
+            vec![],
+            0,
+        );
+
+        assert_eq!(info.format, FontFormat::Woff);
+        assert_eq!(info.compression, Some(CompressionType::Zlib));
+    }
+
+    #[test]
+    fn test_font_format_info_variable_font() {
+        let info = FontFormatInfo::new(
+            FontFormat::Ttf,
+            "0x00010000".to_string(),
+            true, // 可变字体
+            None,
+            vec![],
+            vec!["fvar".to_string()],
+            1,
+        );
+
+        assert!(info.is_variable);
+        assert_eq!(info.optional_tables[0], "fvar");
+    }
+}

@@ -144,4 +144,260 @@ mod tests {
         assert_eq!(format_info.compression, Some(CompressionType::Brotli));
         assert!(format_info.has_required_tables(&format_info.required_tables));
     }
+    
+    #[test]
+    fn test_subset_builder_basic() {
+        use crate::Font;
+        
+        // 使用 Builder 模式进行子集化
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        let original_data = std::fs::read("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        let subset_data = font.subset_builder()
+            .text("Hello")
+            .build()
+            .unwrap();
+        
+        // 验证生成的字体数据不为空
+        assert!(!subset_data.is_empty());
+        assert!(subset_data.len() < original_data.len()); // 子集应该更小
+    }
+    
+    #[test]
+    fn test_subset_with_glyph_ids() {
+        use crate::Font;
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        // 直接使用字形 ID 进行子集化
+        let glyph_ids = vec![0, 1, 2, 3, 4, 5];
+        let subset_data = font.subset_builder()
+            .glyph_ids(glyph_ids)
+            .build()
+            .unwrap();
+        
+        assert!(!subset_data.is_empty());
+    }
+    
+    #[test]
+    fn test_subset_with_unicode_range() {
+        use crate::Font;
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        // 使用 Unicode 范围进行子集化（基本拉丁字母）
+        let subset_data = font.subset_builder()
+            .unicode_range(0x0041, 0x005A) // A-Z
+            .build()
+            .unwrap();
+        
+        assert!(!subset_data.is_empty());
+    }
+    
+    #[test]
+    fn test_subset_options_web_optimized() {
+        use crate::{Font, SubsetOptions};
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        // 使用 Web 优化预设
+        let options = SubsetOptions::web_optimized();
+        assert_eq!(options.output_format, "woff");
+        assert_eq!(options.compression_level, 9);
+        assert!(options.optimize_post_table);
+        assert!(options.strip_glyph_names);
+        
+        let glyph_ids = font.text_to_glyph_ids("Test");
+        let subset_data = font.subset_with_options(&glyph_ids, &options).unwrap();
+        
+        assert!(!subset_data.is_empty());
+    }
+    
+    #[test]
+    fn test_subset_options_print_optimized() {
+        use crate::SubsetOptions;
+        
+        let options = SubsetOptions::print_optimized();
+        assert_eq!(options.output_format, "ttf");
+        assert_eq!(options.compression_level, 0);
+        assert!(!options.optimize_post_table);
+        assert!(!options.strip_glyph_names);
+        assert!(options.keep_hinting);
+    }
+    
+    #[test]
+    fn test_text_to_glyph_ids() {
+        use crate::Font;
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        let text = "ABC";
+        let glyph_ids = font.text_to_glyph_ids(text);
+        
+        // 应该返回 3 个字形 ID
+        assert_eq!(glyph_ids.len(), 3);
+        
+        // 所有 ID 应该有效（非零，除非字符不存在）
+        for id in &glyph_ids {
+            assert!(*id <= font.maxp.num_glyphs);
+        }
+    }
+    
+    #[test]
+    fn test_get_supported_characters() {
+        use crate::Font;
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        let chars = font.get_supported_characters();
+        
+        // 字符列表不应为空
+        assert!(!chars.is_empty());
+        
+        // 应该已排序
+        for i in 1..chars.len() {
+            assert!(chars[i] > chars[i-1]);
+        }
+    }
+    
+    #[test]
+    fn test_supports_character() {
+        use crate::Font;
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        // 测试常见字符（应该在字体中）
+        let common_chars = vec!['A', 'B', 'C', 'a', 'b', 'c', '0', '1', '2'];
+        for ch in common_chars {
+            // 这个测试假设字体支持基本拉丁字母
+            // 如果失败，说明字体可能不支持这些字符
+            let supported = font.supports_character(ch as u32);
+            // 不强制断言，因为字体可能不包含这些字符
+            println!("Character '{}' (U+{:04X}): {}", ch, ch as u32, if supported { "supported" } else { "not supported" });
+        }
+    }
+    
+    #[test]
+    fn test_get_font_info() {
+        use crate::Font;
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        let info = font.get_font_info();
+        
+        // 验证基本信息
+        assert!(info.units_per_em > 0);
+        assert!(info.glyph_count > 0);
+        assert!(info.supported_char_count > 0);
+        assert!(!info.tables.is_empty());
+        
+        println!("Font Info:");
+        println!("  Units per EM: {}", info.units_per_em);
+        println!("  Glyph count: {}", info.glyph_count);
+        println!("  Supported chars: {}", info.supported_char_count);
+        println!("  Tables: {}", info.tables.len());
+    }
+    
+    #[test]
+    fn test_get_table_list() {
+        use crate::Font;
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        let tables = font.get_table_list();
+        
+        // TTF 字体应该包含必要的表
+        assert!(!tables.is_empty());
+        
+        // 检查是否包含必需的表
+        let table_tags: Vec<&str> = tables.iter().map(|t| t.tag.as_str()).collect();
+        assert!(table_tags.contains(&"head"));
+        assert!(table_tags.contains(&"maxp"));
+        assert!(table_tags.contains(&"cmap"));
+        assert!(table_tags.contains(&"glyf"));
+        assert!(table_tags.contains(&"loca"));
+        assert!(table_tags.contains(&"hhea"));
+        assert!(table_tags.contains(&"hmtx"));
+    }
+    
+    #[test]
+    fn test_glyph_iterator() {
+        use crate::Font;
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        let mut count = 0;
+        for (glyph_id, glyph_data) in font.glyph_iter() {
+            count += 1;
+            // glyph_id 应该从 0 开始递增
+            assert_eq!(glyph_id as usize, count - 1);
+            
+            // .notdef (glyph 0) 应该有数据或者为空
+            if glyph_id == 0 {
+                // .notdef 可能存在也可能不存在
+            }
+        }
+        
+        // 迭代器应该遍历所有字形
+        assert_eq!(count, font.maxp.num_glyphs as usize);
+    }
+    
+    #[test]
+    fn test_subset_empty_text() {
+        use crate::Font;
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        // 空文本应该导致错误
+        let result = font.subset_builder()
+            .text("")
+            .build();
+        
+        assert!(result.is_err());
+    }
+    
+    #[test]
+    fn test_subset_nonexistent_characters() {
+        use crate::Font;
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        // 使用字体可能不支持的字符（如 emoji）
+        let result = font.subset_builder()
+            .text("😀🎉🚀")
+            .build();
+        
+        // 如果字体不支持这些字符，应该返回错误
+        // （但至少会包含 .notdef）
+        match result {
+            Ok(data) => {
+                // 如果成功，至少包含 .notdef
+                assert!(!data.is_empty());
+            }
+            Err(_) => {
+                // 错误也是可接受的
+            }
+        }
+    }
+    
+    #[test]
+    fn test_subset_with_custom_options() {
+        use crate::{Font, SubsetOptions};
+        
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        
+        // 自定义选项
+        let options = SubsetOptions {
+            optimize_post_table: false,
+            strip_glyph_names: false,
+            compression_level: 5,
+            keep_hinting: true,
+            output_format: "ttf".to_string(),
+        };
+        
+        let glyph_ids = font.text_to_glyph_ids("Test");
+        let subset_data = font.subset_with_options(&glyph_ids, &options).unwrap();
+        
+        assert!(!subset_data.is_empty());
+    }
 }

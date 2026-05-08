@@ -342,4 +342,146 @@ mod tests {
         assert_eq!(cmap.get_glyph_id('妈'), Some(1309));
         assert_eq!(cmap.get_glyph_id('不'), None); // 不存在的字符
     }
+
+    #[test]
+    fn test_cmap_format12_parsing() {
+        // Format 12: Segmented coverage (supports Unicode beyond BMP)
+        // 注意：parse_subtable 期望从 format 字段开始读取
+        let data = vec![
+            0x00, 0x0C,             // format = 12
+            0x00, 0x00,             // reserved (length field in subtable header)
+            0x00, 0x00, 0x00, 0x1C, // length = 28
+            0x00, 0x00, 0x00, 0x00, // language
+            0x00, 0x00, 0x00, 0x01, // n_groups = 1
+            // Group 1: U+0041-U+0043 -> GlyphID 65-67 ('A', 'B', 'C')
+            0x00, 0x00, 0x00, 0x41, // start_char_code = 0x41
+            0x00, 0x00, 0x00, 0x43, // end_char_code = 0x43
+            0x00, 0x00, 0x00, 0x41, // start_glyph_id = 65
+        ];
+        
+        let mut reader = Reader::new(&data);
+        let map = Cmap::parse_subtable(&mut reader).unwrap();
+        
+        assert_eq!(map.get(&0x41), Some(&65)); // 'A'
+        assert_eq!(map.get(&0x42), Some(&66)); // 'B'
+        assert_eq!(map.get(&0x43), Some(&67)); // 'C'
+        assert_eq!(map.len(), 3);
+    }
+
+    #[test]
+    fn test_cmap_format12_multiple_groups() {
+        // Multiple groups in Format 12
+        let data = vec![
+            0x00, 0x0C,             // format = 12
+            0x00, 0x00,
+            0x00, 0x00, 0x00, 0x34, // length = 52 (4 + 4 + 4 + 4 + 2*12)
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x02, // n_groups = 2
+            // Group 1: U+0030-U+0039 -> GlyphID 48-57 (digits '0'-'9')
+            0x00, 0x00, 0x00, 0x30,
+            0x00, 0x00, 0x00, 0x39,
+            0x00, 0x00, 0x00, 0x30,
+            // Group 2: U+0041-U+005A -> GlyphID 65-90 (uppercase 'A'-'Z')
+            0x00, 0x00, 0x00, 0x41,
+            0x00, 0x00, 0x00, 0x5A,
+            0x00, 0x00, 0x00, 0x41,
+        ];
+        
+        let mut reader = Reader::new(&data);
+        let map = Cmap::parse_subtable(&mut reader).unwrap();
+        
+        assert_eq!(map.get(&0x30), Some(&48)); // '0'
+        assert_eq!(map.get(&0x39), Some(&57)); // '9'
+        assert_eq!(map.get(&0x41), Some(&65)); // 'A'
+        assert_eq!(map.get(&0x5A), Some(&90)); // 'Z'
+        assert_eq!(map.len(), 36); // 10 digits + 26 letters
+    }
+
+    #[test]
+    fn test_cmap_format4_with_delta() {
+        // Format 4 with non-zero delta
+        let data = vec![
+            0x00, 0x04,             // format = 4
+            0x00, 0x10,
+            0x00, 0x00,
+            0x00, 0x02,             // seg_count_x2 = 2
+            0x00, 0x04,
+            0x00, 0x00,
+            0x00, 0x04,
+            0x00, 0x41,             // end_code[0] = 0x41
+            0xFF, 0xFF,
+            0x00, 0x41,             // start_code[0] = 0x41
+            0x00, 0x0A,             // id_delta[0] = 10 (delta)
+            0x00, 0x00,
+        ];
+        
+        let mut reader = Reader::new(&data);
+        let map = Cmap::parse_subtable(&mut reader).unwrap();
+        
+        // 'A' (0x41) + delta(10) = glyph_id 75
+        assert_eq!(map.get(&0x41), Some(&75));
+    }
+
+    #[test]
+    fn test_cmap_unsupported_format() {
+        // Unsupported format (e.g., format 6)
+        let data = vec![
+            0x00, 0x06,             // format = 6
+            0x00, 0x0A,
+            0x00, 0x00,
+        ];
+        
+        let mut reader = Reader::new(&data);
+        let result = Cmap::parse_subtable(&mut reader);
+        
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cmap_cache_operations() {
+        let mut cmap = Cmap {
+            encoding_records: vec![],
+            unicode_map: HashMap::new(),
+            query_cache: Some(LruCache::new(NonZeroUsize::new(10).unwrap())),
+        };
+        
+        cmap.unicode_map.insert(0x41, 65); // 'A'
+        cmap.unicode_map.insert(0x42, 66); // 'B'
+        
+        // 首次查询（会缓存）
+        assert_eq!(cmap.get_glyph_id_mut('A'), Some(65));
+        assert_eq!(cmap.cache_len(), 1);
+        
+        // 第二次查询（从缓存获取）
+        assert_eq!(cmap.get_glyph_id_mut('A'), Some(65));
+        assert_eq!(cmap.cache_len(), 1);
+        
+        // 查询另一个字符
+        assert_eq!(cmap.get_glyph_id_mut('B'), Some(66));
+        assert_eq!(cmap.cache_len(), 2);
+        
+        // 清除缓存
+        cmap.clear_cache();
+        assert_eq!(cmap.cache_len(), 0);
+    }
+
+    #[test]
+    fn test_cmap_batch_query() {
+        let mut cmap = Cmap {
+            encoding_records: vec![],
+            unicode_map: HashMap::new(),
+            query_cache: None,
+        };
+        
+        cmap.unicode_map.insert(0x41, 65); // 'A'
+        cmap.unicode_map.insert(0x42, 66); // 'B'
+        cmap.unicode_map.insert(0x43, 67); // 'C'
+        
+        let results = cmap.get_glyph_ids("ABC");
+        
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], ('A', Some(65)));
+        assert_eq!(results[1], ('B', Some(66)));
+        assert_eq!(results[2], ('C', Some(67)));
+    }
 }
