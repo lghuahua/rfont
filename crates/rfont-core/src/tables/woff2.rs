@@ -189,6 +189,14 @@ pub const WOFF2_KNOWN_TAGS: [Tag; 63] = [
     Tag(*b"bsln"),
 ];
 
+// 测试辅助函数
+impl Woff2TableDirectoryEntry {
+    #[cfg(test)]
+    pub fn read_base128_test(reader: &mut Reader) -> Result<u32, FontError> {
+        Self::read_base128(reader)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,13 +378,5 @@ mod tests {
         let mut reader = Reader::new(&data);
         let value = Woff2TableDirectoryEntry::read_base128_test(&mut reader).unwrap();
         assert_eq!(value, 300);
-    }
-}
-
-// 测试辅助函数
-impl Woff2TableDirectoryEntry {
-    #[cfg(test)]
-    pub fn read_base128_test(reader: &mut Reader) -> Result<u32, FontError> {
-        Self::read_base128(reader)
     }
 }

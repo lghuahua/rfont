@@ -261,9 +261,7 @@ impl Font {
             table_offsets.push(offset);
 
             sfnt_data.extend_from_slice(data);
-            for _ in 0..*padding {
-                sfnt_data.push(0);
-            }
+            sfnt_data.extend(std::iter::repeat_n(0, *padding));
         }
 
         // 回填 Table Directory

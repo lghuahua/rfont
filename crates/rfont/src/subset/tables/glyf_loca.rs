@@ -36,10 +36,8 @@ pub fn extract_glyf_and_loca(
 
                     // 对齐到 4 字节边界
                     let padding = (4 - (current_offset % 4)) % 4;
-                    for _ in 0..padding {
-                        new_glyf_data.push(0);
-                        current_offset += 1;
-                    }
+                    new_glyf_data.extend(std::iter::repeat_n(0, padding as usize));
+                    current_offset += padding;
                 }
             }
         }

@@ -275,7 +275,7 @@ mod tests {
     fn test_tag_clone_and_copy() {
         let tag1 = Tag(*b"maxp");
         let tag2 = tag1;
-        let tag3 = tag1.clone();
+        let tag3 = tag1; // Tag implements Copy, no need for clone
 
         assert_eq!(tag1, tag2);
         assert_eq!(tag1, tag3);

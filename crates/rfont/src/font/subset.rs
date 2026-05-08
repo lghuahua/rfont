@@ -598,17 +598,13 @@ impl Font {
 
                 // 4 字节对齐
                 let padding = (4 - (final_head_data.len() % 4)) % 4;
-                for _ in 0..padding {
-                    font_data.push(0);
-                }
+                font_data.extend(std::iter::repeat_n(0, padding));
             } else {
                 font_data.extend_from_slice(data);
 
                 // 4 字节对齐
                 let padding = (4 - (data.len() % 4)) % 4;
-                for _ in 0..padding {
-                    font_data.push(0);
-                }
+                font_data.extend(std::iter::repeat_n(0, padding));
             }
         }
 

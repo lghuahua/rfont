@@ -21,7 +21,3 @@ pub fn write_bytes_derive(input: TokenStream) -> TokenStream {
     ser::impl_ser_derive(&mut input).into()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-}
