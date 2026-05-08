@@ -1,14 +1,14 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{DeriveInput, Fields, Data, LitStr};
 use std::collections::HashMap;
+use syn::{Data, DeriveInput, Fields, LitStr};
 
 pub fn impl_ser_derive(input: &mut DeriveInput) -> TokenStream {
     let ident = &input.ident;
     match &input.data {
         Data::Struct(d) => {
             let field_serialize = ser_fields(&d.fields);
-            quote!{
+            quote! {
                 #[automatically_derived]
                 impl WriteBytes for #ident {
                     fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
@@ -17,8 +17,8 @@ pub fn impl_ser_derive(input: &mut DeriveInput) -> TokenStream {
                     }
                 }
             }
-        },
-        _ => quote!{}
+        }
+        _ => quote! {},
     }
 }
 
@@ -36,25 +36,30 @@ fn ser_fields(fields: &Fields) -> Vec<TokenStream> {
                         field_capacity.insert(item.value(), name);
                     }
                     Ok(())
-                }) { println!("error: {:?}", e) };
+                }) {
+                    println!("error: {:?}", e)
+                };
             }
         }
-    };
+    }
 
-    fields.iter().map(|field| {
-        let name = &field.ident;
-        let Some(name_str) = name.as_ref() else {
-            return quote!({})
-        };
-        // let ty = &field.ty;
+    fields
+        .iter()
+        .map(|field| {
+            let name = &field.ident;
+            let Some(name_str) = name.as_ref() else {
+                return quote!({});
+            };
+            // let ty = &field.ty;
 
-        let f = field_capacity.get(&name_str.to_string());
-        if f.is_some() {
-            return quote! {
-                writer.write_u16(self.#f.len() as u16)?;
+            let f = field_capacity.get(&name_str.to_string());
+            if f.is_some() {
+                return quote! {
+                    writer.write_u16(self.#f.len() as u16)?;
+                };
             }
-        }
 
-        quote! { self.#name.write_to(writer)?; }
-    }).collect()
+            quote! { self.#name.write_to(writer)?; }
+        })
+        .collect()
 }

@@ -1,9 +1,9 @@
 pub mod error;
-pub mod primitives;
-pub mod io;
 pub mod format;
+pub mod io;
+pub mod primitives;
 
 pub use error::FontError;
+pub use format::{CompressionType, FontFormat, FontFormatInfo};
+pub use io::{ReadBytes, Reader, WriteBytes, Writer};
 pub use primitives::*;
-pub use io::{ReadBytes, WriteBytes, Reader, Writer};
-pub use format::{FontFormat, CompressionType, FontFormatInfo};

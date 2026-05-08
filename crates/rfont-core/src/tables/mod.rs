@@ -1,9 +1,9 @@
+pub mod cmap;
+pub mod glyf;
 pub mod head;
-pub mod maxp;
 pub mod hhea;
 pub mod hmtx;
 pub mod loca;
-pub mod glyf;
-pub mod cmap;
+pub mod maxp;
 pub mod woff;
 pub mod woff2;

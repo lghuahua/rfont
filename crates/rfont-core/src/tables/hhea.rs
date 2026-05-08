@@ -1,6 +1,6 @@
-use rfont_types::{FontError, Reader, ReadBytes, Writer, WriteBytes};
-use rfont_types::primitives::{FWord, UFWord};
 use font_macros::{ReadBytes, WriteBytes};
+use rfont_types::primitives::{FWord, UFWord};
+use rfont_types::{FontError, ReadBytes, Reader, WriteBytes, Writer};
 
 #[derive(Debug, Clone, ReadBytes, WriteBytes)]
 pub struct Hhea {
@@ -40,10 +40,10 @@ mod tests {
         let mut data = vec![0x00; 36]; // 填充数据
         data[0..4].copy_from_slice(&0x00010000u32.to_be_bytes()); // version
         data[34..36].copy_from_slice(&100u16.to_be_bytes()); // number_of_h_metrics
-        
+
         let mut reader = Reader::new(&data);
         let hhea = Hhea::read_from(&mut reader).unwrap();
-        
+
         assert_eq!(hhea.number_of_h_metrics, 100);
     }
 }

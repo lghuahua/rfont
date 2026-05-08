@@ -4,56 +4,39 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum FontError {
     #[error("Invalid magic number: expected {expected:#010X}, got {actual:#010X}")]
-    InvalidMagicNumber { 
-        expected: u32, 
-        actual: u32 
-    },
+    InvalidMagicNumber { expected: u32, actual: u32 },
 
     #[error("Table '{tag}' not found in font")]
-    TableNotFound { 
-        tag: String 
-    },
+    TableNotFound { tag: String },
 
     #[error("Invalid offset in table '{table}': offset {offset} exceeds maximum {max}")]
-    InvalidOffset { 
-        table: String, 
-        offset: u32, 
-        max: u32 
+    InvalidOffset {
+        table: String,
+        offset: u32,
+        max: u32,
     },
 
     #[error("Unsupported cmap format: {format}")]
-    UnsupportedCmapFormat { 
-        format: u16 
-    },
+    UnsupportedCmapFormat { format: u16 },
 
     #[error("Invalid table checksum: table '{tag}' expected {expected:#010X}, got {actual:#010X}")]
-    InvalidChecksum { 
+    InvalidChecksum {
         tag: String,
         expected: u32,
-        actual: u32 
+        actual: u32,
     },
 
     #[error("Unexpected end of data at offset {offset}, needed {needed} bytes")]
-    UnexpectedEndOfData { 
-        offset: usize, 
-        needed: usize 
-    },
+    UnexpectedEndOfData { offset: usize, needed: usize },
 
     #[error("Invalid glyph index: {glyph_id} exceeds maximum {max_glyphs}")]
-    InvalidGlyphIndex { 
-        glyph_id: u16, 
-        max_glyphs: u16 
-    },
+    InvalidGlyphIndex { glyph_id: u16, max_glyphs: u16 },
 
     #[error("Invalid units per em: {value} (must be between 16 and 16384)")]
-    InvalidUnitsPerEm { 
-        value: u16 
-    },
+    InvalidUnitsPerEm { value: u16 },
 
     #[error("WOFF decompression failed: {message}")]
-    WoffDecompressionError { 
-        message: String 
-    },
+    WoffDecompressionError { message: String },
 
     #[error("Failed to parse {table} at offset {offset}: {reason}")]
     ParseError {
@@ -79,7 +62,7 @@ impl FontError {
     }
 
     /// 获取错误的恢复建议
-    /// 
+    ///
     /// 对于常见错误，提供人类可读的修复建议
     pub fn suggestion(&self) -> Option<&'static str> {
         match self {
@@ -89,15 +72,11 @@ impl FontError {
             FontError::TableNotFound { .. } => {
                 Some("字体文件可能损坏或不完整，请尝试重新下载或验证文件完整性")
             }
-            FontError::InvalidOffset { .. } => {
-                Some("字体文件的表偏移量无效，文件可能已损坏")
-            }
+            FontError::InvalidOffset { .. } => Some("字体文件的表偏移量无效，文件可能已损坏"),
             FontError::InvalidChecksum { .. } => {
                 Some("字体校验和不匹配，文件可能在传输过程中损坏，请重新下载")
             }
-            FontError::UnexpectedEndOfData { .. } => {
-                Some("文件被截断或不完整，请确保文件完整下载")
-            }
+            FontError::UnexpectedEndOfData { .. } => Some("文件被截断或不完整，请确保文件完整下载"),
             FontError::WoffDecompressionError { .. } => {
                 Some("WOFF 解压缩失败，文件可能损坏或使用了不支持的压缩算法")
             }
@@ -122,11 +101,11 @@ mod tests {
             expected: 0x00010000,
             actual: 0x12345678,
         };
-        
+
         let msg = format!("{}", err);
         assert!(msg.contains("0x00010000"));
         assert!(msg.contains("0x12345678"));
-        
+
         let suggestion = err.suggestion();
         assert!(suggestion.is_some());
         assert!(suggestion.unwrap().contains("字体格式"));
@@ -137,10 +116,10 @@ mod tests {
         let err = FontError::TableNotFound {
             tag: "glyf".to_string(),
         };
-        
+
         let msg = format!("{}", err);
         assert!(msg.contains("glyf"));
-        
+
         let suggestion = err.suggestion();
         assert!(suggestion.is_some());
     }
@@ -152,7 +131,7 @@ mod tests {
             offset: 1000,
             max: 500,
         };
-        
+
         let msg = format!("{}", err);
         assert!(msg.contains("cmap"));
         assert!(msg.contains("1000"));
@@ -161,10 +140,8 @@ mod tests {
 
     #[test]
     fn test_unsupported_cmap_format_error() {
-        let err = FontError::UnsupportedCmapFormat {
-            format: 99,
-        };
-        
+        let err = FontError::UnsupportedCmapFormat { format: 99 };
+
         let msg = format!("{}", err);
         assert!(msg.contains("99"));
     }
@@ -176,10 +153,10 @@ mod tests {
             expected: 0xB1B0AFBA,
             actual: 0x00000000,
         };
-        
+
         let msg = format!("{}", err);
         assert!(msg.contains("head"));
-        
+
         let suggestion = err.suggestion();
         assert!(suggestion.is_some());
         assert!(suggestion.unwrap().contains("损坏"));
@@ -191,11 +168,11 @@ mod tests {
             offset: 100,
             needed: 50,
         };
-        
+
         let msg = format!("{}", err);
         assert!(msg.contains("100"));
         assert!(msg.contains("50"));
-        
+
         let suggestion = err.suggestion();
         assert!(suggestion.is_some());
         assert!(suggestion.unwrap().contains("截断"));
@@ -207,7 +184,7 @@ mod tests {
             glyph_id: 1000,
             max_glyphs: 500,
         };
-        
+
         let msg = format!("{}", err);
         assert!(msg.contains("1000"));
         assert!(msg.contains("500"));
@@ -215,10 +192,8 @@ mod tests {
 
     #[test]
     fn test_invalid_units_per_em_error() {
-        let err = FontError::InvalidUnitsPerEm {
-            value: 10,
-        };
-        
+        let err = FontError::InvalidUnitsPerEm { value: 10 };
+
         let msg = format!("{}", err);
         assert!(msg.contains("10"));
         assert!(msg.contains("16"));
@@ -230,10 +205,10 @@ mod tests {
         let err = FontError::WoffDecompressionError {
             message: "invalid data".to_string(),
         };
-        
+
         let msg = format!("{}", err);
         assert!(msg.contains("invalid data"));
-        
+
         let suggestion = err.suggestion();
         assert!(suggestion.is_some());
     }
@@ -245,7 +220,7 @@ mod tests {
             offset: 42,
             reason: "invalid flag".to_string(),
         };
-        
+
         let msg = format!("{}", err);
         assert!(msg.contains("glyf"));
         assert!(msg.contains("42"));
@@ -255,7 +230,7 @@ mod tests {
     #[test]
     fn test_invalid_base_date_error() {
         let err = FontError::InvalidBaseDate;
-        
+
         let msg = format!("{}", err);
         assert!(msg.contains("LONGDATETIME"));
     }
@@ -263,7 +238,7 @@ mod tests {
     #[test]
     fn test_generic_error() {
         let err = FontError::Generic("something went wrong".to_string());
-        
+
         let msg = format!("{}", err);
         assert!(msg.contains("something went wrong"));
     }
@@ -271,7 +246,7 @@ mod tests {
     #[test]
     fn test_new_error() {
         let err = FontError::new("custom error");
-        
+
         match err {
             FontError::Generic(msg) => assert_eq!(msg, "custom error"),
             _ => panic!("Expected Generic error"),
@@ -298,14 +273,14 @@ mod tests {
     fn test_io_error_from_std() {
         let std_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err: FontError = FontError::from(std_err);
-        
+
         match &err {
             FontError::Io(e) => {
                 assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
             }
             _ => panic!("Expected Io error"),
         }
-        
+
         let suggestion = err.suggestion();
         assert!(suggestion.is_some());
         assert!(suggestion.unwrap().contains("文件不存在"));
@@ -315,7 +290,7 @@ mod tests {
     fn test_io_error_permission_denied() {
         let std_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
         let err: FontError = FontError::from(std_err);
-        
+
         let suggestion = err.suggestion();
         assert!(suggestion.is_some());
         assert!(suggestion.unwrap().contains("权限"));

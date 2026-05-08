@@ -24,9 +24,9 @@ impl<'a> Reader<'a> {
 
     pub fn read_u8(&mut self) -> Result<u8, FontError> {
         if self.offset + 1 > self.data.len() {
-            return Err(FontError::UnexpectedEndOfData { 
-                offset: self.offset, 
-                needed: 1 
+            return Err(FontError::UnexpectedEndOfData {
+                offset: self.offset,
+                needed: 1,
             });
         }
         let v = self.data[self.offset];
@@ -36,9 +36,9 @@ impl<'a> Reader<'a> {
 
     pub fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], FontError> {
         if self.offset + len > self.data.len() {
-            return Err(FontError::UnexpectedEndOfData { 
-                offset: self.offset, 
-                needed: len 
+            return Err(FontError::UnexpectedEndOfData {
+                offset: self.offset,
+                needed: len,
             });
         }
         let bytes = &self.data[self.offset..self.offset + len];
@@ -53,10 +53,7 @@ impl<'a> Reader<'a> {
 
     pub fn read_u16_at(&self, offset: usize) -> Result<u16, FontError> {
         if offset + 2 > self.data.len() {
-            return Err(FontError::UnexpectedEndOfData { 
-                offset, 
-                needed: 2 
-            });
+            return Err(FontError::UnexpectedEndOfData { offset, needed: 2 });
         }
         let bytes = &self.data[offset..offset + 2];
         Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
@@ -64,9 +61,9 @@ impl<'a> Reader<'a> {
 
     pub fn read_u32(&mut self) -> Result<u32, FontError> {
         if self.offset + 4 > self.data.len() {
-            return Err(FontError::UnexpectedEndOfData { 
-                offset: self.offset, 
-                needed: 4 
+            return Err(FontError::UnexpectedEndOfData {
+                offset: self.offset,
+                needed: 4,
             });
         }
         let v = u32::from_be_bytes([
@@ -99,10 +96,10 @@ impl<'a> Reader<'a> {
 
     pub fn slice(&self, offset: usize, len: usize) -> Result<Reader<'a>, FontError> {
         if offset + len > self.data.len() {
-            return Err(FontError::InvalidOffset { 
+            return Err(FontError::InvalidOffset {
                 table: "slice".to_string(),
                 offset: offset as u32,
-                max: self.data.len() as u32
+                max: self.data.len() as u32,
             });
         }
         Ok(Reader {
@@ -114,6 +111,12 @@ impl<'a> Reader<'a> {
 
 pub struct Writer {
     pub data: Vec<u8>,
+}
+
+impl Default for Writer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Writer {
@@ -150,7 +153,7 @@ impl Writer {
     }
 
     pub fn pad_to_4_bytes(&mut self) {
-        while self.data.len() % 4 != 0 {
+        while !self.data.len().is_multiple_of(4) {
             self.data.push(0);
         }
     }
@@ -166,7 +169,7 @@ impl Writer {
                 if i + j < data.len() {
                     val = (val << 8) | data[i + j] as u32;
                 } else {
-                    val = val << 8; // 不足 4 字节补 0
+                    val <<= 8; // 不足 4 字节补 0
                 }
             }
             sum = sum.wrapping_add(val);
@@ -540,25 +543,25 @@ mod tests {
         value.write_to(&mut writer).unwrap();
         assert_eq!(writer.data, vec![0xFF, 0xFF, 0xFF, 0xFE]);
     }
-    
+
     // ==================== Reader 边界条件测试 ====================
-    
+
     #[test]
     fn test_reader_read_u8_boundary_exact() {
         // 刚好读取到最后一个字节
         let data = vec![0xFF];
         let mut reader = Reader::new(&data);
-        
+
         assert_eq!(reader.read_u8().unwrap(), 0xFF);
         // 再次读取应该失败
         assert!(reader.read_u8().is_err());
     }
-    
+
     #[test]
     fn test_reader_read_u8_offset_tracking() {
         let data = vec![0x10, 0x20, 0x30];
         let mut reader = Reader::new(&data);
-        
+
         assert_eq!(reader.offset, 0);
         reader.read_u8().unwrap();
         assert_eq!(reader.offset, 1);
@@ -567,242 +570,242 @@ mod tests {
         reader.read_u8().unwrap();
         assert_eq!(reader.offset, 3);
     }
-    
+
     #[test]
     fn test_reader_read_u16_insufficient_data_one_byte() {
         // 只有 1 个字节，但需要 2 个
         let data = vec![0x42];
         let mut reader = Reader::new(&data);
-        
+
         assert!(reader.read_u16().is_err());
     }
-    
+
     #[test]
     fn test_reader_read_u16_boundary_exact() {
         // 刚好读取到最后两个字节
         let data = vec![0x12, 0x34];
         let mut reader = Reader::new(&data);
-        
+
         assert_eq!(reader.read_u16().unwrap(), 0x1234);
         // 再次读取应该失败
         assert!(reader.read_u16().is_err());
     }
-    
+
     #[test]
     fn test_reader_read_u16_offset_tracking() {
         let data = vec![0x01, 0x02, 0x03, 0x04];
         let mut reader = Reader::new(&data);
-        
+
         assert_eq!(reader.offset, 0);
         reader.read_u16().unwrap();
         assert_eq!(reader.offset, 2);
         reader.read_u16().unwrap();
         assert_eq!(reader.offset, 4);
     }
-    
+
     #[test]
     fn test_reader_read_u32_insufficient_data_three_bytes() {
         // 只有 3 个字节，但需要 4 个
         let data = vec![0x01, 0x02, 0x03];
         let mut reader = Reader::new(&data);
-        
+
         assert!(reader.read_u32().is_err());
     }
-    
+
     #[test]
     fn test_reader_read_u32_insufficient_data_two_bytes() {
         let data = vec![0x01, 0x02];
         let mut reader = Reader::new(&data);
-        
+
         assert!(reader.read_u32().is_err());
     }
-    
+
     #[test]
     fn test_reader_read_u32_insufficient_data_one_byte() {
         let data = vec![0x01];
         let mut reader = Reader::new(&data);
-        
+
         assert!(reader.read_u32().is_err());
     }
-    
+
     #[test]
     fn test_reader_read_u32_boundary_exact() {
         // 刚好读取到最后四个字节
         let data = vec![0xDE, 0xAD, 0xBE, 0xEF];
         let mut reader = Reader::new(&data);
-        
+
         assert_eq!(reader.read_u32().unwrap(), 0xDEADBEEF);
         // 再次读取应该失败
         assert!(reader.read_u32().is_err());
     }
-    
+
     #[test]
     fn test_reader_read_u32_offset_tracking() {
         let data = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
         let mut reader = Reader::new(&data);
-        
+
         assert_eq!(reader.offset, 0);
         reader.read_u32().unwrap();
         assert_eq!(reader.offset, 4);
         reader.read_u32().unwrap();
         assert_eq!(reader.offset, 8);
     }
-    
+
     #[test]
     fn test_reader_mixed_reads() {
         let data = vec![
-            0x01,       // u8
+            0x01, // u8
             0x02, 0x03, // u16
             0x04, 0x05, 0x06, 0x07, // u32
         ];
         let mut reader = Reader::new(&data);
-        
+
         assert_eq!(reader.read_u8().unwrap(), 0x01);
         assert_eq!(reader.read_u16().unwrap(), 0x0203);
         assert_eq!(reader.read_u32().unwrap(), 0x04050607);
         assert_eq!(reader.offset, 7);
     }
-    
+
     #[test]
     fn test_reader_read_after_error() {
         let data = vec![0x01];
         let mut reader = Reader::new(&data);
-        
+
         // 成功读取一个字节
         assert_eq!(reader.read_u8().unwrap(), 0x01);
-        
+
         // 尝试读取 u16 应该失败
         assert!(reader.read_u16().is_err());
-        
+
         // offset 不应该改变（错误时不回滚）
         assert_eq!(reader.offset, 1);
     }
-    
+
     #[test]
     fn test_reader_slice_zero_length() {
         let data = vec![0x01, 0x02, 0x03];
         let reader = Reader::new(&data);
-        
+
         let sub_reader = reader.slice(1, 0).unwrap();
         assert_eq!(sub_reader.data, &[]);
     }
-    
+
     #[test]
     fn test_reader_slice_out_of_bounds_offset() {
         let data = vec![0x01, 0x02, 0x03];
         let reader = Reader::new(&data);
-        
+
         // offset 超出范围
         assert!(reader.slice(5, 1).is_err());
     }
-    
+
     #[test]
     fn test_reader_slice_out_of_bounds_length() {
         let data = vec![0x01, 0x02, 0x03];
         let reader = Reader::new(&data);
-        
+
         // length 超出范围
         assert!(reader.slice(1, 5).is_err());
     }
-    
+
     #[test]
     fn test_reader_slice_out_of_bounds_combined() {
         let data = vec![0x01, 0x02, 0x03];
         let reader = Reader::new(&data);
-        
+
         // offset + length 超出范围
         assert!(reader.slice(2, 2).is_err());
     }
-    
+
     #[test]
     fn test_reader_slice_empty_data() {
         let data: Vec<u8> = vec![];
         let reader = Reader::new(&data);
-        
+
         // 空数据上创建零长度切片应该成功
         let sub_reader = reader.slice(0, 0).unwrap();
         assert_eq!(sub_reader.data, &[]);
-        
+
         // 任何非零长度都应该失败
         assert!(reader.slice(0, 1).is_err());
     }
-    
+
     #[test]
     fn test_reader_slice_independence() {
         let data = vec![0x01, 0x02, 0x03, 0x04];
         let reader = Reader::new(&data);
-        
+
         // 创建子切片
         let mut sub_reader = reader.slice(1, 2).unwrap();
-        
+
         // 在子切片上读取不应该影响父 reader
         assert_eq!(sub_reader.read_u8().unwrap(), 0x02);
         assert_eq!(sub_reader.read_u8().unwrap(), 0x03);
-        
+
         // 父 reader 的 offset 应该仍然是 0
         assert_eq!(reader.offset, 0);
     }
-    
+
     #[test]
     fn test_reader_slice_chained() {
         let data = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06];
         let reader = Reader::new(&data);
-        
+
         // 创建第一个切片
         let sub1 = reader.slice(0, 4).unwrap();
         assert_eq!(sub1.data, &[0x01, 0x02, 0x03, 0x04]);
-        
+
         // 在第一个切片上创建第二个切片
         let sub2 = sub1.slice(1, 2).unwrap();
         assert_eq!(sub2.data, &[0x02, 0x03]);
     }
-    
+
     #[test]
     fn test_reader_large_offset() {
         let data = vec![0x00; 1000];
         let mut reader = Reader::new(&data);
-        
+
         // 手动设置 offset 到接近末尾
         reader.offset = 999;
         assert_eq!(reader.read_u8().unwrap(), 0x00);
-        
+
         // 再读取应该失败
         assert!(reader.read_u8().is_err());
     }
-    
+
     #[test]
     fn test_reader_all_zeros() {
         let data = vec![0x00; 10];
         let mut reader = Reader::new(&data);
-        
+
         assert_eq!(reader.read_u8().unwrap(), 0x00);
         assert_eq!(reader.read_u16().unwrap(), 0x0000);
         assert_eq!(reader.read_u32().unwrap(), 0x00000000);
     }
-    
+
     #[test]
     fn test_reader_all_ones() {
         let data = vec![0xFF; 10];
         let mut reader = Reader::new(&data);
-        
+
         assert_eq!(reader.read_u8().unwrap(), 0xFF);
         assert_eq!(reader.read_u16().unwrap(), 0xFFFF);
         assert_eq!(reader.read_u32().unwrap(), 0xFFFFFFFF);
     }
-    
+
     // ==================== Writer 边界条件测试 ====================
-    
+
     #[test]
     fn test_writer_multiple_writes() {
         let mut writer = Writer::new();
         writer.write_u8(0x01).unwrap();
         writer.write_u16(0x0203).unwrap();
         writer.write_u32(0x04050607).unwrap();
-        
+
         assert_eq!(writer.data.len(), 7);
         assert_eq!(writer.data, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]);
     }
-    
+
     #[test]
     fn test_writer_pad_various_sizes() {
         for size in 1..=10 {
@@ -811,17 +814,17 @@ mod tests {
                 writer.write_u8(0xFF).unwrap();
             }
             writer.pad_to_4_bytes();
-            
+
             // 验证对齐后是 4 的倍数
             assert_eq!(writer.data.len() % 4, 0);
-            
+
             // 验证填充的是 0
             for i in size..writer.data.len() {
                 assert_eq!(writer.data[i], 0);
             }
         }
     }
-    
+
     #[test]
     fn test_writer_calculate_checksum_single_byte() {
         // [0x01] 会被填充为 [0x01, 0x00, 0x00, 0x00]
@@ -829,7 +832,7 @@ mod tests {
         let checksum = Writer::calculate_checksum(&data);
         assert_eq!(checksum, 0x01000000);
     }
-    
+
     #[test]
     fn test_writer_calculate_checksum_two_bytes() {
         // [0x01, 0x02] 会被填充为 [0x01, 0x02, 0x00, 0x00]
@@ -837,7 +840,7 @@ mod tests {
         let checksum = Writer::calculate_checksum(&data);
         assert_eq!(checksum, 0x01020000);
     }
-    
+
     #[test]
     fn test_writer_calculate_checksum_three_bytes() {
         // [0x01, 0x02, 0x03] 会被填充为 [0x01, 0x02, 0x03, 0x00]
@@ -845,7 +848,7 @@ mod tests {
         let checksum = Writer::calculate_checksum(&data);
         assert_eq!(checksum, 0x01020300);
     }
-    
+
     #[test]
     fn test_writer_calculate_checksum_overflow() {
         // 测试校验和溢出时的回绕行为
@@ -854,42 +857,42 @@ mod tests {
         // 0xFFFFFFFF + 0x00000001 = 0x100000000 -> 回绕为 0x00000000
         assert_eq!(checksum, 0x00000000);
     }
-    
+
     #[test]
     fn test_reader_read_array_u8() {
         let data = vec![0x01, 0x02, 0x03, 0x04, 0x05];
         let mut reader = Reader::new(&data);
-        
+
         let values: Vec<u8> = reader.read_array(3).unwrap();
         assert_eq!(values, vec![0x01, 0x02, 0x03]);
         assert_eq!(reader.offset, 3);
     }
-    
+
     #[test]
     fn test_reader_read_array_u16() {
         let data = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06];
         let mut reader = Reader::new(&data);
-        
+
         let values: Vec<u16> = reader.read_array(2).unwrap();
         assert_eq!(values, vec![0x0102, 0x0304]);
         assert_eq!(reader.offset, 4);
     }
-    
+
     #[test]
     fn test_reader_read_array_empty() {
         let data = vec![0x01, 0x02];
         let mut reader = Reader::new(&data);
-        
+
         let values: Vec<u8> = reader.read_array(0).unwrap();
         assert_eq!(values.len(), 0);
         assert_eq!(reader.offset, 0); // 没有读取任何数据
     }
-    
+
     #[test]
     fn test_reader_read_array_eof() {
         let data = vec![0x01, 0x02];
         let mut reader = Reader::new(&data);
-        
+
         // 尝试读取 3 个字节，但只有 2 个
         let result: Result<Vec<u8>, FontError> = reader.read_array(3);
         assert!(result.is_err());

@@ -6,8 +6,8 @@ use proc_macro::TokenStream;
 
 use syn::{parse_macro_input, DeriveInput};
 
-mod ser;
 mod de;
+mod ser;
 
 #[proc_macro_derive(ReadBytes, attributes(rfont))]
 pub fn read_bytes_derive(input: TokenStream) -> TokenStream {
@@ -24,6 +24,4 @@ pub fn write_bytes_derive(input: TokenStream) -> TokenStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-
 }

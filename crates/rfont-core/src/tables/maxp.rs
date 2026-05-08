@@ -1,4 +1,4 @@
-use rfont_types::{FontError, Reader, ReadBytes, Writer, WriteBytes};
+use rfont_types::{FontError, ReadBytes, Reader, WriteBytes, Writer};
 
 #[derive(Debug, Clone)]
 pub struct Maxp {
@@ -90,7 +90,7 @@ impl WriteBytes for Maxp {
         writer.write_u16(self.max_size_of_instructions.unwrap_or(0))?;
         writer.write_u16(self.max_component_elements.unwrap_or(0))?;
         writer.write_u16(self.max_component_depth.unwrap_or(0))?;
-        
+
         Ok(())
     }
 }
@@ -105,11 +105,11 @@ mod tests {
         // Version 0.5 (only has num_glyphs)
         let data = vec![
             0x00, 0x00, 0x50, 0x00, // version = 0.5
-            0x00, 0x10,             // num_glyphs = 16
+            0x00, 0x10, // num_glyphs = 16
         ];
         let mut reader = Reader::new(&data);
         let maxp = Maxp::read_from(&mut reader).unwrap();
-        
+
         assert_eq!(maxp.version, 0x00005000);
         assert_eq!(maxp.num_glyphs, 16);
         assert!(maxp.max_points.is_none());
@@ -120,17 +120,17 @@ mod tests {
         // Version 1.0 (full fields)
         let mut data = vec![
             0x00, 0x01, 0x00, 0x00, // version = 1.0
-            0x00, 0x20,             // num_glyphs = 32
+            0x00, 0x20, // num_glyphs = 32
         ];
         // 添加 v1.0 的字段（13个 u16）
         for i in 0..13 {
             data.push((i + 1) as u8);
             data.push(0);
         }
-        
+
         let mut reader = Reader::new(&data);
         let maxp = Maxp::read_from(&mut reader).unwrap();
-        
+
         assert_eq!(maxp.version, 0x00010000);
         assert_eq!(maxp.num_glyphs, 32);
         assert!(maxp.max_points.is_some());
@@ -155,10 +155,10 @@ mod tests {
             max_component_elements: None,
             max_component_depth: None,
         };
-        
+
         let mut writer = Writer::new();
         maxp.write_to(&mut writer).unwrap();
-        
+
         // Version 0.5 should only write 6 bytes (4 + 2)
         assert_eq!(writer.data.len(), 6);
         assert_eq!(&writer.data[0..4], &[0x00, 0x00, 0x50, 0x00]);
@@ -184,10 +184,10 @@ mod tests {
             max_component_elements: Some(4),
             max_component_depth: Some(2),
         };
-        
+
         let mut writer = Writer::new();
         maxp.write_to(&mut writer).unwrap();
-        
+
         // Version 1.0 should write 32 bytes (4 + 2 + 13*2)
         assert_eq!(writer.data.len(), 32);
     }
@@ -211,13 +211,13 @@ mod tests {
             max_component_elements: None,
             max_component_depth: None,
         };
-        
+
         let mut writer = Writer::new();
         original.write_to(&mut writer).unwrap();
-        
+
         let mut reader = Reader::new(&writer.data);
         let restored = Maxp::read_from(&mut reader).unwrap();
-        
+
         assert_eq!(restored.version, original.version);
         assert_eq!(restored.num_glyphs, original.num_glyphs);
     }
@@ -227,17 +227,17 @@ mod tests {
         // Test with maximum number of glyphs (u16::MAX)
         let mut data = vec![
             0x00, 0x01, 0x00, 0x00, // version = 1.0
-            0xFF, 0xFF,             // num_glyphs = 65535
+            0xFF, 0xFF, // num_glyphs = 65535
         ];
         // Add dummy v1.0 fields
         for _ in 0..13 {
             data.push(0);
             data.push(0);
         }
-        
+
         let mut reader = Reader::new(&data);
         let maxp = Maxp::read_from(&mut reader).unwrap();
-        
+
         assert_eq!(maxp.num_glyphs, 65535);
     }
 }

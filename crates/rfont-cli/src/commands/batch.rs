@@ -1,20 +1,20 @@
+use anyhow::{Context, Result};
 use colored::*;
-use anyhow::{Result, Context};
-use std::path::{Path, PathBuf};
-use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
-use rfont::Font;
 use glob::glob;
-use tracing::{debug, info, warn, span, Level};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use rfont::Font;
+use std::path::{Path, PathBuf};
+use tracing::{debug, info, span, warn, Level};
 
 /// 批量转换命令的参数
 pub struct BatchConvertArgs {
-    pub pattern: String,           // 文件匹配模式（如 *.ttf）
-    pub formats: Vec<String>,      // 目标格式列表（woff/woff2/ttf）
+    pub pattern: String,             // 文件匹配模式（如 *.ttf）
+    pub formats: Vec<String>,        // 目标格式列表（woff/woff2/ttf）
     pub output_dir: Option<PathBuf>, // 输出目录
-    pub compression: u8,           // 压缩级别
-    pub overwrite: bool,           // 是否覆盖已存在的文件
+    pub compression: u8,             // 压缩级别
+    pub overwrite: bool,             // 是否覆盖已存在的文件
     #[cfg(feature = "parallel")]
-    pub jobs: Option<usize>,       // 并行任务数
+    pub jobs: Option<usize>, // 并行任务数
 }
 
 /// 单个文件的转换结果
@@ -34,16 +34,16 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
                      compression = args.compression,
                      overwrite = args.overwrite);
     let _enter = span.enter();
-    
+
     debug!("开始批量格式转换");
-    
+
     println!("{}", "🔄 批量格式转换".bold().cyan());
     println!();
 
     // 1. 查找匹配的字体文件
     debug!(pattern = args.pattern, "查找匹配的字体文件");
     let files = find_font_files(&args.pattern)?;
-    
+
     if files.is_empty() {
         warn!(pattern = args.pattern, "未找到匹配的文件");
         return Err(anyhow::anyhow!("未找到匹配的文件: {}", args.pattern));
@@ -54,23 +54,33 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
         let fmt = format.to_lowercase();
         if fmt != "ttf" && fmt != "woff" && fmt != "woff2" {
             warn!(format = format, "不支持的格式");
-            return Err(anyhow::anyhow!("不支持的格式: {} (仅支持 ttf, woff, woff2)", format));
+            return Err(anyhow::anyhow!(
+                "不支持的格式: {} (仅支持 ttf, woff, woff2)",
+                format
+            ));
         }
     }
 
-    debug!(file_count = files.len(), format_count = args.formats.len(), "文件查找完成");
+    debug!(
+        file_count = files.len(),
+        format_count = args.formats.len(),
+        "文件查找完成"
+    );
     println!("  找到 {} 个字体文件", files.len());
-    println!("  目标格式: {}", args.formats.iter()
-        .map(|f| f.to_uppercase())
-        .collect::<Vec<_>>()
-        .join(", "));
+    println!(
+        "  目标格式: {}",
+        args.formats
+            .iter()
+            .map(|f| f.to_uppercase())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     println!("  压缩级别: {}", args.compression);
     println!();
 
     // 2. 创建输出目录（如果指定）
     if let Some(ref dir) = args.output_dir {
-        std::fs::create_dir_all(dir)
-            .context(format!("无法创建输出目录: {:?}", dir))?;
+        std::fs::create_dir_all(dir).context(format!("无法创建输出目录: {:?}", dir))?;
         println!("  输出目录: {:?}", dir);
         println!();
     }
@@ -83,7 +93,7 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
             .unwrap()
-            .progress_chars("=> ")
+            .progress_chars("=> "),
     );
     overall_progress.set_message("处理中...");
 
@@ -95,23 +105,47 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
             .num_threads(jobs)
             .build_global()
             .ok();
-        process_files_parallel(&files, &args.formats, &args.output_dir, args.compression, args.overwrite, &multi_progress, &overall_progress)?
+        process_files_parallel(
+            &files,
+            &args.formats,
+            &args.output_dir,
+            args.compression,
+            args.overwrite,
+            &multi_progress,
+            &overall_progress,
+        )?
     } else {
         // 使用默认线程数（CPU 核心数）
-        process_files_parallel(&files, &args.formats, &args.output_dir, args.compression, args.overwrite, &multi_progress, &overall_progress)?
+        process_files_parallel(
+            &files,
+            &args.formats,
+            &args.output_dir,
+            args.compression,
+            args.overwrite,
+            &multi_progress,
+            &overall_progress,
+        )?
     };
 
     #[cfg(not(feature = "parallel"))]
-    let all_results = process_files_sequential(&files, &args.formats, &args.output_dir, args.compression, args.overwrite, &multi_progress, &overall_progress);
+    let all_results = process_files_sequential(
+        &files,
+        &args.formats,
+        &args.output_dir,
+        args.compression,
+        args.overwrite,
+        &multi_progress,
+        &overall_progress,
+    );
 
     overall_progress.finish_with_message("批量转换完成！");
 
     // 5. 显示统计信息
     print_summary(&all_results);
-    
+
     let success_count = all_results.iter().filter(|r| r.success).count();
     let failed_count = all_results.len() - success_count;
-    
+
     info!(
         total_files = all_results.len(),
         success_count = success_count,
@@ -125,7 +159,7 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
 /// 查找匹配的字体文件
 fn find_font_files(pattern: &str) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    
+
     // 检查是否是通配符模式
     if pattern.contains('*') || pattern.contains('?') {
         for entry in glob(pattern).context(format!("无效的文件模式: {}", pattern))? {
@@ -150,7 +184,7 @@ fn find_font_files(pattern: &str) -> Result<Vec<PathBuf>> {
 
     // 按文件名排序
     files.sort();
-    
+
     Ok(files)
 }
 
@@ -248,24 +282,21 @@ fn convert_single_file(
 
 /// 执行格式转换
 fn perform_conversion(font: &Font, format: &str, compression: u8) -> Result<Vec<u8>> {
-    let all_glyph_ids: Vec<u16> = (0..font.get_font_info().glyph_count as u16).collect();
-    
-    let data = font.subset_builder()
+    let all_glyph_ids: Vec<u16> = (0..font.get_font_info().glyph_count).collect();
+
+    let data = font
+        .subset_builder()
         .glyph_ids(all_glyph_ids)
         .output_format(format)
         .compression_level(compression)
         .build()
         .context(format!("转换为 {} 失败", format.to_uppercase()))?;
-    
+
     Ok(data)
 }
 
 /// 确定输出文件路径
-fn determine_output_path(
-    input_path: &Path,
-    format: &str,
-    output_dir: &Option<PathBuf>,
-) -> PathBuf {
+fn determine_output_path(input_path: &Path, format: &str, output_dir: &Option<PathBuf>) -> PathBuf {
     let stem = input_path.file_stem().unwrap().to_str().unwrap();
     let ext = match format.to_lowercase().as_str() {
         "woff" => "woff",
@@ -294,12 +325,28 @@ fn print_summary(results: &[ConvertResult]) {
     // 总体统计
     println!("  总文件数:   {}", total);
     println!("  成功:       {} {}", success_count, "✓".green());
-    println!("  失败:       {} {}", failed_count, if failed_count > 0 { "✗".red() } else { "".normal() });
+    println!(
+        "  失败:       {} {}",
+        failed_count,
+        if failed_count > 0 {
+            "✗".red()
+        } else {
+            "".normal()
+        }
+    );
     println!();
 
     if success_count > 0 {
-        let total_original: u64 = results.iter().filter(|r| r.success).map(|r| r.original_size).sum();
-        let total_converted: u64 = results.iter().filter(|r| r.success).map(|r| r.converted_size).sum();
+        let total_original: u64 = results
+            .iter()
+            .filter(|r| r.success)
+            .map(|r| r.original_size)
+            .sum();
+        let total_converted: u64 = results
+            .iter()
+            .filter(|r| r.success)
+            .map(|r| r.converted_size)
+            .sum();
         let total_saved = total_original.saturating_sub(total_converted);
         let ratio = if total_original > 0 {
             (total_converted as f64 / total_original as f64) * 100.0
@@ -348,7 +395,12 @@ fn print_summary(results: &[ConvertResult]) {
     if failed_count == 0 {
         println!("{}", "✨ 所有文件转换成功！".bold().green());
     } else {
-        println!("{}", format!("⚠️  部分文件转换失败 ({}/{})", failed_count, total).bold().yellow());
+        println!(
+            "{}",
+            format!("⚠️  部分文件转换失败 ({}/{})", failed_count, total)
+                .bold()
+                .yellow()
+        );
     }
 }
 
@@ -374,26 +426,25 @@ fn process_files_sequential(
     overall_progress: &ProgressBar,
 ) -> Vec<ConvertResult> {
     let mut all_results = Vec::new();
-    
+
     for (index, input_path) in files.iter().enumerate() {
-        let filename = input_path.file_name().unwrap().to_str().unwrap().to_string();
-        
-        overall_progress.set_message(format!("处理 {}/{}: {}", 
-            index + 1, 
-            files.len(), 
-            filename
-        ));
+        let filename = input_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        overall_progress.set_message(format!("处理 {}/{}: {}", index + 1, files.len(), filename));
 
         for format in formats {
-            let file_progress = multi_progress.insert_after(
-                overall_progress,
-                ProgressBar::new(100)
-            );
+            let file_progress =
+                multi_progress.insert_after(overall_progress, ProgressBar::new(100));
             file_progress.set_style(
                 ProgressStyle::default_bar()
                     .template("  {spinner:.yellow} [{bar:20.green/blue}] {pos:>3}% {msg}")
                     .unwrap()
-                    .progress_chars("=> ")
+                    .progress_chars("=> "),
             );
             file_progress.set_message(format!("{} → {}", filename, format.to_uppercase()));
 
@@ -412,7 +463,7 @@ fn process_files_sequential(
             all_results.push(result);
         }
     }
-    
+
     all_results
 }
 
@@ -429,15 +480,17 @@ fn process_files_parallel(
 ) -> Result<Vec<ConvertResult>> {
     use rayon::prelude::*;
     use std::sync::Mutex;
-    
+
     // 创建线程安全的进度计数器
     let completed = Mutex::new(0u64);
     let total = (files.len() * formats.len()) as u64;
-    
+
     // 并行处理所有文件和格式的组合
-    let results: Vec<ConvertResult> = files.par_iter()
+    let results: Vec<ConvertResult> = files
+        .par_iter()
         .flat_map(|input_path| {
-            formats.par_iter()
+            formats
+                .par_iter()
                 .map(|format| {
                     // 注意：并行模式下不使用单个文件的进度条，因为会混乱
                     // 只更新总体进度
@@ -448,7 +501,7 @@ fn process_files_parallel(
                         compression,
                         overwrite,
                     );
-                    
+
                     // 更新总体进度
                     {
                         let mut count = completed.lock().unwrap();
@@ -456,13 +509,13 @@ fn process_files_parallel(
                         overall_progress.set_position(*count);
                         overall_progress.set_message(format!("处理 {}/{}", *count, total));
                     }
-                    
+
                     result
                 })
                 .collect::<Vec<_>>()
         })
         .collect();
-    
+
     Ok(results)
 }
 
@@ -476,7 +529,7 @@ fn convert_single_file_simple(
     overwrite: bool,
 ) -> ConvertResult {
     let original_size = std::fs::metadata(input_path).unwrap().len();
-    
+
     // 加载字体
     let font = match Font::load(input_path.to_str().unwrap()) {
         Ok(f) => f,
@@ -491,10 +544,10 @@ fn convert_single_file_simple(
             };
         }
     };
-    
+
     // 确定输出路径
     let output_path = determine_output_path(input_path, format, output_dir);
-    
+
     // 检查是否已存在
     if !overwrite && output_path.exists() {
         return ConvertResult {
@@ -506,7 +559,7 @@ fn convert_single_file_simple(
             converted_size: 0,
         };
     }
-    
+
     // 执行转换
     match perform_conversion(&font, format, compression) {
         Ok(data) => {
@@ -529,7 +582,7 @@ fn convert_single_file_simple(
                 original_size,
                 converted_size,
             }
-        },
+        }
         Err(e) => ConvertResult {
             input_path: input_path.to_path_buf(),
             output_path,

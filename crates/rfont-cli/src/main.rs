@@ -1,5 +1,5 @@
-use clap::{Parser, Subcommand};
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod commands;
@@ -23,27 +23,27 @@ fn init_logging(verbosity: u8) {
     } else {
         // 根据 -v 参数数量决定日志级别
         match verbosity {
-            0 => tracing::Level::WARN,   // 默认：只显示警告和错误
-            1 => tracing::Level::INFO,   // -v: 显示信息
-            2 => tracing::Level::DEBUG,  // -vv: 显示调试信息
-            _ => tracing::Level::TRACE,  // -vvv+: 显示追踪信息
+            0 => tracing::Level::WARN,  // 默认：只显示警告和错误
+            1 => tracing::Level::INFO,  // -v: 显示信息
+            2 => tracing::Level::DEBUG, // -vv: 显示调试信息
+            _ => tracing::Level::TRACE, // -vvv+: 显示追踪信息
         }
     };
-    
+
     // 配置 tracing subscriber
     let format = tracing_subscriber::fmt::format()
-        .without_time()  // 不显示时间戳（CLI 工具不需要）
-        .with_target(false)  // 不显示目标模块名
-        .with_thread_ids(false)  // 不显示线程 ID
-        .with_file(false)  // 不显示文件名
-        .with_line_number(false);  // 不显示行号
-    
+        .without_time() // 不显示时间戳（CLI 工具不需要）
+        .with_target(false) // 不显示目标模块名
+        .with_thread_ids(false) // 不显示线程 ID
+        .with_file(false) // 不显示文件名
+        .with_line_number(false); // 不显示行号
+
     tracing_subscriber::fmt()
         .with_max_level(level)
         .event_format(format)
-        .with_ansi(true)  // 启用 ANSI 颜色输出
+        .with_ansi(true) // 启用 ANSI 颜色输出
         .init();
-    
+
     // 记录启动信息（只在 INFO 及以上级别显示）
     tracing::info!(verbosity = verbosity, level = %level, "日志系统初始化完成");
 }
@@ -174,7 +174,11 @@ fn main() -> Result<()> {
     init_logging(cli.verbose);
 
     match cli.command {
-        Commands::Info { font, json, verbose_info } => {
+        Commands::Info {
+            font,
+            json,
+            verbose_info,
+        } => {
             commands::info::run(&font, json, verbose_info)?;
         }
         Commands::Subset {
@@ -206,9 +210,17 @@ fn main() -> Result<()> {
         } => {
             commands::convert::run(&input, output.as_deref(), &format, compression)?;
         }
-        Commands::Batch { command } => {
-            match command {
-                BatchCommands::Convert {
+        Commands::Batch { command } => match command {
+            BatchCommands::Convert {
+                pattern,
+                formats,
+                output_dir,
+                compression,
+                overwrite,
+                #[cfg(feature = "parallel")]
+                jobs,
+            } => {
+                let args = commands::batch::BatchConvertArgs {
                     pattern,
                     formats,
                     output_dir,
@@ -216,20 +228,10 @@ fn main() -> Result<()> {
                     overwrite,
                     #[cfg(feature = "parallel")]
                     jobs,
-                } => {
-                    let args = commands::batch::BatchConvertArgs {
-                        pattern,
-                        formats,
-                        output_dir,
-                        compression,
-                        overwrite,
-                        #[cfg(feature = "parallel")]
-                        jobs,
-                    };
-                    commands::batch::run(&args)?;
-                }
+                };
+                commands::batch::run(&args)?;
             }
-        }
+        },
     }
 
     Ok(())

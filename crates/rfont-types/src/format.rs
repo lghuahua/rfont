@@ -80,12 +80,14 @@ impl FontFormatInfo {
             total_tables,
         }
     }
-    
+
     /// 检查是否包含所有必需的表
     pub fn has_required_tables(&self, available_tables: &[String]) -> bool {
-        self.required_tables.iter().all(|req| available_tables.contains(req))
+        self.required_tables
+            .iter()
+            .all(|req| available_tables.contains(req))
     }
-    
+
     /// 获取缺失的必需表列表
     pub fn missing_required_tables(&self, available_tables: &[String]) -> Vec<String> {
         self.required_tables
@@ -181,7 +183,7 @@ mod tests {
 
         let available = vec!["cmap".to_string(), "head".to_string()];
         let missing = info.missing_required_tables(&available);
-        
+
         assert_eq!(missing.len(), 1);
         assert_eq!(missing[0], "maxp");
     }
@@ -200,7 +202,7 @@ mod tests {
 
         let available = vec!["cmap".to_string(), "head".to_string(), "extra".to_string()];
         let missing = info.missing_required_tables(&available);
-        
+
         assert_eq!(missing.len(), 0);
     }
 

@@ -6,9 +6,13 @@ pub struct Loca {
 }
 
 impl Loca {
-    pub fn read_from(reader: &mut Reader, index_to_loc_format: i16, num_glyphs: u16) -> Result<Self, FontError> {
+    pub fn read_from(
+        reader: &mut Reader,
+        index_to_loc_format: i16,
+        num_glyphs: u16,
+    ) -> Result<Self, FontError> {
         let mut offsets = Vec::with_capacity(num_glyphs as usize + 1);
-        
+
         if index_to_loc_format == 0 {
             // Short format: u16, scaled by 2
             for _ in 0..=(num_glyphs as usize) {
@@ -20,7 +24,7 @@ impl Loca {
                 offsets.push(reader.read_u32()?);
             }
         }
-        
+
         Ok(Self { offsets })
     }
 }
@@ -40,7 +44,7 @@ mod tests {
         ];
         let mut reader = Reader::new(&data);
         let loca = Loca::read_from(&mut reader, 0, 2).unwrap();
-        
+
         assert_eq!(loca.offsets.len(), 3); // num_glyphs + 1
         assert_eq!(loca.offsets[0], 0);
         assert_eq!(loca.offsets[1], 20);
@@ -57,7 +61,7 @@ mod tests {
         ];
         let mut reader = Reader::new(&data);
         let loca = Loca::read_from(&mut reader, 1, 2).unwrap();
-        
+
         assert_eq!(loca.offsets.len(), 3);
         assert_eq!(loca.offsets[0], 0);
         assert_eq!(loca.offsets[1], 20);
@@ -73,7 +77,7 @@ mod tests {
         ];
         let mut reader = Reader::new(&data);
         let loca = Loca::read_from(&mut reader, 0, 1).unwrap();
-        
+
         assert_eq!(loca.offsets.len(), 2);
         assert_eq!(loca.offsets[0], 0);
         assert_eq!(loca.offsets[1], 20);
@@ -85,7 +89,7 @@ mod tests {
         let data = vec![0x00, 0x00]; // Just one offset
         let mut reader = Reader::new(&data);
         let loca = Loca::read_from(&mut reader, 0, 0).unwrap();
-        
+
         assert_eq!(loca.offsets.len(), 1);
         assert_eq!(loca.offsets[0], 0);
     }

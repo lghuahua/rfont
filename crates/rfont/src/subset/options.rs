@@ -30,7 +30,7 @@ impl SubsetOptions {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Web 优化预设（最小文件大小）
     pub fn web_optimized() -> Self {
         SubsetOptions {
@@ -41,7 +41,7 @@ impl SubsetOptions {
             output_format: "woff".to_string(),
         }
     }
-    
+
     /// 打印优化预设（保留更多元数据）
     pub fn print_optimized() -> Self {
         SubsetOptions {

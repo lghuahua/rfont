@@ -1,19 +1,20 @@
+use anyhow::{Context, Result};
 use colored::*;
-use anyhow::{Result, Context};
-use std::path::Path;
 use rfont::Font;
+use std::path::Path;
 use tracing::{debug, info, span, Level};
 
 pub fn run(font_path: &Path, json: bool, verbose: bool) -> Result<()> {
-    let span = span!(Level::INFO, "info_command", path = ?font_path, json = json, verbose = verbose);
+    let span =
+        span!(Level::INFO, "info_command", path = ?font_path, json = json, verbose = verbose);
     let _enter = span.enter();
-    
+
     debug!("开始加载字体文件");
-    
+
     // 加载字体
     let font = Font::load(font_path.to_str().unwrap())
         .context(format!("无法加载字体文件: {:?}", font_path))?;
-    
+
     debug!(glyph_count = font.maxp.num_glyphs, "字体加载成功");
 
     if json {
@@ -25,7 +26,7 @@ pub fn run(font_path: &Path, json: bool, verbose: bool) -> Result<()> {
         debug!("使用人类可读输出模式");
         output_human(&font, verbose)?;
     }
-    
+
     info!("字体信息查询完成");
 
     Ok(())
@@ -37,13 +38,15 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
 
     // 基本信息
     let info = font.get_font_info();
-    
+
     println!("\n{}", "基本信息:".bold());
     println!("  字形数量:     {}", info.glyph_count);
     println!("  Units per EM: {}", info.units_per_em);
-    println!("  边界框:       [{}, {}, {}, {}]", 
-        info.x_min, info.y_min, info.x_max, info.y_max);
-    
+    println!(
+        "  边界框:       [{}, {}, {}, {}]",
+        info.x_min, info.y_min, info.x_max, info.y_max
+    );
+
     if let Some(version) = &info.version {
         println!("  版本:         {}", version);
     }
@@ -58,17 +61,18 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
     if verbose {
         println!("\n{}", "字体表:".bold());
         let tables = font.get_table_list();
-        
+
         for table in &tables {
             let size_str = format_size(table.length);
-            println!("  {:<8} offset={:<8} size={:<10} checksum=0x{:08X}",
+            println!(
+                "  {:<8} offset={:<8} size={:<10} checksum=0x{:08X}",
                 table.tag.bold().yellow(),
                 table.offset,
                 size_str,
                 table.checksum
             );
         }
-        
+
         println!("\n  总计: {} 个表", tables.len());
     }
 
@@ -76,10 +80,11 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
     let supported_chars = font.get_supported_characters();
     println!("\n{}", "字符支持:".bold());
     println!("  支持的 Unicode 字符数: {}", supported_chars.len());
-    
+
     if verbose && !supported_chars.is_empty() {
         // 显示前 20 个字符作为示例
-        let sample: String = supported_chars.iter()
+        let sample: String = supported_chars
+            .iter()
             .take(20)
             .filter_map(|&c| char::from_u32(c))
             .collect();
@@ -93,7 +98,7 @@ fn output_json(font: &Font, verbose: bool) -> Result<()> {
     use serde_json::{json, Value};
 
     let info = font.get_font_info();
-    
+
     let mut result = json!({
         "glyph_count": info.glyph_count,
         "units_per_em": info.units_per_em,
@@ -119,15 +124,18 @@ fn output_json(font: &Font, verbose: bool) -> Result<()> {
 
     if verbose {
         let tables = font.get_table_list();
-        let tables_json: Vec<Value> = tables.iter().map(|t| {
-            json!({
-                "tag": t.tag,
-                "offset": t.offset,
-                "length": t.length,
-                "checksum": format!("0x{:08X}", t.checksum),
+        let tables_json: Vec<Value> = tables
+            .iter()
+            .map(|t| {
+                json!({
+                    "tag": t.tag,
+                    "offset": t.offset,
+                    "length": t.length,
+                    "checksum": format!("0x{:08X}", t.checksum),
+                })
             })
-        }).collect();
-        
+            .collect();
+
         if let Value::Object(ref mut map) = result {
             map.insert("tables".to_string(), json!(tables_json));
         }

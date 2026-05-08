@@ -60,6 +60,12 @@ pub struct FontInfo {
     pub supported_char_count: usize,
 }
 
+impl Default for FontInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontInfo {
     /// 创建空的 FontInfo
     pub fn new() -> Self {

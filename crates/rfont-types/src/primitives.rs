@@ -1,8 +1,8 @@
-use std::fmt;
-use chrono::{NaiveDateTime, NaiveDate, Duration};
-use crate::io::{Reader, Writer, ReadBytes, WriteBytes};
+use crate::io::{ReadBytes, Reader, WriteBytes, Writer};
 use crate::FontError;
+use chrono::{Duration, NaiveDate, NaiveDateTime};
 use font_macros::ReadBytes;
+use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct TableRecord {
@@ -14,7 +14,12 @@ pub struct TableRecord {
 
 impl<'a> ReadBytes<'a> for TableRecord {
     fn read_from(reader: &mut Reader<'a>) -> Result<Self, FontError> {
-        let tag_bytes = [reader.read_u8()?, reader.read_u8()?, reader.read_u8()?, reader.read_u8()?];
+        let tag_bytes = [
+            reader.read_u8()?,
+            reader.read_u8()?,
+            reader.read_u8()?,
+            reader.read_u8()?,
+        ];
         Ok(TableRecord {
             tag: Tag(tag_bytes),
             checksum: reader.read_u32()?,
@@ -46,22 +51,25 @@ impl<'a> ReadBytes<'a> for LONGDATETIME {
         let high = reader.read_u32()? as i64;
         let low = reader.read_u32()? as i64;
         let seconds = (high << 32) | low;
-        
+
         let start = LONGDATETIME::get_start().ok_or(FontError::InvalidBaseDate)?;
-        
+
         // chrono::Duration::seconds 的范围是 i64::MIN / 1_000_000_000 到 i64::MAX / 1_000_000_000
         // 大约 ±292 年。字体时间戳可能超出此范围，需要安全处理。
         const MAX_SECONDS: i64 = i64::MAX / 1_000_000_000;
         const MIN_SECONDS: i64 = i64::MIN / 1_000_000_000;
-        
-        let dt = if seconds >= MIN_SECONDS && seconds <= MAX_SECONDS {
+
+        let dt = if (MIN_SECONDS..=MAX_SECONDS).contains(&seconds) {
             start + Duration::seconds(seconds)
         } else {
             // 如果时间戳超出范围，使用起始时间作为fallback
-            eprintln!("Warning: LONGDATETIME value {} out of bounds (max={}), using epoch", seconds, MAX_SECONDS);
+            eprintln!(
+                "Warning: LONGDATETIME value {} out of bounds (max={}), using epoch",
+                seconds, MAX_SECONDS
+            );
             start
         };
-        
+
         Ok(LONGDATETIME(dt))
     }
 }
@@ -161,7 +169,7 @@ mod tests {
     fn test_tag_creation() {
         let tag = Tag(*b"head");
         assert_eq!(tag.as_str(), "head");
-        
+
         let tag2 = Tag([0x68, 0x65, 0x61, 0x64]); // 'h', 'e', 'a', 'd'
         assert_eq!(tag2.as_str(), "head");
     }
@@ -171,7 +179,7 @@ mod tests {
         // 测试 Fixed 类型的转换
         let fixed = Fixed(0x0001_8000 as f32 / 65536.0); // 1.5 in 16.16 format
         assert!((fixed.0 - 1.5).abs() < f32::EPSILON);
-        
+
         let fixed2 = Fixed::from_i32(0x0002_8000);
         assert!((fixed2.0 - 2.5).abs() < f32::EPSILON);
     }
@@ -180,7 +188,7 @@ mod tests {
     fn test_fword_conversion() {
         let fword = FWord(1000);
         assert_eq!(fword.0, 1000);
-        
+
         let fword2 = FWord(-500);
         assert_eq!(fword2.0, -500);
     }
@@ -195,7 +203,7 @@ mod tests {
         ];
         let mut reader = Reader::new(&data);
         let record = TableRecord::read_from(&mut reader).unwrap();
-        
+
         assert_eq!(record.tag.as_str(), "head");
         assert_eq!(record.checksum, 1);
         assert_eq!(record.offset, 12);
@@ -208,14 +216,20 @@ mod tests {
         let seconds_since_1904 = 2082844800u64;
         let high = (seconds_since_1904 >> 32) as u32;
         let low = seconds_since_1904 as u32;
-        
+
         let data = vec![
-            (high >> 24) as u8, (high >> 16) as u8, (high >> 8) as u8, high as u8,
-            (low >> 24) as u8, (low >> 16) as u8, (low >> 8) as u8, low as u8,
+            (high >> 24) as u8,
+            (high >> 16) as u8,
+            (high >> 8) as u8,
+            high as u8,
+            (low >> 24) as u8,
+            (low >> 16) as u8,
+            (low >> 8) as u8,
+            low as u8,
         ];
         let mut reader = Reader::new(&data);
         let datetime = LONGDATETIME::read_from(&mut reader).unwrap();
-        
+
         // 验证解析成功（具体日期可能因时区而异）
         assert!(datetime.0.year() >= 1970);
     }
@@ -224,7 +238,7 @@ mod tests {
     fn test_tag_from_bytes_valid() {
         let tag = Tag::from_bytes(b"cmap").unwrap();
         assert_eq!(tag.as_str(), "cmap");
-        
+
         let tag2 = Tag::from_bytes(b"glyf").unwrap();
         assert_eq!(tag2.as_str(), "glyf");
     }
@@ -240,7 +254,7 @@ mod tests {
     fn test_tag_display() {
         let tag = Tag(*b"head");
         assert_eq!(format!("{}", tag), "head");
-        
+
         // 全零字节不是有效的 UTF-8，但 from_utf8 会返回包含这些字节的字符串
         let tag2 = Tag([0x00, 0x00, 0x00, 0x00]);
         let display_str = format!("{}", tag2);
@@ -252,7 +266,7 @@ mod tests {
         let tag1 = Tag(*b"head");
         let tag2 = Tag(*b"head");
         let tag3 = Tag(*b"cmap");
-        
+
         assert_eq!(tag1, tag2);
         assert_ne!(tag1, tag3);
     }
@@ -262,7 +276,7 @@ mod tests {
         let tag1 = Tag(*b"maxp");
         let tag2 = tag1;
         let tag3 = tag1.clone();
-        
+
         assert_eq!(tag1, tag2);
         assert_eq!(tag1, tag3);
     }
@@ -270,12 +284,12 @@ mod tests {
     #[test]
     fn test_tag_hash() {
         use std::collections::HashSet;
-        
+
         let mut set = HashSet::new();
         set.insert(Tag(*b"head"));
         set.insert(Tag(*b"cmap"));
         set.insert(Tag(*b"head")); // 重复，不应添加
-        
+
         assert_eq!(set.len(), 2);
         assert!(set.contains(&Tag(*b"head")));
         assert!(set.contains(&Tag(*b"cmap")));
@@ -286,11 +300,11 @@ mod tests {
         // 1.0 in 2.14 format = 0x4000
         let f = F2Dot14::from_u16(0x4000);
         assert!((f.0 - 1.0).abs() < 0.0001);
-        
+
         // 0.5 in 2.14 format = 0x2000
         let f2 = F2Dot14::from_u16(0x2000);
         assert!((f2.0 - 0.5).abs() < 0.0001);
-        
+
         // -1.0 in 2.14 format = 0xC000 (signed)
         let f3 = F2Dot14::from_u16(0xC000);
         assert!((f3.0 - (-1.0)).abs() < 0.0001);
@@ -332,22 +346,22 @@ mod tests {
     #[test]
     fn test_fword_write() {
         use crate::io::Writer;
-        
+
         let mut writer = Writer::new();
         let fword = FWord(1000);
         fword.write_to(&mut writer).unwrap();
-        
+
         assert_eq!(writer.data, vec![0x03, 0xE8]); // 1000 in big-endian
     }
 
     #[test]
     fn test_fword_write_negative() {
         use crate::io::Writer;
-        
+
         let mut writer = Writer::new();
         let fword = FWord(-500);
         fword.write_to(&mut writer).unwrap();
-        
+
         // -500 in i16 big-endian = 0xFE0C
         assert_eq!(writer.data, vec![0xFE, 0x0C]);
     }
@@ -355,22 +369,22 @@ mod tests {
     #[test]
     fn test_ufword_write() {
         use crate::io::Writer;
-        
+
         let mut writer = Writer::new();
         let ufword = UFWord(1000);
         ufword.write_to(&mut writer).unwrap();
-        
+
         assert_eq!(writer.data, vec![0x03, 0xE8]); // 1000 in big-endian
     }
 
     #[test]
     fn test_ufword_max_value() {
         use crate::io::Writer;
-        
+
         let mut writer = Writer::new();
         let ufword = UFWord(u16::MAX);
         ufword.write_to(&mut writer).unwrap();
-        
+
         assert_eq!(writer.data, vec![0xFF, 0xFF]);
     }
 
@@ -383,7 +397,7 @@ mod tests {
         ];
         let mut reader = Reader::new(&data);
         let record = EncodingRecord::read_from(&mut reader).unwrap();
-        
+
         assert_eq!(record.platform_id, 3);
         assert_eq!(record.encoding_id, 1);
         assert_eq!(record.offset, 12);
@@ -398,7 +412,7 @@ mod tests {
         ];
         let mut reader = Reader::new(&data);
         let record = EncodingRecord::read_from(&mut reader).unwrap();
-        
+
         assert_eq!(record.platform_id, 1);
         assert_eq!(record.encoding_id, 0);
     }
@@ -407,13 +421,16 @@ mod tests {
     fn test_longdatetime_write() {
         use crate::io::Writer;
         use chrono::NaiveDate;
-        
+
         let mut writer = Writer::new();
-        let date = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap();
+        let date = NaiveDate::from_ymd_opt(1970, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let datetime = LONGDATETIME(date);
-        
+
         datetime.write_to(&mut writer).unwrap();
-        
+
         // 应该有 8 字节输出
         assert_eq!(writer.data.len(), 8);
     }
@@ -422,16 +439,19 @@ mod tests {
     fn test_longdatetime_write_basic() {
         use crate::io::Writer;
         use chrono::NaiveDate;
-        
+
         let mut writer = Writer::new();
-        let date = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap().and_hms_opt(0, 0, 0).unwrap();
+        let date = NaiveDate::from_ymd_opt(1970, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let datetime = LONGDATETIME(date);
-        
+
         datetime.write_to(&mut writer).unwrap();
-        
+
         // 应该有 8 字节输出
         assert_eq!(writer.data.len(), 8);
-        
+
         // 验证后 4 字节（高 32 位，write_to 只写了低 32 位）
         assert_eq!(&writer.data[4..8], &[0, 0, 0, 0]);
     }
@@ -445,7 +465,7 @@ mod tests {
             offset: 100,
             length: 54,
         };
-        
+
         let debug_str = format!("{:?}", record);
         // Debug 输出包含字段名和值
         assert!(debug_str.contains("checksum") || debug_str.contains("100"));
@@ -460,9 +480,9 @@ mod tests {
             offset: 200,
             length: 100,
         };
-        
+
         let record2 = record1.clone();
-        
+
         assert_eq!(record2.tag.as_str(), "cmap");
         assert_eq!(record2.checksum, 0xABCD);
         assert_eq!(record2.offset, 200);
@@ -476,7 +496,7 @@ mod tests {
             encoding_id: 1,
             offset: 12,
         };
-        
+
         let debug_str = format!("{:?}", record);
         assert!(debug_str.contains("3"));
         assert!(debug_str.contains("1"));
@@ -488,7 +508,7 @@ mod tests {
         let max = F2Dot14::from_u16(0x7FFF);
         assert!(max.0 < 2.0);
         assert!(max.0 > 1.9);
-        
+
         // 最小值 (0x8000 = -32768 / 16384 = -2.0)
         let min = F2Dot14::from_u16(0x8000);
         assert!((min.0 - (-2.0)).abs() < 0.0001); // 应该等于 -2.0
@@ -499,7 +519,7 @@ mod tests {
         // 大数值
         let large = Fixed::from_i32(0x00FF0000); // 255.0
         assert!((large.0 - 255.0).abs() < 0.0001);
-        
+
         // 小数值
         let small = Fixed::from_i32(0x00000001); // 1/65536
         assert!(small.0 > 0.0);
