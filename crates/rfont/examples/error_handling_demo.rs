@@ -20,10 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("❌ 无效的字体格式");
             eprintln!("   期望魔数: {:#010X}", expected);
             eprintln!("   实际魔数: {:#010X}", actual);
-            let font_error = FontError::InvalidMagicNumber { 
-                expected,
-                actual
-            };
+            let font_error = FontError::InvalidMagicNumber { expected, actual };
             if let Some(suggestion) = font_error.suggestion() {
                 eprintln!("💡 建议: {}", suggestion);
             }
@@ -65,6 +62,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   • 支持标准 Error trait（可与其他库集成）");
     println!("   • 错误恢复建议（suggestion() 方法）");
     println!("   • 错误链支持（source() 方法）");
-    
+
     Ok(())
 }

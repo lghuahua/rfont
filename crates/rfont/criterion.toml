@@ -1,0 +1,24 @@
+# Criterion 基准测试配置
+# 参考: https://bheisler.github.io/criterion.rs/book/user_guide/configuration.html
+
+# 输出格式
+output_format = "html"
+
+# 采样配置
+sample_size = 100              # 默认采样次数
+warm_up_time = "3s"            # 预热时间
+measurement_time = "5s"        # 测量时间
+noise_threshold = 0.05         # 噪声阈值（5%）
+
+# 置信区间
+confidence_level = 0.95        # 95% 置信水平
+
+# 基线管理
+# 注意：Criterion 不支持在配置文件中指定基线名称
+# 需要使用命令行参数: --save-baseline <name> --baseline <name>
+
+# 绘图配置
+plotting_backend = "plotters"  # 使用 plotters 后端
+
+# 是否显示详细输出
+verbose = false
