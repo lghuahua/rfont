@@ -3,8 +3,10 @@ name = "rfont-types"
 version = "0.1.0"
 edition = "2021"
 description = "rfont 字体库的类型定义和基础 trait"
-authors = ["rfont Team"]
-license = "MIT OR Apache-2.0"
+authors = ["lghuahua"]
+license = "MIT"
+repository = "https://github.com/lghuahua/rfont"
+publish = false  # 不发布到 crates.io，作为内部依赖
 
 [dependencies]
 chrono = { workspace = true }

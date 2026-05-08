@@ -3,9 +3,9 @@ name = "rfont"
 version = "0.1.0"
 edition = "2021"
 description = "高性能字体子集化和转换库，支持 TTF/WOFF/WOFF2 格式"
-authors = ["rfont Team"]
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/rfont/rfont"
+authors = ["lghuahua"]
+license = "MIT"
+repository = "https://github.com/lghuahua/rfont"
 keywords = ["font", "subset", "woff2", "ttf", "web-font"]
 categories = ["text-processing"]
 
