@@ -59,6 +59,8 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
+    needs: test  # 确保测试通过后再生成覆盖率
+    timeout-minutes: 15  # cargo-llvm-cov 更快，减少超时时间
     
     steps:
       - uses: actions/checkout@v4
@@ -66,16 +68,38 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-llvm-cov-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-llvm-cov-
+            ${{ runner.os }}-cargo-
+      
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
       
       - name: Generate coverage
-        run: cargo tarpaulin --workspace --out Xml --output-dir ./coverage
+        run: |
+          # cargo-llvm-cov 会自动运行测试并收集覆盖率
+          # 由于使用了缓存，大部分依赖和编译产物已存在，速度很快
+          cargo llvm-cov \
+            --workspace \
+            --lcov \
+            --output-path lcov.info \
+            --ignore-filename-regex "tests|benches|examples" \
+            --verbose
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          file: ./coverage/cobertura.xml
+          file: lcov.info
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 

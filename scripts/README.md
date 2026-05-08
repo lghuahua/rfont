@@ -6,7 +6,62 @@
 
 ## 📜 可用脚本
 
-### 1. generate-changelog.ps1 / generate-changelog.sh
+### 1. coverage.ps1 / coverage.sh
+
+**功能**: 快速生成代码覆盖率报告（使用 cargo-llvm-cov）
+
+**前置条件**:
+- 已安装 `cargo-llvm-cov`: `cargo install cargo-llvm-cov --locked`
+
+#### Windows PowerShell 使用
+
+```powershell
+# 生成完整覆盖率报告（LCOV 格式）
+.\scripts\coverage.ps1
+
+# 生成 HTML 报告
+.\scripts\coverage.ps1 -Html
+
+# 生成并打开 HTML 报告
+.\scripts\coverage.ps1 -Open
+
+# 生成 JSON 报告
+.\scripts\coverage.ps1 -Json
+```
+
+#### Linux/Mac/Git Bash 使用
+
+```bash
+# 首次使用需要添加执行权限
+chmod +x scripts/coverage.sh
+
+# 生成完整覆盖率报告（LCOV 格式）
+./scripts/coverage.sh
+
+# 生成 HTML 报告
+./scripts/coverage.sh --html
+
+# 生成并打开 HTML 报告
+./scripts/coverage.sh --open
+
+# 生成 JSON 报告
+./scripts/coverage.sh --json
+```
+
+**输出文件**:
+- `lcov.info` - LCOV 格式（用于 Codecov）
+- `coverage/html/index.html` - HTML 可视化报告
+- `coverage/report.json` - JSON 格式报告
+
+**优势**:
+- ⚡ 比 cargo-tarpaulin 快 2-3 倍
+- 🎯 更准确的分支覆盖率
+- 💾 更低的内存占用
+- 🔒 更好的稳定性
+
+---
+
+### 2. generate-changelog.ps1 / generate-changelog.sh
 
 **功能**: 自动生成 CHANGELOG.md 文件
 

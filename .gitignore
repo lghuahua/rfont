@@ -8,6 +8,9 @@ coverage/
 cobertura.xml
 tarpaulin-report.html
 tarpaulin-report.json
+lcov.info
+*.profraw
+*.profdata
 
 # Test output files
 test_*.ttf
