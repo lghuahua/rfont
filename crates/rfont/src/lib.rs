@@ -332,7 +332,7 @@ mod tests {
         let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
 
         let mut count = 0;
-        for (glyph_id, glyph_data) in font.glyph_iter() {
+        for (glyph_id, _glyph_data) in font.glyph_iter() {
             count += 1;
             // glyph_id 应该从 0 开始递增
             assert_eq!(glyph_id as usize, count - 1);
