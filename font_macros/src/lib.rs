@@ -20,4 +20,3 @@ pub fn write_bytes_derive(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
     ser::impl_ser_derive(&mut input).into()
 }
-
