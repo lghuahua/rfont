@@ -3,6 +3,17 @@ target
 Cargo.lock
 node_modules
 
+# Coverage reports
+coverage/
+cobertura.xml
+tarpaulin-report.html
+tarpaulin-report.json
+
+# Test output files
+test_*.ttf
+test_*.woff
+test_*.woff2
+
 ### Node ###
 # Logs
 logs
