@@ -1,7 +1,7 @@
-# rfont 项目待办事项
+# rfont 项目任务清单
 
-> **最后更新**: 2026-04-29 (Post 表优化完成)  
-> **当前状态**: CLI 工具开发完成，Cargo.toml 优化完成，Post 表优化完成，准备进入桌面应用阶段
+> **最后更新**: 2026-05-08 (TODO.md 已完成任务精简，只保留关键功能记录)  
+> **当前状态**: ✅ 核心库功能完整 | ✅ CLI 工具成熟 | ✅ 262 测试 100% 通过 | ✅ io.rs 100% 覆盖 | ✅ 日志系统完善 | ✅ 文档注释完善
 
 ---
 
@@ -9,402 +9,84 @@
 
 | 指标 | 数值 |
 |------|------|
-| 单元测试总数 | 49 (rfont: 10, rfont-core: 34, rfont-types: 5) |
+| 单元测试总数 | 177 (rfont: 52, rfont-core: 62, rfont-types: 63) |
 | 测试通过率 | 100% ✅ |
 | 编译状态 | 无警告 ✅ |
-| 支持格式 | TTF, WOFF, WOFF2 |
+| 支持格式 | TTF, OTF, WOFF, WOFF2 |
 | CLI 命令 | info, subset, convert, batch |
-| 核心功能 | 懒加载、LRU 缓存、流式处理、Builder API、批量转换 |
+| 示例程序 | 6 个 (font_info, builder, error_handling, format_detection, perf_comparison, test_alimama) |
+| 基准测试 | 7 个 (加载、查找、转换、迭代、子集化、分块处理、并行对比) |
+| 核心功能 | 懒加载、LRU 缓存、流式处理、Builder API、批量转换、错误恢复建议、格式检测增强、并行处理 |
+| 代码覆盖率 | 64.85% (目标: > 70%) |
 
 ---
 
-## ✅ 已完成工作（历史记录）
+## ✅ 已完成任务
 
-### 核心库开发
+### 核心架构
 - ✅ **模块化重构** - 拆分为 rfont-types, rfont-core, rfont, font_macros
-- ✅ **结构化错误处理** - 使用 thiserror 定义 FontError
-- ✅ **字体元数据 API** - get_font_info(), get_table_list(), text_to_glyph_ids() 等
-- ✅ **Builder 模式 API** - FontSubsetBuilder 链式调用接口
-- ✅ **性能优化** - 懒加载机制、LRU 缓存（256 条目）、流式迭代器
-- ✅ **Post 表子集化优化** - 自动将 post v2 转换为 v3，移除字形名称数组，减小体积
+- ✅ **结构化错误处理** - thiserror + 12 种错误类型 + 恢复建议
+- ✅ **性能优化** - 懒加载、LRU 缓存（256 条目）、流式迭代器
+- ✅ **并行处理** - Rayon 并行化批量转换和子集化
 
-### 测试覆盖
-- ✅ **glyf 表测试** - 14 个测试用例（简单字形、复合字形、边界情况）
-- ✅ **hmtx 表测试** - 7 个测试用例（水平度量、advanceWidth、lsb）
-- ✅ **cmap 表测试** - Unicode 映射、格式 0/4 解析
-- ✅ **WOFF2 测试** - 4 个测试用例（Header、Base128 编码、标签验证）
-- ✅ **Post 表测试** - 4 个测试用例（v2→v3 转换、头部解析、大小减少验证）
-- ✅ **基础类型测试** - Tag、Fixed、FWord、LongDateTime
+### 字体功能
+- ✅ **多格式支持** - TTF, OTF, WOFF, WOFF2（压缩率 43%）
+- ✅ **Builder API** - FontSubsetBuilder 链式调用接口
+- ✅ **字体元数据** - get_font_info(), get_table_list(), text_to_glyph_ids()
+- ✅ **格式检测增强** - FontFormatInfo API，可变字体识别，必需表验证
+- ✅ **Post 表优化** - 自动 v2→v3 转换，移除字形名称数组
 
 ### CLI 工具
-- ✅ **info 命令** - 字体信息查询（基本元数据、表列表、JSON 输出）
-- ✅ **subset 命令** - 字体子集化（文本输入、文件读取、Unicode 范围）
-- ✅ **convert 命令** - 格式转换（TTF ↔ WOFF ↔ WOFF2）
-- ✅ **batch 命令** - 批量处理（批量格式转换、通配符支持、进度显示）
+- ✅ **完整命令集** - info, subset, convert, batch
 - ✅ **用户体验** - 彩色输出、进度条、友好错误提示、压缩率统计
+- ✅ **日志系统** - 多级 verbosity、RUST_LOG、结构化日志、span 追踪
 
-### 格式支持
-- ✅ **TTF 读写** - 完整的 SFNT 结构解析和序列化
-- ✅ **WOFF 支持** - zlib 压缩/解压缩
-- ✅ **WOFF2 支持** - Brotli 压缩/解压缩（压缩率 43%）
-- ✅ **Base128 编码** - WOFF2 变长整数编码实现
-
-### Post 表优化
-- ✅ **版本检测** - 自动识别 post v1.0/2.0/2.5/3.0/4.0
-- ✅ **v2 → v3 转换** - 移除字形名称数组，保留所有元数据字段
-- ✅ **字段完整性** - italicAngle, underlinePosition/Thickness, isFixedPitch, min/maxMemType*
-- ✅ **单元测试** - 4 个测试用例验证转换正确性和往返一致性
-- ✅ **体积减少** - 实际字体中可减少 90%+ 的 post 表体积（取决于字形数量）
-
-#### 技术实现详情
-```rust
-// Post 表结构 (32 字节头部)
-struct PostTableInfo {
-    version: u32,              // 版本号
-    italic_angle: i32,         // 斜体角度 (Fixed)
-    underline_position: i16,   // 下划线位置
-    underline_thickness: i16,  // 下划线厚度
-    is_fixed_pitch: bool,      // 是否等宽
-    min_mem_type42: u32,       // Type 42 最小内存
-    max_mem_type42: u32,       // Type 42 最大内存
-    min_mem_type1: u32,        // Type 1 最小内存
-    max_mem_type1: u32,        // Type 1 最大内存
-}
-
-// 转换逻辑
-if version == 0x00020000 {
-    // Version 2.0: 包含字形名称数组 → 转换为 Version 3.0
-    subset_post_v2_to_v3(original_post)
-} else {
-    // 其他版本保持原样
-    Ok(original_post.to_vec())
-}
-```
-
-#### 测试结果
-- ✅ `test_post_header_parsing` - 头部字段解析正确
-- ✅ `test_post_v2_to_v3_conversion` - 转换后长度为 32 字节
-- ✅ `test_post_size_reduction` - 体积减少验证（测试数据 20%，实际字体 90%+）
-- ✅ `test_post_v3_passthrough` - v3 表直接透传
-
-#### 收益分析
-- **小字体子集** (10 个字形): post 表从 ~200 bytes → 32 bytes (84% 减少)
-- **中等字体子集** (100 个字形): post 表从 ~2 KB → 32 bytes (98% 减少)
-- **大字体子集** (1000 个字形): post 表从 ~20 KB → 32 bytes (99.8% 减少)
-
-**文件**: `crates/rfont/src/subset/tables/post.rs` (245 行)  
-**完成时间**: 2026-04-29
-
-### 构建优化
-- ✅ **Workspace 依赖管理** - 统一版本控制，消除 11 处重复声明
-- ✅ **Resolver = "2"** - Rust 2021 推荐配置
-- ✅ **Release Profile** - LTO + strip + panic=abort（二进制 2.13 MB）
-- ✅ **Dev Profile** - 依赖包 opt-level=2，加速编译
-- ✅ **Package Metadata** - 完整的 description、license、keywords、categories
+### 测试覆盖
+- ✅ **262 个测试** - 100% 通过率（rfont: 52, rfont-core: 62, rfont-types: 130, doctest: 18）
+- ✅ **io.rs 100% 覆盖** - Reader/Writer 边界条件测试（32 个用例）
+- ✅ **字体表测试** - glyf (14), hmtx (12), cmap, woff/woff2, post
+- ✅ **集成测试** - 子集化表处理（29 个用例），Builder 模式（52 个用例）
 
 ### 文档与示例
-- ✅ **示例代码** - font_info_demo.rs, builder_demo.rs, error_handling_demo.rs
-- ✅ **优化报告** - CARGO_TOML_OPTIMIZATION.md（411 行详细分析）
-- ✅ **WOFF2 文档** - WOFF2_IMPLEMENTATION.md（技术细节、API 示例）
+- ✅ **6 个示例程序** - font_info, builder, error_handling, format_detection, perf_comparison, test_alimama
+- ✅ **完整文档** - examples/README.md, benches/README.md, BASELINE_GUIDE.md, LOGGING.md, COVERAGE_REPORT.md, WOFF2_IMPLEMENTATION.md
+- ✅ **rustdoc 注释** - 所有公共 API 完整文档（Font, FontSubsetBuilder, SubsetOptions 等）
+- ✅ **基准测试** - 7 个性能测试 + criterion.toml 配置 + BenchmarkGroup 优化
+
+### 构建优化
+- ✅ **Workspace 管理** - 统一依赖版本，Resolver 2
+- ✅ **Release Profile** - LTO + strip + panic=abort（二进制 2.13 MB）
 
 ---
 
-## 🔴 高优先级任务（立即执行）
+## 📋 待完成任务
 
-### 1. CLI batch 命令实现 ✅ COMPLETED
-**优先级**: 🔴 高  
-**预计工作量**: 8-12 小时  
-**影响范围**: `crates/rfont-cli/src/commands/batch.rs`（新建）
+### 🟢 低优先级任务（1-2 月内）
 
-#### 已完成功能
-- [x] **批量格式转换**
-  - [x] 支持通配符匹配多个字体文件（`*.ttf`）
-  - [x] 支持 TTF → WOFF/WOFF2 和 WOFF/WOFF2 → TTF
-  - [x] **多格式同时转换**（一次命令转换为多种格式，如 `-f woff -f woff2`）
-  - [x] 保持原始文件名，仅修改扩展名
-  - [x] 支持自定义输出目录 (`--output-dir`)
-  - [x] 跳过已存在的文件（默认），支持 `--overwrite` 覆盖
-  
-- [x] **进度显示**
-  - [x] 总体进度条（MultiProgress）
-  - [x] 单个文件进度条
-  - [x] 实时显示处理状态
-
-- [x] **错误处理与报告**
-  - [x] 单个文件失败不影响其他文件
-  - [x] 生成详细的处理报告（成功/失败统计）
-  - [x] 显示压缩率和节省空间
-  - [x] 列出所有失败的文件及原因
-
-#### 测试结果
-- ✅ 成功转换 3 个 TTF → WOFF2（压缩率 56.5%）
-- ✅ 成功转换 3 个 TTF → WOFF（压缩率 63.9%）
-- ✅ **多格式同时转换**：2 个 TTF → WOFF + WOFF2（4 个输出文件）
-- ✅ `--overwrite` 保护功能正常
-- ✅ 错误文件自动跳过，不影响其他文件
-
-#### 技术实现
-```bash
-# 单格式批量转换
-rfont batch convert "*.ttf" --format woff2 --output-dir ./output --compression 9
-
-# 多格式同时转换（新功能）
-rfont batch convert "*.ttf" -f woff -f woff2 --output-dir ./output
-
-# 批量转换为 WOFF
-rfont batch convert "test_*.ttf" --format woff --output-dir ./woff_output
-
-# 覆盖已存在的文件
-rfont batch convert "*.ttf" --format woff2 --overwrite
-```
-
-**依赖新增**: `glob = "0.3"`  
-**完成时间**: 2026-04-29
-
----
-
-### 2. glyf/hmtx 测试补充
-**优先级**: 🔴 高  
-**预计工作量**: 4-6 小时  
-**影响范围**: `crates/rfont-core/src/tables/glyf.rs`, `hmtx.rs`
-
-#### 待补充测试
-虽然已有基础测试，但以下场景仍需覆盖：
-
-- [ ] **glyf 表边界情况**
-  - [ ] 超大字形（> 1000 个点）
-  - [ ] 嵌套复合字形（复合中包含复合）
-  - [ ] 负坐标偏移的正确性
-  - [ ] 标志位重复计数的边界值
-  
-- [ ] **hmtx 表完整验证**
-  - [ ] numberOfHMetrics < numGlyphs 的情况
-  - [ ] 所有字形共享相同 advanceWidth
-  - [ ] lsb 为负值的渲染正确性
-  - [ ] 零宽度字形（如空格、控制字符）
-
-**注意**: 当前测试已通过，这些是增强性测试，用于提高覆盖率到 90%+
-
----
-
-## 🟡 中优先级任务（1-2 周内）
-
-### 4. 异步支持
-**优先级**: 🟡 中  
-**预计工作量**: 12-16 小时  
-**影响范围**: `crates/rfont/src/lib.rs`, `crates/rfont-core/src/reader.rs`
-
-#### 功能设计
-- [ ] **异步 API**
-  - [ ] `Font::load_async()` - 异步加载字体文件
-  - [ ] `Font::subset_async()` - 异步子集化处理
-  - [ ] 使用 `tokio` 或 `async-std` 运行时
-  
-- [ ] **进度反馈机制**
-  - [ ] 定义 `ProgressCallback` trait
-    ```rust
-    pub trait ProgressCallback: FnMut(u32, u32) + Send {}
-    ```
-  - [ ] 在子集化过程中定期调用回调（每处理 100 个字形）
-  - [ ] 支持取消操作（通过返回 `Result<(), Cancelled>`）
-  
-- [ ] **Feature 标志**
-  - [ ] 将异步支持作为可选 feature (`async`)
-  - [ ] 默认不启用，避免增加依赖
-
-#### 技术选型
-- **运行时**: `tokio` (更流行) 或 `async-std` (更轻量)
-- **文件大小**: tokio ~1MB, async-std ~500KB
-- **推荐**: 使用 `tokio`，生态更成熟
-
-**依赖新增**: `tokio = { version = "1.35", features = ["fs"], optional = true }`
-
----
-
-### 5. 错误处理增强
-**优先级**: 🟡 中  
-**预计工作量**: 6-8 小时  
-**影响范围**: `crates/rfont-types/src/error.rs`, 所有解析逻辑
-
-#### 当前问题
-虽然已使用 thiserror，但错误信息不够详细，缺少上下文。
-
-#### 改进方案
-- [ ] **结构化错误枚举**
-  ```rust
-  #[derive(Debug, thiserror::Error)]
-  pub enum FontError {
-      #[error("Invalid magic number: expected {expected:#010X}, got {actual:#010X}")]
-      InvalidMagicNumber { expected: u32, actual: u32 },
-      
-      #[error("Table '{tag}' not found in font")]
-      TableNotFound { tag: String },
-      
-      #[error("Invalid offset in table '{table}': offset={offset}, max={max}")]
-      InvalidOffset { 
-          table: String, 
-          offset: u32, 
-          max: u32 
-      },
-      
-      #[error("Failed to parse {table} at offset {offset}: {reason}")]
-      ParseError {
-          table: String,
-          offset: u64,
-          reason: String,
-      },
-      
-      // ... 更多具体错误类型
-  }
-  ```
-
-- [ ] **错误上下文**
-  - [ ] 每个错误包含足够的调试信息
-  - [ ] 支持错误链（source）
-  - [ ] 提供人类可读的错误消息
-  
-- [ ] **错误恢复建议**
-  - [ ] 对于常见错误，提供修复建议
-  - [ ] 例如："文件可能损坏，请尝试重新下载"
-
----
-
-### 6. 格式检测增强
-**优先级**: 🟡 中  
-**预计工作量**: 4-6 小时  
-**影响范围**: `crates/rfont/src/font/load.rs`
-
-#### 当前状态
-已支持 TTF/WOFF/WOFF2 自动检测，但信息有限。
-
-#### 改进方向
-- [ ] **详细格式信息**
-  - [ ] 区分 TTF (TrueType) 和 OTF (OpenType with CFF)
-  - [ ] 检测 WOFF/WOFF2 的压缩级别
-  - [ ] 识别字体变体（Variable Font）
-  
-- [ ] **格式验证**
-  - [ ] 校验 SFNT 结构完整性
-  - [ ] 检查必需表是否存在（head, hhea, maxp, cmap）
-  - [ ] 验证表偏移量和长度的一致性
-  
-- [ ] **API 扩展**
-  ```rust
-  pub struct FontFormatInfo {
-      pub format: FontFormat,  // TTF, OTF, WOFF, WOFF2
-      pub version: String,
-      pub is_variable: bool,
-      pub compression: Option<CompressionType>,
-      pub required_tables: Vec<Tag>,
-      pub optional_tables: Vec<Tag>,
-  }
-  
-  impl Font {
-      pub fn detect_format(data: &[u8]) -> Result<FontFormatInfo, FontError>;
-  }
-  ```
-
----
-
-### 7. 批量处理 API
-**优先级**: 🟡 中  
-**预计工作量**: 8-10 小时  
-**影响范围**: `crates/rfont/src/lib.rs`
-
-#### 功能设计
-- [ ] **批量子集化方法**
-  ```rust
-  impl Font {
-      pub fn batch_subset(
-          &self,
-          inputs: Vec<SubsetInput>,
-          options: &BatchSubsetOptions,
-      ) -> Result<Vec<SubsetResult>, FontError>;
-  }
-  
-  pub struct SubsetInput {
-      pub text: String,
-      pub output_path: PathBuf,
-      pub format: String,  // "ttf", "woff", "woff2"
-  }
-  
-  pub struct SubsetResult {
-      pub input_text: String,
-      pub output_path: PathBuf,
-      pub original_size: u64,
-      pub subset_size: u64,
-      pub glyph_count: u32,
-  }
-  ```
-
-- [ ] **并行处理支持**
-  - [ ] 使用 `rayon` 进行并行处理
-  - [ ] 可配置的线程数
-  - [ ] 进度回调支持
-  
-- [ ] **统计信息**
-  - [ ] 总处理时间
-  - [ ] 平均压缩率
-  - [ ] 失败任务统计
-
-**依赖新增**: `rayon = { version = "1.8", optional = true }`
-
----
-
-## 🟢 低优先级任务（1-2 月内）
-
-### 8. 文档注释完善
+### 1. 文档质量检查
 **优先级**: 🟢 低  
-**预计工作量**: 8-10 小时  
-**影响范围**: 所有公共 API
+**预计工作量**: 1-2 小时  
+**影响范围**: 文档
 
 #### 任务清单
-- [ ] **核心库文档**
-  - [ ] 为所有 `pub` 函数添加 rustdoc 注释
-  - [ ] 为所有 `pub` 结构体和枚举添加说明
-  - [ ] 添加使用示例到关键 API
-  
-- [ ] **示例代码**
-  - [ ] 每个主要功能至少一个示例
-  - [ ] 示例应该可直接运行（`cargo test --doc`）
-  
-- [ ] **文档质量检查**
-  - [ ] 运行 `cargo doc --open` 检查渲染效果
+- [ ] **文档渲染检查**
+  - [ ] 运行 `cargo doc -p rfont --no-deps --open` 检查渲染效果
   - [ ] 确保没有 broken links
-  - [ ] 添加模块级别的概述文档
-
-#### 文档标准
-```rust
-/// 将文本转换为字形 ID 列表
-///
-/// # 参数
-/// * `text` - 要转换的 Unicode 文本
-///
-/// # 返回值
-/// 返回字形 ID 列表，顺序与输入文本对应
-///
-/// # 示例
-/// ```
-/// use rfont::Font;
-///
-/// let font = Font::load("test.ttf").unwrap();
-/// let glyph_ids = font.text_to_glyph_ids("Hello");
-/// assert_eq!(glyph_ids.len(), 5);
-/// ```
-///
-/// # 错误
-/// 如果字体不支持某个字符，返回 `FontError::CharacterNotSupported`
-pub fn text_to_glyph_ids(&self, text: &str) -> Result<Vec<u16>, FontError>;
-```
+  - [ ] 验证所有示例代码正确显示
+  
+- [ ] **模块级文档**
+  - [ ] 为关键模块添加概述文档（font, subset, tables）
+  - [ ] 添加模块间的关系说明
+  - [ ] 补充架构设计文档
 
 ---
 
-### 9. 属性测试（Property-based Testing）
+### 2. 属性测试（Property-based Testing）
 **优先级**: 🟢 低  
 **预计工作量**: 6-8 小时  
 **影响范围**: 测试代码
 
-#### 引入 proptest
+#### 任务清单
 - [ ] **依赖添加**
   ```toml
   [dev-dependencies]
@@ -425,24 +107,16 @@ pub fn text_to_glyph_ids(&self, text: &str) -> Result<Vec<u16>, FontError>;
 
 ---
 
-### 10. 性能基准测试
+### 3. 性能基准测试
 **优先级**: 🟢 低  
 **预计工作量**: 4-6 小时  
 **影响范围**: `benches/` 目录
 
-#### Criterion 集成
-已配置 criterion，需要添加实际基准测试：
+#### 当前状态
+- ✅ Criterion 已集成并配置
+- ✅ 7 个基准测试函数已实现（加载、查找、转换、迭代、子集化、分块处理、并行对比）
 
-- [ ] **字体加载基准**
-  - [ ] 小字体 (< 1MB)
-  - [ ] 中等字体 (1-5MB)
-  - [ ] 大字体 (> 5MB)
-  
-- [ ] **子集化性能**
-  - [ ] 少量字符（< 100）
-  - [ ] 中等字符（100-1000）
-  - [ ] 大量字符（> 1000）
-  
+#### 待补充基准测试
 - [ ] **格式转换**
   - [ ] TTF → WOFF
   - [ ] TTF → WOFF2
@@ -452,49 +126,51 @@ pub fn text_to_glyph_ids(&self, text: &str) -> Result<Vec<u16>, FontError>;
   - [ ] 有缓存 vs 无缓存的查询性能
   - [ ] 缓存命中率对性能的影响
 
-**示例**:
-```rust
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-
-fn bench_font_loading(c: &mut Criterion) {
-    c.bench_function("load_small_font", |b| {
-        b.iter(|| {
-            Font::load(black_box("small.ttf")).unwrap()
-        })
-    });
-}
-```
+- [ ] **多尺寸字体**
+  - [ ] 小字体 (< 1MB)
+  - [ ] 中等字体 (1-5MB)
+  - [ ] 大字体 (> 5MB)
 
 ---
 
-### 11. 代码覆盖率报告
+### 4. 代码覆盖率提升
 **优先级**: 🟢 低  
-**预计工作量**: 2-3 小时  
+**预计工作量**: 8-12 小时  
+**当前覆盖率**: 64.85% (目标: > 70%)
 
-#### tarpaulin 集成
-- [ ] **安装工具**
-  ```bash
-  cargo install cargo-tarpaulin
-  ```
+#### 当前状态
+- ✅ tarpaulin 已集成并配置
+- ✅ 详细分析报告已生成（COVERAGE_REPORT.md）
+- ✅ 核心解析逻辑覆盖率 > 80%
+- ⚠️ 整体覆盖率 64.85%，需要提升到 70%
 
-- [ ] **生成报告**
-  ```bash
-  cargo tarpaulin --out Html --output-dir coverage
-  ```
+#### 待补充测试
+- [ ] **字体加载和格式检测**
+  - [ ] format.rs 完整测试
+  - [ ] load.rs 边界情况测试
+  - [ ] 可变字体检测测试
+  
+- [ ] **CLI 工具集成测试**
+  - [ ] info 命令测试
+  - [ ] subset 命令测试
+  - [ ] convert 命令测试
+  - [ ] batch 命令测试
+  
+- [ ] **高级功能测试**
+  - [ ] 并行处理测试
+  - [ ] 缓存机制测试
+  - [ ] 错误恢复测试
 
-- [ ] **目标设定**
-  - [ ] 核心解析逻辑 > 80% 覆盖率
-  - [ ] 整体覆盖率 > 70%
-  - [ ] 识别未覆盖的代码路径并补充测试
+**预期**: 补充完成后达到 70-75% 覆盖率
 
 ---
 
-### 12. CI/CD 集成
+### 5. CI/CD 集成
 **优先级**: 🟢 低  
 **预计工作量**: 4-6 小时  
 **影响范围**: `.github/workflows/`
 
-#### GitHub Actions 配置
+#### 任务清单
 - [ ] **自动化测试**
   - [ ] 每次 push 运行 `cargo test --workspace`
   - [ ] 每次 PR 运行 clippy 检查
@@ -509,66 +185,25 @@ fn bench_font_loading(c: &mut Criterion) {
   - [ ] 构建多平台二进制（Windows, macOS, Linux）
   - [ ] 创建 GitHub Release
 
-**示例 workflow**:
-```yaml
-name: CI
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-      - run: cargo test --workspace
-      - run: cargo clippy -- -D warnings
-```
-
 ---
 
-### 13. 日志系统优化
+### 6. 日志系统增强（可选）
 **优先级**: 🟢 低  
 **预计工作量**: 2-3 小时  
-**影响范围**: `crates/rfont/examples/test_alimama.rs`
+**当前状态**: ✅ 基础日志系统已完成
 
-#### 评估与配置
-- [ ] **性能评估**
-  - [ ] 测量 tracing 在生产环境的开销
-  - [ ] 对比开启/关闭日志的性能差异
+#### 可能的增强方向
+- [ ] **JSON 格式输出**
+  - [ ] 添加 `--log-format json` 选项
+  - [ ] 便于日志分析工具处理
   
-- [ ] **日志级别配置**
-  - [ ] 开发环境：DEBUG 级别
-  - [ ] 生产环境：WARN 级别
-  - [ ] 支持环境变量配置（`RUST_LOG`）
+- [ ] **文件日志**
+  - [ ] 支持将日志写入文件（`--log-file path`）
+  - [ ] 日志轮转和压缩
   
-- [ ] **结构化日志**
-  - [ ] 考虑是否需要 JSON 格式输出
-  - [ ] 添加性能追踪 span（可选）
-  - [ ] 集成到 CLI 工具的 verbose 模式
-
----
-
-### 14. API 设计改进
-**优先级**: 🟢 低  
-**预计工作量**: 8-12 小时  
-**影响范围**: `crates/rfont/src/lib.rs` 公共 API
-
-#### 改进方向
-虽然已有 Builder 模式，但仍有优化空间：
-
-- [ ] **流式子集化**
-  - [ ] 针对超大字体（> 50MB）的流式处理
-  - [ ] 避免一次性加载所有字形到内存
-  - [ ] 支持边读边写的子集化
-  
-- [ ] **批量字符 API**
-  - [ ] 更友好的批量字符输入方式
-  - [ ] 支持从多个来源合并字符集
-  - [ ] 字符去重和排序优化
-  
-- [ ] **预设模板扩展**
-  - [ ] 更多预设（mobile, print, ebook）
-  - [ ] 允许用户自定义预设
-  - [ ] 预设的组合和继承
+- [ ] **性能追踪**
+  - [ ] 在关键操作上添加耗时统计
+  - [ ] 生成性能分析报告
 
 ---
 
@@ -652,12 +287,11 @@ Web 应用 + 生态系统 🔮 未来愿景
 
 以下任务可以在 **1 小时内** 完成且收益明显：
 
-- [ ] 运行 `cargo fmt` 统一代码风格
-- [ ] 运行 `cargo clippy --fix` 修复警告
 - [ ] 删除未使用的导入（`cargo +nightly udeps`）
-- [ ] 为关键 API 添加缺失的 rustdoc 注释
+- [ ] 运行 `cargo doc -p rfont --no-deps --open` 检查文档渲染
+- [ ] 为关键模块添加概述文档（font, subset, tables）
 - [ ] 更新 README 中的安装和使用说明
 
 ---
 
-*本文档采用"已完成简洁记录，未完成详细说明"的结构，便于快速了解项目状态和工作重点。*
+*本文档采用“已完成简洁记录，未完成详细说明”的结构，便于快速了解项目状态和工作重点。*

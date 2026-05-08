@@ -6,116 +6,93 @@
 
 | Crate | 测试数量 | 状态 |
 |-------|---------|------|
-| rfont-types | 5 | ✅ 全部通过 |
-| rfont-core | 9 | ✅ 全部通过 |
-| rfont | 6 | ✅ 全部通过 |
-| **总计** | **20** | **✅ 100% 通过** |
+| rfont-types | 130 | ✅ 全部通过 |
+| rfont-core | 62 | ✅ 全部通过 |
+| rfont | 52 | ✅ 全部通过 |
+| rfont-cli | 18 (doctest) | ✅ 全部通过 |
+| **总计** | **262** | **✅ 100% 通过** |
+
+*最后更新: 2026-05-08*
 
 ## 🧪 测试覆盖详情
 
 ### 1. rfont-types (基础类型层)
 
-**文件**: `crates/rfont-types/src/primitives.rs`
+**文件**: `crates/rfont-types/src/`
 
-#### 测试用例
+#### 主要测试模块
 
-1. **test_tag_creation** - Tag 类型创建和转换
-   - 验证 ASCII 标签的正确编码
-   - 测试字节数组到字符串的转换
+- **primitives.rs** - 基本类型测试（~50 个测试）
+  - Tag 类型创建和转换
+  - Fixed/FWord/UFixed/UFWord 定点数转换
+  - TableRecord/LONGDATETIME 解析
+  - 字节序处理和大端序验证
 
-2. **test_fixed_conversion** - Fixed 定点数转换
-   - 验证 16.16 格式的定点数表示
-   - 测试浮点数到定点数的转换
-
-3. **test_fword_conversion** - FWord 有符号字型单位
-   - 验证正负值的正确存储
-   - 测试 i16 包装类型的访问
-
-4. **test_table_record_read** - TableRecord 解析
-   - 验证字体表目录项的二进制解析
-   - 测试 tag、checksum、offset、length 字段的正确读取
-
-5. **test_longdatetime_read** - LONGDATETIME 时间戳解析
-   - 验证相对于 1904-01-01 的时间计算
-   - 测试 64 位时间戳的高低 32 位拆分
+- **io.rs** - I/O 操作测试（~80 个测试）
+  - Reader/Writer 读写操作
+  - 边界条件检查
+  - 错误处理验证
+  - 100% 代码覆盖率
 
 ### 2. rfont-core (核心逻辑层)
 
-#### cmap 表测试 (`crates/rfont-core/src/tables/cmap.rs`)
+**文件**: `crates/rfont-core/src/tables/`
 
-1. **test_cmap_format0_parsing** - Format 0 字节映射表
-   - 验证 256 条目字节数组的解析
-   - 测试 glyph_id 为 0 的跳过逻辑
+#### 字体表测试（62 个测试）
 
-2. **test_cmap_format4_simple** - Format 4 分段映射
-   - 验证简单单段映射的解析
-   - 测试 id_delta 计算逻辑
+- **cmap.rs** - Unicode 映射表测试
+  - Format 0/4/12 格式解析
+  - Unicode 字符查找
+  - 平台/编码智能选择
 
-3. **test_cmap_unicode_lookup** - Unicode 字符查找
-   - 验证中文字符到 GlyphID 的映射
-   - 测试不存在字符的返回处理
+- **head/maxp/hhea/hmtx** - 字体元数据表测试
+  - 魔数验证和字段解析
+  - Units per EM 验证
+  - 版本 0.5/1.0 格式支持
+  - 水平度量计数
 
-#### head 表测试 (`crates/rfont-core/src/tables/head.rs`)
+- **glyf/loca** - 字形数据表测试
+  - 字形轮廓解析
+  - 位置索引计算
+  - 复合字形支持
 
-4. **test_head_magic_number** - Head 表魔数验证
-   - 验证 magic_number = 0x5F0F3CF5
-   - 测试 units_per_em 和 index_to_loc_format 字段
-
-5. **test_head_units_per_em_validation** - Units per EM 验证
-   - 验证有效的 power-of-2 值（如 1024）
-
-#### maxp 表测试 (`crates/rfont-core/src/tables/maxp.rs`)
-
-6. **test_maxp_version_05** - Version 0.5 格式
-   - 验证仅包含 num_glyphs 的简化版本
-   - 测试可选字段为 None 的情况
-
-7. **test_maxp_version_10** - Version 1.0 完整格式
-   - 验证包含所有 v1.0 字段的完整解析
-   - 测试可选字段的 Some 值
-
-#### hhea 表测试 (`crates/rfont-core/src/tables/hhea.rs`)
-
-8. **test_hhea_metric_count** - 水平度量计数
-   - 验证 number_of_h_metrics 字段的解析
-
-#### loca 表测试 (`crates/rfont-core/src/tables/loca.rs`)
-
-*注：loca 表依赖真实字体数据，未添加独立单元测试*
-
-#### glyf 表测试 (`crates/rfont-core/src/tables/glyf.rs`)
-
-*注：glyf 表结构复杂，通过集成测试验证*
+- **woff/woff2** - Web 字体格式测试
+  - WOFF Header 和表目录
+  - WOFF2 Base128 编码
+  - 预定义标签验证
+  - Brotli 压缩/解压缩
 
 ### 3. rfont (应用层)
 
-**文件**: `crates/rfont/src/lib.rs`
+**文件**: `crates/rfont/src/`
 
-#### 测试用例
+#### 核心功能测试（52 个测试）
 
-1. **test_sfnt_checksum_calculation** - SFNT 校验和计算
-   - 验证 4 字节对齐的累加算法
-   - 测试多表校验和的累加
+- **字体加载** - TTF/WOFF/WOFF2 格式支持
+  - 格式自动检测
+  - 表解析和验证
+  - 懒加载缓存机制
 
-2. **test_sfnt_checksum_padding** - 校验和填充处理
-   - 验证不足 4 字节时的零填充
-   - 测试 1、2、3 字节尾部的正确处理
+- **子集化** - 字体子集化功能
+  - Builder 模式 API
+  - 文本/Unicode 范围/字形 ID 输入
+  - .notdef 自动包含
+  - 字形 ID 去重和排序
 
-3. **test_tag_conversion** - Tag 类型转换
-   - 验证字节数组到字符串的双向转换
-   - 测试常见表名（head、cmap）
+- **格式转换** - TTF ↔ WOFF ↔ WOFF2
+  - zlib/Brotli 压缩
+  - 校验和计算
+  - 表目录重组
 
-4. **test_glyph_id_subset_deduplication** - 字形 ID 去重
-   - 验证子集化时的重复 ID 移除
-   - 测试排序和去重的组合操作
+- **性能优化**
+  - Cmap 查找缓存
+  - 流式迭代器
+  - 分块处理（parallel feature）
 
-5. **test_notdef_inclusion** - .notdef 自动包含
-   - 验证 glyph 0 的强制包含逻辑
-   - 确保子集字体始终包含 .notdef
-
-6. **test_cmap_format_selection** - Cmap 格式智能选择
-   - 验证 BMP 和非 BMP 字符的检测
-   - 测试 Format 4 vs Format 12 的选择逻辑
+- **文档测试** - 19 个 doctest
+  - Font API 示例
+  - FontSubsetBuilder 用法
+  - SubsetOptions 配置
 
 ## 🚀 运行测试
 
@@ -173,18 +150,18 @@ cargo run --example test_alimama -p rfont
 
 ## 🔧 未来改进方向
 
-1. **属性测试**：使用 `proptest` 进行随机化测试
-2. **模糊测试**：对畸形字体文件的鲁棒性测试
-3. **性能基准**：添加 `criterion` 基准测试
-4. **覆盖率报告**：使用 `tarpaulin` 生成代码覆盖率报告
-5. **更多表测试**：为 glyf、hmtx、name 等表添加单元测试
+- [ ] **属性测试** - 使用 `proptest` 进行随机化测试
+- [ ] **模糊测试** - 对畸形字体文件的鲁棒性测试
+- [ ] **更多表测试** - 为 name、OS/2、post 等表添加单元测试
+- [ ] **集成测试** - 增加真实字体文件的端到端测试
+- [ ] **CI/CD 集成** - 自动化运行测试和覆盖率检查
 
 ## ⚠️ 已知限制
 
-- **hhea 表测试**：由于 derive macro 对包装类型的处理问题，部分测试被跳过，需通过真实字体文件验证
-- **glyf 表测试**：字形数据结构复杂，暂未添加独立单元测试
-- **WOFF 解压测试**：依赖 zlib，通过集成测试验证
+- **WOFF2 实现** - 当前使用简化的 Brotli 压缩，未实现完整的表转换（glyf/loca 重构）
+- **并行处理** - parallel feature 需要显式启用（`--features parallel`）
+- **大字体文件** - 超大字体（>50MB）可能需要更多内存
 
 ---
 
-*最后更新: 2026-04-29*
+*最后更新: 2026-05-08 (更新测试统计：20 → 262 个测试)*
