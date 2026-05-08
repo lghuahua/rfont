@@ -3,6 +3,7 @@ use anyhow::{Result, Context};
 use std::path::Path;
 use indicatif::{ProgressBar, ProgressStyle};
 use rfont::Font;
+use tracing::{debug, info, warn, span, Level};
 
 pub fn run(
     input: &Path,
@@ -14,11 +15,23 @@ pub fn run(
     format: &str,
     compression: u8,
 ) -> Result<()> {
+    let span = span!(Level::INFO, "subset_command", 
+                     input = ?input, 
+                     output = ?output,
+                     format = format,
+                     compression = compression);
+    let _enter = span.enter();
+    
+    debug!("开始字体子集化处理");
+    
     // 加载字体
     println!("{}", "📖 加载字体...".bold().cyan());
+    debug!("正在加载字体文件: {:?}", input);
+    
     let font = Font::load(input.to_str().unwrap())
         .context(format!("无法加载字体文件: {:?}", input))?;
     
+    debug!(glyph_count = font.maxp.num_glyphs, "字体加载成功");
     println!("  ✓ 成功加载字体");
     println!("  字形总数: {}", font.get_font_info().glyph_count);
 
@@ -26,29 +39,40 @@ pub fn run(
     let mut all_text = String::new();
     
     if let Some(t) = text {
+        debug!(text_length = t.len(), "添加直接指定的文本");
         all_text.push_str(t);
     }
     
     if let Some(file_path) = text_file {
+        debug!(path = ?file_path, "从文件读取文本");
         let content = std::fs::read_to_string(file_path)
             .context(format!("无法读取文本文件: {:?}", file_path))?;
+        debug!(content_length = content.len(), "文件读取成功");
         all_text.push_str(&content);
     }
     
     // 解析 Unicode 范围
+    if !ranges.is_empty() {
+        debug!(range_count = ranges.len(), "解析 Unicode 范围");
+    }
+    
     for range_str in ranges {
         let chars = parse_unicode_range(range_str)?;
+        debug!(range = range_str, char_count = chars.len(), "解析范围");
         for ch in chars {
             all_text.push(ch);
         }
     }
     
     if all_text.is_empty() {
+        warn!("未指定任何文本或字符范围");
         return Err(anyhow::anyhow!("未指定任何文本或字符范围"));
     }
     
+    let char_count = all_text.chars().count();
+    debug!(char_count = char_count, "文本处理完成");
     println!("\n{}", "🔤 处理文本...".bold().cyan());
-    println!("  文本长度: {} 个字符", all_text.chars().count());
+    println!("  文本长度: {} 个字符", char_count);
     
     // 创建进度条
     let progress = ProgressBar::new(100);
@@ -61,21 +85,26 @@ pub fn run(
     progress.set_message("子集化中...");
 
     // 执行子集化
+    debug!(strip_post_names = strip_post_names, format = format, "配置子集化选项");
     let mut builder = font.subset_builder().text(&all_text);
     
     if strip_post_names {
+        debug!("启用 post 表优化（移除字形名称）");
         builder = builder.strip_glyph_names(true);
     }
     
     if format == "woff" {
+        debug!(compression_level = compression, "启用 WOFF 压缩");
         builder = builder.output_format("woff").compression_level(compression);
     }
     
     progress.inc(50);
     
+    debug!("开始执行子集化");
     let subset_data = builder.build()
         .context("子集化失败")?;
     
+    debug!(subset_size = subset_data.len(), "子集化完成");
     progress.inc(50);
     progress.finish_with_message("完成！");
 
@@ -91,14 +120,27 @@ pub fn run(
 
     // 写入文件
     println!("\n{}", "💾 保存文件...".bold().cyan());
+    debug!(output_path = ?output_path, "正在写入输出文件");
+    
     std::fs::write(&output_path, &subset_data)
         .context(format!("无法写入输出文件: {:?}", output_path))?;
+    
+    debug!("文件写入成功");
     
     // 计算压缩率
     let original_size = std::fs::metadata(input)?.len();
     let subset_size = subset_data.len() as u64;
     let ratio = (subset_size as f64 / original_size as f64) * 100.0;
     let saved = original_size - subset_size;
+    
+    info!(
+        original_size = original_size,
+        subset_size = subset_size,
+        compression_ratio = ratio,
+        space_saved = saved,
+        output_path = ?output_path,
+        "字体子集化完成"
+    );
     
     println!("  ✓ 文件已保存: {:?}", output_path);
     println!("\n{}", "📊 统计信息:".bold().cyan());

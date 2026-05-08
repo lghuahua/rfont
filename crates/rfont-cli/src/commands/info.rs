@@ -2,19 +2,31 @@ use colored::*;
 use anyhow::{Result, Context};
 use std::path::Path;
 use rfont::Font;
+use tracing::{debug, info, span, Level};
 
 pub fn run(font_path: &Path, json: bool, verbose: bool) -> Result<()> {
+    let span = span!(Level::INFO, "info_command", path = ?font_path, json = json, verbose = verbose);
+    let _enter = span.enter();
+    
+    debug!("开始加载字体文件");
+    
     // 加载字体
     let font = Font::load(font_path.to_str().unwrap())
         .context(format!("无法加载字体文件: {:?}", font_path))?;
+    
+    debug!(glyph_count = font.maxp.num_glyphs, "字体加载成功");
 
     if json {
         // JSON 输出模式
+        debug!("使用 JSON 输出模式");
         output_json(&font, verbose)?;
     } else {
         // 人类可读输出模式
+        debug!("使用人类可读输出模式");
         output_human(&font, verbose)?;
     }
+    
+    info!("字体信息查询完成");
 
     Ok(())
 }

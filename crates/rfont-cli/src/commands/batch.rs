@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
 use rfont::Font;
 use glob::glob;
+use tracing::{debug, info, warn, span, Level};
 
 /// 批量转换命令的参数
 pub struct BatchConvertArgs {
@@ -27,13 +28,24 @@ struct ConvertResult {
 }
 
 pub fn run(args: &BatchConvertArgs) -> Result<()> {
+    let span = span!(Level::INFO, "batch_convert_command",
+                     pattern = args.pattern,
+                     formats = ?args.formats,
+                     compression = args.compression,
+                     overwrite = args.overwrite);
+    let _enter = span.enter();
+    
+    debug!("开始批量格式转换");
+    
     println!("{}", "🔄 批量格式转换".bold().cyan());
     println!();
 
     // 1. 查找匹配的字体文件
+    debug!(pattern = args.pattern, "查找匹配的字体文件");
     let files = find_font_files(&args.pattern)?;
     
     if files.is_empty() {
+        warn!(pattern = args.pattern, "未找到匹配的文件");
         return Err(anyhow::anyhow!("未找到匹配的文件: {}", args.pattern));
     }
 
@@ -41,10 +53,12 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
     for format in &args.formats {
         let fmt = format.to_lowercase();
         if fmt != "ttf" && fmt != "woff" && fmt != "woff2" {
+            warn!(format = format, "不支持的格式");
             return Err(anyhow::anyhow!("不支持的格式: {} (仅支持 ttf, woff, woff2)", format));
         }
     }
 
+    debug!(file_count = files.len(), format_count = args.formats.len(), "文件查找完成");
     println!("  找到 {} 个字体文件", files.len());
     println!("  目标格式: {}", args.formats.iter()
         .map(|f| f.to_uppercase())
@@ -94,6 +108,16 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
 
     // 5. 显示统计信息
     print_summary(&all_results);
+    
+    let success_count = all_results.iter().filter(|r| r.success).count();
+    let failed_count = all_results.len() - success_count;
+    
+    info!(
+        total_files = all_results.len(),
+        success_count = success_count,
+        failed_count = failed_count,
+        "批量转换完成"
+    );
 
     Ok(())
 }

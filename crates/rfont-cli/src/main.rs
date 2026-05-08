@@ -4,14 +4,58 @@ use std::path::PathBuf;
 
 mod commands;
 
+/// 初始化日志系统
+fn init_logging(verbosity: u8) {
+    // 支持通过环境变量 RUST_LOG 覆盖
+    let level = if let Ok(env_level) = std::env::var("RUST_LOG") {
+        // 使用环境变量指定的级别
+        match env_level.to_lowercase().as_str() {
+            "trace" => tracing::Level::TRACE,
+            "debug" => tracing::Level::DEBUG,
+            "info" => tracing::Level::INFO,
+            "warn" => tracing::Level::WARN,
+            "error" => tracing::Level::ERROR,
+            _ => {
+                eprintln!("警告: 无效的 RUST_LOG 级别 '{}', 使用默认值", env_level);
+                tracing::Level::WARN
+            }
+        }
+    } else {
+        // 根据 -v 参数数量决定日志级别
+        match verbosity {
+            0 => tracing::Level::WARN,   // 默认：只显示警告和错误
+            1 => tracing::Level::INFO,   // -v: 显示信息
+            2 => tracing::Level::DEBUG,  // -vv: 显示调试信息
+            _ => tracing::Level::TRACE,  // -vvv+: 显示追踪信息
+        }
+    };
+    
+    // 配置 tracing subscriber
+    let format = tracing_subscriber::fmt::format()
+        .without_time()  // 不显示时间戳（CLI 工具不需要）
+        .with_target(false)  // 不显示目标模块名
+        .with_thread_ids(false)  // 不显示线程 ID
+        .with_file(false)  // 不显示文件名
+        .with_line_number(false);  // 不显示行号
+    
+    tracing_subscriber::fmt()
+        .with_max_level(level)
+        .event_format(format)
+        .with_ansi(true)  // 启用 ANSI 颜色输出
+        .init();
+    
+    // 记录启动信息（只在 INFO 及以上级别显示）
+    tracing::info!(verbosity = verbosity, level = %level, "日志系统初始化完成");
+}
+
 /// rfont - 命令行字体子集化和转换工具
 #[derive(Parser)]
 #[command(name = "rfont")]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// 启用详细输出
-    #[arg(short, long, global = true)]
-    verbose: bool,
+    /// 启用详细输出（可多次指定：-v=INFO, -vv=DEBUG, -vvv=TRACE）
+    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
+    verbose: u8,
 
     #[command(subcommand)]
     command: Commands,
@@ -29,8 +73,8 @@ enum Commands {
         json: bool,
 
         /// 显示详细信息（包括所有表）
-        #[arg(short, long)]
-        verbose: bool,
+        #[arg(short = 'V', long = "verbose-info")]
+        verbose_info: bool,
     },
 
     /// 创建字体子集
@@ -126,16 +170,12 @@ enum BatchCommands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // 初始化日志
-    if cli.verbose {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
-    }
+    // 初始化日志系统（支持多级 verbosity）
+    init_logging(cli.verbose);
 
     match cli.command {
-        Commands::Info { font, json, verbose } => {
-            commands::info::run(&font, json, verbose)?;
+        Commands::Info { font, json, verbose_info } => {
+            commands::info::run(&font, json, verbose_info)?;
         }
         Commands::Subset {
             input,

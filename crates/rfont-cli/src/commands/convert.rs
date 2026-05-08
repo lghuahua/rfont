@@ -3,6 +3,7 @@ use anyhow::{Result, Context};
 use std::path::Path;
 use indicatif::{ProgressBar, ProgressStyle};
 use rfont::Font;
+use tracing::{debug, info, warn, span, Level};
 
 pub fn run(
     input: &Path,
@@ -10,17 +11,31 @@ pub fn run(
     format: &str,
     compression: u8,
 ) -> Result<()> {
+    let span = span!(Level::INFO, "convert_command", 
+                     input = ?input, 
+                     output = ?output,
+                     format = format,
+                     compression = compression);
+    let _enter = span.enter();
+    
+    debug!("开始字体格式转换");
+    
     // 验证目标格式
     let format = format.to_lowercase();
     if format != "ttf" && format != "woff" && format != "woff2" {
+        warn!(format = format, "不支持的格式");
         return Err(anyhow::anyhow!("不支持的格式: {} (仅支持 ttf, woff 和 woff2)", format));
     }
+    
+    debug!(target_format = format, "目标格式验证通过");
 
     // 加载字体
     println!("{}", "📖 加载字体...".bold().cyan());
+    debug!("正在加载字体文件");
     let font = Font::load(input.to_str().unwrap())
         .context(format!("无法加载字体文件: {:?}", input))?;
     
+    debug!(glyph_count = font.get_font_info().glyph_count, "字体加载成功");
     println!("  ✓ 成功加载字体");
 
     // 创建进度条
@@ -34,6 +49,7 @@ pub fn run(
     progress.set_message("转换中...");
 
     // 执行转换
+    debug!(target_format = format, compression_level = compression, "开始格式转换");
     let converted_data = if format == "woff" {
         // TTF → WOFF：使用所有字形 ID
         let all_glyph_ids: Vec<u16> = (0..font.get_font_info().glyph_count as u16).collect();
@@ -62,6 +78,7 @@ pub fn run(
             .context("转换为 TTF 失败")?
     };
 
+    debug!(converted_size = converted_data.len(), "转换完成");
     progress.inc(80);
 
     // 确定输出路径
@@ -82,9 +99,11 @@ pub fn run(
 
     // 写入文件
     println!("\n{}", "💾 保存文件...".bold().cyan());
+    debug!(output_path = ?output_path, "正在写入输出文件");
     std::fs::write(&output_path, &converted_data)
         .context(format!("无法写入输出文件: {:?}", output_path))?;
     
+    debug!("文件写入成功");
     progress.inc(20);
     progress.finish_with_message("完成！");
 
@@ -92,6 +111,14 @@ pub fn run(
     let original_size = std::fs::metadata(input)?.len();
     let converted_size = converted_data.len() as u64;
     let ratio = (converted_size as f64 / original_size as f64) * 100.0;
+    
+    info!(
+        original_size = original_size,
+        converted_size = converted_size,
+        size_ratio = ratio,
+        output_path = ?output_path,
+        "字体格式转换完成"
+    );
     
     println!("  ✓ 文件已保存: {:?}", output_path);
     println!("\n{}", "📊 统计信息:".bold().cyan());
