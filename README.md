@@ -1,5 +1,9 @@
 # rfont - Rust 字体处理库
 
+[![CI](https://github.com/lghuahua/rfont/actions/workflows/ci.yml/badge.svg)](https://github.com/lghuahua/rfont/actions/workflows/ci.yml)
+[![Release](https://github.com/lghuahua/rfont/actions/workflows/release.yml/badge.svg)](https://github.com/lghuahua/rfont/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE-MIT)
+
 一个基于 Rust 开发的字体解析、处理和子集化工具库，支持 TTF 和 WOFF 格式。
 
 ## 功能特性
@@ -234,3 +238,33 @@ RUST_LOG=error rfont subset font.ttf --text "Hello"
 ## License
 
 MIT
+
+## Changelog
+
+查看完整的版本变更历史：[CHANGELOG.md](CHANGELOG.md)
+
+CHANGELOG 采用自动化生成，基于 [Conventional Commits](https://www.conventionalcommits.org/) 规范。
+
+**自动生成**:
+```bash
+# Windows PowerShell
+.\scripts\generate-changelog.ps1
+
+# Linux/Mac
+./scripts/generate-changelog.sh
+```
+
+详见 [scripts/README.md](scripts/README.md) 和 [CHANGELOG_GUIDE.md](CHANGELOG_GUIDE.md)。
+
+## CI/CD
+
+本项目使用 GitHub Actions 实现自动化 CI/CD：
+
+- **CI**: 多平台测试、代码质量检查、覆盖率报告
+- **CD**: 自动生成 CHANGELOG、构建多平台 CLI、创建 GitHub Release
+
+详细配置请参考 [CICD_GUIDE.md](CICD_GUIDE.md)。
+
+---
+
+*最后更新: 2026-05-08*

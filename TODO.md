@@ -49,13 +49,15 @@
 
 ### 文档与示例
 - ✅ **6 个示例程序** - font_info, builder, error_handling, format_detection, perf_comparison, test_alimama
-- ✅ **完整文档** - examples/README.md, benches/README.md, BASELINE_GUIDE.md, LOGGING.md, COVERAGE_REPORT.md, WOFF2_IMPLEMENTATION.md
 - ✅ **rustdoc 注释** - 所有公共 API 完整文档（Font, FontSubsetBuilder, SubsetOptions 等）
 - ✅ **基准测试** - 7 个性能测试 + criterion.toml 配置 + BenchmarkGroup 优化
+- ✅ **CHANGELOG** - Keep a Changelog 格式，版本历史追踪
+- ✅ **自动化 CHANGELOG** - git-cliff + Conventional Commits 规范
 
 ### 构建优化
 - ✅ **Workspace 管理** - 统一依赖版本，Resolver 2
 - ✅ **Release Profile** - LTO + strip + panic=abort（二进制 2.13 MB）
+- ✅ **CI/CD** - GitHub Actions 自动化测试、构建 CLI、GitHub Release
 
 ---
 
