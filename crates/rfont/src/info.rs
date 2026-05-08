@@ -1,6 +1,8 @@
 use rfont_types::TableRecord;
 
 /// 字体表信息
+///
+/// 包含字体中单个表的元数据，从 TableRecord 转换而来。
 #[derive(Debug, Clone)]
 pub struct TableInfo {
     /// 表标签（如 "head", "cmap"）
@@ -14,6 +16,13 @@ pub struct TableInfo {
 }
 
 impl TableInfo {
+    /// 从 TableRecord 创建 TableInfo
+    ///
+    /// # 参数
+    /// - `record`: 原始的 TableRecord
+    ///
+    /// # 返回值
+    /// 转换后的 `TableInfo` 实例
     pub fn from_record(record: &TableRecord) -> Self {
         let tag_str = String::from_utf8_lossy(&record.tag.0).to_string();
         TableInfo {
@@ -26,6 +35,20 @@ impl TableInfo {
 }
 
 /// 字体基本信息
+///
+/// 包含字体的关键元数据，如字形数量、度量信息、支持的字符等。
+/// 通过 `Font::get_font_info()` 方法获取。
+///
+/// # 示例
+/// ```no_run
+/// use rfont::Font;
+///
+/// let font = Font::load("font.ttf").unwrap();
+/// let info = font.get_font_info();
+/// println!("字形数量: {}", info.glyph_count);
+/// println!("每 EM 单位: {}", info.units_per_em);
+/// println!("支持字符数: {}", info.supported_char_count);
+/// ```
 #[derive(Debug, Clone)]
 pub struct FontInfo {
     /// 字体家族名称（从 name 表提取，暂为 None）
@@ -68,6 +91,11 @@ impl Default for FontInfo {
 
 impl FontInfo {
     /// 创建空的 FontInfo
+    ///
+    /// 所有字段初始化为默认值（0 或 None）。
+    ///
+    /// # 返回值
+    /// 空的 `FontInfo` 实例
     pub fn new() -> Self {
         FontInfo {
             family_name: None,

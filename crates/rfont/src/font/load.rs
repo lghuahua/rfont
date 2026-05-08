@@ -14,6 +14,28 @@ use crate::font_data::FontData;
 pub use rfont_core::tables::woff2::WOFF2_KNOWN_TAGS as CORE_WOFF2_KNOWN_TAGS;
 
 /// 高层字体对象（预加载核心表）
+///
+/// `Font` 是 rfont 库的核心结构，代表一个已加载的字体文件。
+/// 它预加载了所有必要的字体表（head, maxp, hhea, loca, cmap, hmtx），
+/// 提供高效的字形查询和子集化功能。
+///
+/// # 示例
+/// ```no_run
+/// use rfont::Font;
+///
+/// // 从文件加载字体
+/// let font = Font::load("font.ttf").unwrap();
+///
+/// // 获取字体信息
+/// let info = font.get_font_info();
+/// println!("字形数量: {}", info.glyph_count);
+///
+/// // 创建子集
+/// let subset_data = font.subset_builder()
+///     .text("Hello")
+///     .build()
+///     .unwrap();
+/// ```
 pub struct Font {
     pub font_data: FontData,
 
@@ -27,7 +49,29 @@ pub struct Font {
 }
 
 impl Font {
-    /// 从文件路径加载字体（支持 TTF 和 WOFF）
+    /// 从文件路径加载字体（支持 TTF、WOFF 和 WOFF2）
+    ///
+    /// 自动检测文件格式并解析相应的结构。
+    /// 对于压缩格式（WOFF/WOFF2），会先解压缩再解析。
+    ///
+    /// # 参数
+    /// - `path`: 字体文件的路径
+    ///
+    /// # 返回值
+    /// - `Ok(Font)`: 成功加载的字体对象
+    /// - `Err(FontError)`: 加载失败时的错误信息
+    ///
+    /// # 错误
+    /// - `Io`: 文件读取失败
+    /// - `TableNotFound`: 必需的字体表缺失
+    /// - `Generic`: 其他解析错误
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("path/to/font.ttf").expect("无法加载字体");
+    /// ```
     pub fn load(path: &str) -> Result<Self, FontError> {
         let span = span!(Level::INFO, "load_font", path = path);
         let _enter = span.enter();
@@ -363,11 +407,34 @@ impl Font {
     }
 
     /// 获取原始字体数据
+    ///
+    /// 返回包含完整字体二进制数据的 `FontData` 对象。
+    /// 可用于直接访问字体表或进行底层操作。
     pub fn font_data(&self) -> &FontData {
         &self.font_data
     }
 
     /// 检测字体格式并返回详细信息
+    ///
+    /// 分析字体数据的头部信息，识别字体格式（TTF、OTF、WOFF、WOFF2），
+    /// 并返回包含版本、压缩类型、表列表等详细信息的 `FontFormatInfo`。
+    ///
+    /// # 参数
+    /// - `data`: 字体文件的原始字节数据
+    ///
+    /// # 返回值
+    /// - `Ok(FontFormatInfo)`: 字体格式详细信息
+    /// - `Err(FontError)`: 解析失败时的错误信息
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let data = std::fs::read("font.ttf").unwrap();
+    /// let format_info = Font::detect_format(&data).unwrap();
+    /// println!("格式: {:?}", format_info.format);
+    /// println!("是否可变字体: {}", format_info.is_variable);
+    /// ```
     pub fn detect_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {
         if data.len() < 4 {
             return Err(FontError::Generic("数据太短，无法检测格式".to_string()));

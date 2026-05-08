@@ -12,6 +12,21 @@ use rfont_types::FontError;
 
 impl Font {
     /// 获取字体元数据信息
+    ///
+    /// 从已加载的字体表中提取关键元数据，包括字形数量、度量信息、表列表等。
+    ///
+    /// # 返回值
+    /// `FontInfo` 结构体，包含字体的基本信息
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    /// let info = font.get_font_info();
+    /// println!("字形数量: {}", info.glyph_count);
+    /// println!("支持的字符数: {}", info.supported_char_count);
+    /// ```
     pub fn get_font_info(&self) -> FontInfo {
         let mut info = FontInfo::new();
 
@@ -49,6 +64,11 @@ impl Font {
     }
 
     /// 获取所有表的列表
+    ///
+    /// 返回字体中所有表的详细信息（标签、校验和、偏移量、长度）。
+    ///
+    /// # 返回值
+    /// `Vec<TableInfo>` 包含所有表的信息
     pub fn get_table_list(&self) -> Vec<TableInfo> {
         self.font_data
             .get_table_records()
@@ -58,6 +78,11 @@ impl Font {
     }
 
     /// 获取字体支持的所有 Unicode 字符
+    ///
+    /// 从 cmap 表中提取所有映射的 Unicode 码点，并排序返回。
+    ///
+    /// # 返回值
+    /// 排序后的 Unicode 码点列表
     pub fn get_supported_characters(&self) -> Vec<u32> {
         let mut chars: Vec<u32> = self.cmap.unicode_map.keys().cloned().collect();
         chars.sort();
@@ -65,11 +90,36 @@ impl Font {
     }
 
     /// 检查字体是否支持特定字符
+    ///
+    /// # 参数
+    /// - `unicode`: Unicode 码点
+    ///
+    /// # 返回值
+    /// - `true`: 字体支持该字符
+    /// - `false`: 字体不支持该字符
     pub fn supports_character(&self, unicode: u32) -> bool {
         self.cmap.unicode_map.contains_key(&unicode)
     }
 
     /// 将文本转换为字形 ID 列表
+    ///
+    /// 使用 cmap 表将文本中的每个字符映射到对应的字形 ID。
+    /// 如果字符在字体中不存在，会被跳过。
+    ///
+    /// # 参数
+    /// - `text`: 要转换的文本
+    ///
+    /// # 返回值
+    /// 字形 ID 列表（可能为空，如果文本中没有支持的字符）
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    /// let glyph_ids = font.text_to_glyph_ids("Hello");
+    /// println!("字形 ID: {:?}", glyph_ids);
+    /// ```
     pub fn text_to_glyph_ids(&self, text: &str) -> Vec<u16> {
         text.chars()
             .filter_map(|ch| {
@@ -80,6 +130,24 @@ impl Font {
     }
 
     /// 流式字形迭代器：逐字形处理，减少内存峰值
+    ///
+    /// 返回一个 `GlyphIterator`，可以逐个遍历字体中的所有字形。
+    /// 适合处理大型字体，避免一次性加载所有字形数据到内存。
+    ///
+    /// # 返回值
+    /// `GlyphIterator` 迭代器，每次返回 `(glyph_id, Option<&[u8]>)`
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    /// for (glyph_id, glyph_data) in font.glyph_iter() {
+    ///     if let Some(data) = glyph_data {
+    ///         println!("字形 {}: {} bytes", glyph_id, data.len());
+    ///     }
+    /// }
+    /// ```
     pub fn glyph_iter(&self) -> GlyphIterator<'_> {
         GlyphIterator {
             font: self,
@@ -89,6 +157,27 @@ impl Font {
     }
 
     /// 批量获取字形数据（分块处理）
+    ///
+    /// 将字形分成多个块进行处理，每处理完一个块就调用处理器函数。
+    /// 这种方式可以在处理大型字体时控制内存使用。
+    ///
+    /// # 参数
+    /// - `chunk_size`: 每个块的字形数量
+    /// - `processor`: 处理函数，接收 `(glyph_id, glyph_data)` 元组的向量
+    ///
+    /// # 错误
+    /// 如果处理器函数返回错误，会立即停止处理并传播错误
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    /// font.get_glyphs_chunked(100, |chunk| {
+    ///     println!("处理块，包含 {} 个字形", chunk.len());
+    ///     Ok(())
+    /// }).unwrap();
+    /// ```
     pub fn get_glyphs_chunked<F>(
         &self,
         chunk_size: usize,
@@ -117,19 +206,66 @@ impl Font {
 
             // 当块达到指定大小或处理完所有字形时，调用处理器
             if (chunk.len() >= chunk_size || glyph_id == total_glyphs - 1) && !chunk.is_empty() {
-                    processor(std::mem::take(&mut chunk))?;
-                }
+                processor(std::mem::take(&mut chunk))?;
+            }
         }
 
         Ok(())
     }
 
     /// 创建子集化 Builder（Builder 模式）
+    ///
+    /// 返回一个 `FontSubsetBuilder`，支持链式调用配置子集化参数。
+    /// 这是创建字体子集的推荐方式，提供灵活的配置选项。
+    ///
+    /// # 返回值
+    /// `FontSubsetBuilder` 构建器
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    ///
+    /// // 基于文本创建子集
+    /// let subset = font.subset_builder()
+    ///     .text("Hello World")
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// // 基于 Unicode 范围创建子集
+    /// let subset = font.subset_builder()
+    ///     .unicode_range(0x0041, 0x005A) // A-Z
+    ///     .build()
+    ///     .unwrap();
+    /// ```
     pub fn subset_builder(&self) -> FontSubsetBuilder<'_> {
         FontSubsetBuilder::new(self)
     }
 
     /// 使用配置选项进行子集化
+    ///
+    /// 根据指定的字形 ID 列表和配置选项执行子集化操作。
+    /// 支持输出为 TTF、WOFF 或 WOFF2 格式。
+    ///
+    /// # 参数
+    /// - `glyph_ids`: 要包含在子集中的字形 ID 列表
+    /// - `options`: 子集化配置选项（格式、压缩级别等）
+    ///
+    /// # 返回值
+    /// - `Ok(Vec<u8>)`: 子集化后的字体数据
+    /// - `Err(FontError)`: 子集化失败时的错误信息
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::{Font, SubsetOptions};
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    /// let glyph_ids = vec![0, 1, 2, 3]; // 包含 .notdef
+    /// let options = SubsetOptions::web_optimized();
+    ///
+    /// let subset_data = font.subset_with_options(&glyph_ids, &options).unwrap();
+    /// ```
     pub fn subset_with_options(
         &self,
         glyph_ids: &[u16],
@@ -157,6 +293,14 @@ impl Font {
     }
 
     /// 根据文本获取 GlyphID 列表
+    ///
+    /// 将文本中的每个字符映射到字形 ID。如果字符不存在，返回 0（.notdef）。
+    ///
+    /// # 参数
+    /// - `text`: 要转换的文本
+    ///
+    /// # 返回值
+    /// 字形 ID 列表，长度与文本中的字符数相同
     pub fn get_glyph_ids_for_text(&self, text: &str) -> Vec<u16> {
         let span = span!(
             Level::TRACE,
@@ -177,6 +321,19 @@ impl Font {
     }
 
     /// 子集化并序列化字体
+    ///
+    /// 执行完整的子集化流程：提取字形、重建表、计算校验和、组装最终字体。
+    /// 这是子集化的核心方法，返回标准的 TTF 格式数据。
+    ///
+    /// # 参数
+    /// - `glyph_ids`: 要包含在子集中的字形 ID 列表
+    ///
+    /// # 返回值
+    /// - `Ok(Vec<u8>)`: 子集化后的 TTF 字体数据
+    /// - `Err(FontError)`: 子集化失败时的错误信息
+    ///
+    /// # 注意
+    /// 此方法会自动包含 .notdef (glyph 0)，并对字形 ID 进行排序和去重。
     pub fn subset_and_serialize(&self, glyph_ids: &[u16]) -> Result<Vec<u8>, FontError> {
         let span = span!(
             Level::INFO,
@@ -478,6 +635,22 @@ impl Font {
 }
 
 /// 流式字形迭代器
+///
+/// 实现 `Iterator` trait，可以逐个遍历字体中的所有字形。
+/// 每次迭代返回 `(glyph_id, Option<&[u8]>)`，其中第二个元素是字形的原始数据（如果存在）。
+///
+/// # 示例
+/// ```no_run
+/// use rfont::Font;
+///
+/// let font = Font::load("font.ttf").unwrap();
+/// for (glyph_id, glyph_data) in font.glyph_iter() {
+///     match glyph_data {
+///         Some(data) => println!("字形 {}: {} bytes", glyph_id, data.len()),
+///         None => println!("字形 {}: 空", glyph_id),
+///     }
+/// }
+/// ```
 pub struct GlyphIterator<'a> {
     font: &'a Font,
     current_index: usize,
@@ -521,6 +694,26 @@ impl<'a> Iterator for GlyphIterator<'a> {
 
 impl Font {
     /// 将 TTF 数据转换为 WOFF 格式
+    ///
+    /// 使用 zlib 压缩将 TTF 字体数据转换为 WOFF 格式。
+    /// WOFF (Web Open Font Format) 是专为 Web 设计的字体格式，具有更好的压缩率。
+    ///
+    /// # 参数
+    /// - `ttf_data`: TTF 格式的字体数据
+    /// - `compression_level`: 压缩级别（0-9），0 表示不压缩，9 表示最大压缩
+    ///
+    /// # 返回值
+    /// - `Ok(Vec<u8>)`: WOFF 格式的字体数据
+    /// - `Err(FontError)`: 转换失败时的错误信息
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    /// let ttf_data = font.subset_and_serialize(&[0, 1, 2]).unwrap();
+    /// let woff_data = font.convert_to_woff(&ttf_data, 6).unwrap();
+    /// ```
     pub fn convert_to_woff(
         &self,
         ttf_data: &[u8],
@@ -645,6 +838,29 @@ impl Font {
     }
 
     /// 将 TTF 数据转换为 WOFF2 格式
+    ///
+    /// 使用 Brotli 压缩将 TTF 字体数据转换为 WOFF2 格式。
+    /// WOFF2 是 WOFF 的下一代格式，提供更高的压缩率（通常比 WOFF 小 30%）。
+    ///
+    /// # 参数
+    /// - `ttf_data`: TTF 格式的字体数据
+    /// - `compression_level`: Brotli 压缩质量（0-11），0 表示最快，11 表示最高压缩
+    ///
+    /// # 返回值
+    /// - `Ok(Vec<u8>)`: WOFF2 格式的字体数据
+    /// - `Err(FontError)`: 转换失败时的错误信息
+    ///
+    /// # 注意
+    /// 当前实现使用简化的 WOFF2 编码，完整的 WOFF2 规范需要更复杂的表转换。
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    /// let ttf_data = font.subset_and_serialize(&[0, 1, 2]).unwrap();
+    /// let woff2_data = font.convert_to_woff2(&ttf_data, 4).unwrap();
+    /// ```
     pub fn convert_to_woff2(
         &self,
         ttf_data: &[u8],
