@@ -1,0 +1,39 @@
+name: 'Run Tests and Build'
+description: 'Run tests and build release for the workspace'
+
+inputs:
+  run-clippy:
+    description: 'Whether to run clippy checks'
+    required: false
+    default: 'false'
+  
+  run-fmt:
+    description: 'Whether to check formatting'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check formatting
+      if: inputs.run-fmt == 'true'
+      shell: bash
+      run: cargo fmt --all -- --check
+    
+    - name: Run clippy (lib and bins)
+      if: inputs.run-clippy == 'true'
+      shell: bash
+      run: cargo clippy --workspace --lib --bins -- -D warnings
+    
+    - name: Run clippy (tests and benches)
+      if: inputs.run-clippy == 'true'
+      shell: bash
+      run: cargo clippy --workspace --tests --benches -- -W clippy::all
+    
+    - name: Run tests
+      shell: bash
+      run: cargo test --workspace --verbose
+    
+    - name: Build release
+      shell: bash
+      run: cargo build --release --workspace

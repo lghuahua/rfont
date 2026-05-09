@@ -10,85 +10,55 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # 测试任务
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+  # 测试任务 - Ubuntu（最快，用于快速反馈）
+  test-ubuntu:
+    name: Test (Ubuntu)
+    runs-on: ubuntu-latest
     
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/setup-rust  # 复用 Rust 环境配置
+      - uses: ./.github/actions/run-tests  # 复用测试和构建步骤
         with:
-          components: rustfmt, clippy
-      
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-      
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-      
-      - name: Run clippy (lib and bins)
-        run: cargo clippy --workspace --lib --bins -- -D warnings
-      
-      - name: Run clippy (tests and benches)
-        run: cargo clippy --workspace --tests --benches -- -W clippy::all
-      
-      - name: Run tests
-        run: cargo test --workspace --verbose
-      
-      - name: Build release
-        run: cargo build --release --workspace
+          run-clippy: 'true'
+          run-fmt: 'true'
 
-  # 代码覆盖率
+  # 测试任务 - Windows（较慢，不阻塞覆盖率）
+  test-windows:
+    name: Test (Windows)
+    runs-on: windows-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust  # 复用 Rust 环境配置
+      - uses: ./.github/actions/run-tests  # 复用测试和构建步骤
+
+  # 测试任务 - macOS（中等速度，不阻塞覆盖率）
+  test-macos:
+    name: Test (macOS)
+    runs-on: macos-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust  # 复用 Rust 环境配置
+      - uses: ./.github/actions/run-tests  # 复用测试和构建步骤
+
+  # 代码覆盖率（只依赖 Ubuntu 测试，快速启动）
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
-    needs: test  # 确保测试通过后再生成覆盖率
-    timeout-minutes: 15  # cargo-llvm-cov 更快，减少超时时间
+    needs: test-ubuntu  # 只等待最快的 Ubuntu 测试
+    timeout-minutes: 15
     
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-llvm-cov-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-llvm-cov-
-            ${{ runner.os }}-cargo-
+      - uses: ./.github/actions/setup-rust  # 复用 Rust 环境配置
       
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked
       
       - name: Generate coverage
         run: |
-          # cargo-llvm-cov 会自动运行测试并收集覆盖率
-          # 由于使用了缓存，大部分依赖和编译产物已存在，速度很快
           cargo llvm-cov \
             --workspace \
             --lcov \
@@ -110,9 +80,7 @@ jobs:
     
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/setup-rust  # 复用 Rust 环境配置
       
       - name: Check documentation
         run: cargo doc --workspace --no-deps --document-private-items
