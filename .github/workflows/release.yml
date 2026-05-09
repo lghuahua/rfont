@@ -19,24 +19,13 @@ jobs:
         with:
           fetch-depth: 0  # 获取完整历史用于生成 CHANGELOG
       
-      - name: Install git-cliff
-        run: cargo install git-cliff
-      
       - name: Generate CHANGELOG
-        run: |
-          git-cliff --output CHANGELOG.md
-          
-          # 显示生成的内容
-          echo "=== Generated CHANGELOG ==="
-          head -50 CHANGELOG.md
-      
-      - name: Commit CHANGELOG
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git commit -m "docs: update CHANGELOG for ${{ github.ref_name }}" || echo "No changes to commit"
-          git push
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: .cliff.toml
+          args: --verbose
+        env:
+          OUTPUT: CHANGELOG.md
       
       - name: Upload CHANGELOG artifact
         uses: actions/upload-artifact@v4
@@ -72,7 +61,7 @@ jobs:
           targets: ${{ matrix.target }}
       
       - name: Cache dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -81,6 +70,8 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
       
       - name: Build CLI (release)
         run: cargo build --release --package rfont-cli --target ${{ matrix.target }}
