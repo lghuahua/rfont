@@ -1,0 +1,32 @@
+# cargo-release 配置
+# https://github.com/crate-ci/cargo-release
+
+# 只允许在 main 分支发布
+allow-branch = ["main"]
+
+pre-release-hook = [
+    "bash", "-c", 
+    "cd \"$(git rev-parse --show-toplevel)\" && bash scripts/pre-release.sh"
+]
+
+# 不签名 commit 和 tag
+sign-commit = true
+sign-tag = true
+
+# 自动推送
+push = true
+
+# 暂时不发布到 crates.io
+publish = false
+
+# Commit 和 tag 消息模板
+pre-release-commit-message = "chore: release v{version}"
+tag-message = "Release v{version}"
+tag-name = "v{version}"
+
+# Workspace 配置
+# 自动升级依赖包的版本
+dependent-version = "upgrade"
+# 合并提交（workspace 模式）
+consolidate-commits = true
+
