@@ -5,39 +5,18 @@ on:
     tags:
       - 'v*'
 
+# 设置 workflow 权限
+permissions:
+  contents: write  # 允许创建 Release 和上传文件
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # 生成 CHANGELOG
-  changelog:
-    name: Generate CHANGELOG
-    runs-on: ubuntu-latest
-    
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # 获取完整历史用于生成 CHANGELOG
-      
-      - name: Generate CHANGELOG
-        uses: orhun/git-cliff-action@v4
-        with:
-          config: .cliff.toml
-          args: --verbose
-        env:
-          OUTPUT: CHANGELOG.md
-      
-      - name: Upload CHANGELOG artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: changelog
-          path: CHANGELOG.md
-
   # 构建和发布 CLI 工具
   build-cli:
     name: Build CLI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    needs: changelog
     
     strategy:
       matrix:
@@ -90,7 +69,7 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/rfont.exe dist/
           cd dist
-          Compress-Archive -Path rfont.exe -DestinationPath ../${{ matrix.artifact_name }}.zip
+          Compress-Archive -Path rfont.exe -DestinationPath ..\${{ matrix.artifact_name }}.zip
       
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
@@ -104,7 +83,7 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [changelog, build-cli]
+    needs: [build-cli]
     
     steps:
       - uses: actions/checkout@v4
@@ -116,14 +95,13 @@ jobs:
         run: ls -R
       
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
-            rfont-cli-linux/rfont-cli-linux.tar.gz
-            rfont-cli-windows/rfont-cli-windows.zip
-            rfont-cli-macos/rfont-cli-macos.tar.gz
-            changelog/CHANGELOG.md
-          body_path: changelog/CHANGELOG.md
+            rfont-cli-linux/*.tar.gz
+            rfont-cli-windows/*.zip
+            rfont-cli-macos/*.tar.gz
+          body_path: CHANGELOG.md
           draft: false
           prerelease: false
           generate_release_notes: false
