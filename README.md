@@ -189,7 +189,42 @@ rfont/
 └── font_macros/          # 自定义过程宏
 ```
 
-### 构建
+### 使用 Just 管理项目
+
+本项目使用 [just](https://github.com/casey/just) 作为任务管理器，简化开发流程。
+
+**安装 just**：
+```bash
+cargo install just
+```
+
+**常用命令**：
+```bash
+# 查看所有可用命令
+just --list
+
+# 快速开始（格式化 + 检查 + 测试）
+just dev
+
+# 提交前检查
+just pre-commit
+
+# 生成覆盖率报告
+just coverage-html
+
+# 构建文档
+just doc-open
+
+# 推送到远程仓库（带检查）
+just push
+
+# 查看帮助
+just help
+```
+
+详细使用说明请参考 [JUST_USAGE_GUIDE.md](JUST_USAGE_GUIDE.md)。
+
+### 手动构建
 
 ```bash
 # 构建 CLI 工具
