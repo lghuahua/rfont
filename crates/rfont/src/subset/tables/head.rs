@@ -20,7 +20,7 @@ pub fn update_head(font: &Font, checksum_adjustment: u32) -> Result<Vec<u8>, Fon
     // 更新 checkSumAdjustment（偏移量 8-11）
     head_data[8..12].copy_from_slice(&checksum_adjustment.to_be_bytes());
 
-    // 更新 modified 时间戳（偏移量 12-19）
+    // 更新 modified 时间戳（偏移量 24-31）
     use chrono::NaiveDateTime;
     let now = chrono::Utc::now().naive_utc();
     let base_date = NaiveDateTime::new(
@@ -34,8 +34,8 @@ pub fn update_head(font: &Font, checksum_adjustment: u32) -> Result<Vec<u8>, Fon
     let high = (seconds_since_1904 >> 32) as u32;
     let low = (seconds_since_1904 & 0xFFFFFFFF) as u32;
 
-    head_data[12..16].copy_from_slice(&high.to_be_bytes());
-    head_data[16..20].copy_from_slice(&low.to_be_bytes());
+    head_data[24..28].copy_from_slice(&high.to_be_bytes());
+    head_data[28..32].copy_from_slice(&low.to_be_bytes());
 
     Ok(head_data)
 }

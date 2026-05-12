@@ -17,7 +17,7 @@ pub struct CmapGroup {
 
 use crate::Font;
 use rfont_types::FontError;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::constants::{CMAP_HEADER_SIZE, ENCODING_RECORD_SIZE};
 
@@ -25,13 +25,23 @@ use crate::constants::{CMAP_HEADER_SIZE, ENCODING_RECORD_SIZE};
 pub fn rebuild_cmap(font: &Font, subset_glyphs: &[u16]) -> Result<Vec<u8>, FontError> {
     let subset_set: HashSet<u16> = subset_glyphs.iter().copied().collect();
 
-    // 过滤出子集中存在的映射
+    // 创建原始 glyph ID 到新 glyph ID 的映射
+    // subset_glyphs 是按顺序排列的，索引就是新的 glyph ID
+    let mut old_to_new_gid = HashMap::new();
+    for (new_gid, &old_gid) in subset_glyphs.iter().enumerate() {
+        old_to_new_gid.insert(old_gid, new_gid as u16);
+    }
+
+    // 过滤出子集中存在的映射，并转换为新的 glyph ID
     let mut new_unicode_map: Vec<(u32, u16)> = font
         .cmap
         .unicode_map
         .iter()
         .filter(|(_, &gid)| subset_set.contains(&gid))
-        .map(|(&unicode, &gid)| (unicode, gid))
+        .filter_map(|(&unicode, &old_gid)| {
+            // 将原始 glyph ID 映射到新的 glyph ID
+            old_to_new_gid.get(&old_gid).map(|&new_gid| (unicode, new_gid))
+        })
         .collect();
 
     new_unicode_map.sort_by_key(|&(unicode, _)| unicode);
@@ -40,8 +50,6 @@ pub fn rebuild_cmap(font: &Font, subset_glyphs: &[u16]) -> Result<Vec<u8>, FontE
         return Err(FontError::Generic("No glyphs in cmap".to_string()));
     }
 
-    println!("  cmap 字符统计: {} 个字符", new_unicode_map.len());
-
     // 检查是否有非 BMP 字符（> 0xFFFF）
     let has_non_bmp = new_unicode_map.iter().any(|&(unicode, _)| unicode > 0xFFFF);
 
@@ -49,20 +57,19 @@ pub fn rebuild_cmap(font: &Font, subset_glyphs: &[u16]) -> Result<Vec<u8>, FontE
     let all_in_byte_range = new_unicode_map.iter().all(|&(unicode, _)| unicode <= 255);
 
     // 智能选择格式
-    if has_non_bmp {
-        // 有非 BMP 字符，使用 Format 12
+    let result = if has_non_bmp {
         println!("  cmap 格式: Format 12 (支持 Unicode 补充平面)");
         build_cmap_format12(&new_unicode_map)
     } else if all_in_byte_range && new_unicode_map.len() <= 256 {
-        // 所有字符在字节范围内，使用 Format 0
         println!("  cmap 格式: Format 0 (简单字节映射)");
         build_cmap_format0(&new_unicode_map)
     } else {
-        // 默认使用 Format 4
         let segments = build_cmap_segments(&new_unicode_map);
         println!("  cmap 格式: Format 4 ({} 个段)", segments.len());
         build_cmap_format4(&segments)
-    }
+    };
+    
+    result
 }
 
 /// 构建 cmap 段（合并连续的码点）
@@ -75,6 +82,12 @@ fn build_cmap_segments(unicode_map: &[(u32, u16)]) -> Vec<CmapSegment> {
     let mut i = 0;
 
     while i < unicode_map.len() {
+        // 跳过 0xFFFF，因为那是 sentinel 的专用值
+        if unicode_map[i].0 == 0xFFFF {
+            i += 1;
+            continue;
+        }
+
         let start_code = unicode_map[i].0 as u16;
         let start_gid = unicode_map[i].1;
         let mut end_code = start_code;
@@ -87,7 +100,8 @@ fn build_cmap_segments(unicode_map: &[(u32, u16)]) -> Vec<CmapSegment> {
             let next_gid = unicode_map[j].1;
 
             // 检查是否连续：码点连续 且 glyph ID 也连续
-            if next_code == end_code + 1 && next_gid == end_gid + 1 {
+            // 注意：end_code 不能达到 0xFFFF，因为那是 sentinel 的值
+            if next_code == end_code + 1 && next_gid == end_gid + 1 && next_code < 0xFFFF {
                 end_code = next_code;
                 end_gid = next_gid;
                 j += 1;
@@ -114,7 +128,8 @@ fn build_cmap_segments(unicode_map: &[(u32, u16)]) -> Vec<CmapSegment> {
 
 /// 构建 Format 4 cmap 子表
 fn build_cmap_format4(segments: &[CmapSegment]) -> Result<Vec<u8>, FontError> {
-    let seg_count = segments.len();
+    // seg_count 包含 sentinel 段（OTS 要求最后一个段必须是 sentinel）
+    let seg_count = segments.len() + 1;
 
     // 计算 search_range, entry_selector, range_shift
     let max_pow2 = if seg_count > 0 {
@@ -141,8 +156,8 @@ fn build_cmap_format4(segments: &[CmapSegment]) -> Result<Vec<u8>, FontError> {
     // Format 4 subtable
     let subtable_start = data.len();
     data.extend_from_slice(&4u16.to_be_bytes()); // format
-    data.extend_from_slice(&0u16.to_be_bytes()); // reserved
-                                                 // length 和 language 稍后回填
+    data.extend_from_slice(&0u16.to_be_bytes()); // length placeholder
+    data.extend_from_slice(&0u16.to_be_bytes()); // language
 
     let seg_count_x2 = (seg_count * 2) as u16;
     data.extend_from_slice(&seg_count_x2.to_be_bytes()); // segCountX2
@@ -150,32 +165,32 @@ fn build_cmap_format4(segments: &[CmapSegment]) -> Result<Vec<u8>, FontError> {
     data.extend_from_slice(&entry_selector.to_be_bytes());
     data.extend_from_slice(&range_shift.to_be_bytes());
 
-    // 写入 end_code 数组
+    // 写入 end_code 数组（包含 sentinel）
     for seg in segments {
         data.extend_from_slice(&seg.end_code.to_be_bytes());
     }
-    data.extend_from_slice(&0xFFFFu16.to_be_bytes()); // sentinel
+    data.extend_from_slice(&0xFFFFu16.to_be_bytes()); // sentinel endCode
 
-    // 写入 reservedPad
+    // 写入 reservedPad（必须为 0）
     data.extend_from_slice(&0u16.to_be_bytes());
 
-    // 写入 start_code 数组
+    // 写入 start_code 数组（包含 sentinel）
     for seg in segments {
         data.extend_from_slice(&seg.start_code.to_be_bytes());
     }
-    data.extend_from_slice(&0xFFFFu16.to_be_bytes()); // sentinel
+    data.extend_from_slice(&0xFFFFu16.to_be_bytes()); // sentinel startCode（OTS 要求）
 
-    // 写入 id_delta 数组
+    // 写入 id_delta 数组（包含 sentinel）
     for seg in segments {
         data.extend_from_slice(&seg.id_delta.to_be_bytes());
     }
-    data.extend_from_slice(&0u16.to_be_bytes()); // sentinel
+    data.extend_from_slice(&1u16.to_be_bytes()); // sentinel idDelta (0xFFFF + 1 = 0)
 
-    // 写入 id_range_offset 数组
+    // 写入 id_range_offset 数组（包含 sentinel）
     for seg in segments {
         data.extend_from_slice(&seg.id_range_offset.to_be_bytes());
     }
-    data.extend_from_slice(&0u16.to_be_bytes()); // sentinel
+    data.extend_from_slice(&0u16.to_be_bytes()); // sentinel idRangeOffset
 
     // glyph_id_array（为空，因为使用 id_delta）
 

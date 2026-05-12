@@ -369,16 +369,18 @@ impl Font {
         // 6. 更新 head（校验和、修改时间等）- 暂时传入 0，稍后在 assemble_ttf 中更新
         let new_head_data = head::update_head(self, 0)?;
 
-        // 获取 hhea 数据（不变）
-        let hhea_data =
-            self.font_data
-                .get_table_bytes(Tag(*b"hhea"))
-                .ok_or(FontError::TableNotFound {
-                    tag: "hhea".to_string(),
-                })?;
-
-        // 7. 复制其他不变的表（name, os2, post 等，排除 hhea）
-        let other_tables = self.copy_unchanged_tables()?;
+        // 7. 复制其他不变的表（name, os2, post 等）
+        let num_glyphs_subset = subset_glyphs_vec.len() as u16;
+        let mut other_tables = self.copy_unchanged_tables(num_glyphs_subset)?;
+        
+        // 从 other_tables 中提取 hhea
+        let hhea_data = other_tables
+            .iter()
+            .position(|(tag, _)| *tag == Tag(*b"hhea"))
+            .map(|idx| other_tables.remove(idx).1)
+            .ok_or(FontError::TableNotFound {
+                tag: "hhea".to_string(),
+            })?;
 
         // 打印各表大小统计
         println!("各表大小统计:");
@@ -398,7 +400,7 @@ impl Font {
             &new_head_data,
             &new_maxp_data,
             &new_cmap_data,
-            hhea_data,
+            &hhea_data,
             &new_hmtx_data,
             &new_loca_data,
             &new_glyf_data,
@@ -439,12 +441,19 @@ impl Font {
     }
 
     /// 复制其他不变的表
-    fn copy_unchanged_tables(&self) -> Result<Vec<(Tag, Vec<u8>)>, FontError> {
+    fn copy_unchanged_tables(&self, num_glyphs_subset: u16) -> Result<Vec<(Tag, Vec<u8>)>, FontError> {
         let mut tables = Vec::new();
 
-        // 复制 hhea（不变）
+        // 复制并更新 hhea 表
         if let Some(hhea_bytes) = self.font_data.get_table_bytes(Tag(*b"hhea")) {
-            tables.push((Tag(*b"hhea"), hhea_bytes.to_vec()));
+            let mut hhea_data = hhea_bytes.to_vec();
+            
+            // 更新 number_of_h_metrics 为子集后的字形数量
+            // number_of_h_metrics 位于 offset 34-35
+            hhea_data[34] = (num_glyphs_subset >> 8) as u8;
+            hhea_data[35] = (num_glyphs_subset & 0xFF) as u8;
+            
+            tables.push((Tag(*b"hhea"), hhea_data));
         }
 
         // 复制 name（不变）
@@ -520,7 +529,8 @@ impl Font {
         offset_table.extend_from_slice(&num_tables.to_be_bytes());
 
         let max_pow2: u32 = if num_tables > 0 {
-            1 << (31 - num_tables.leading_zeros())
+            // 找到小于等于 num_tables 的最大 2 的幂
+            (1u32 << (16 - num_tables.leading_zeros() - 1)).min(num_tables as u32)
         } else {
             1
         };
@@ -568,7 +578,8 @@ impl Font {
         font_data.extend_from_slice(&num_tables.to_be_bytes());
 
         let max_pow2: u32 = if num_tables > 0 {
-            1 << (31 - num_tables.leading_zeros())
+            // 找到小于等于 num_tables 的最大 2 的幂
+            (1u32 << (16 - num_tables.leading_zeros() - 1)).min(num_tables as u32)
         } else {
             1
         };

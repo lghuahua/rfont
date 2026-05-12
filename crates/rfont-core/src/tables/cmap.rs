@@ -13,6 +13,7 @@ pub struct Cmap {
 
 impl Cmap {
     pub fn read_from(reader: &mut Reader) -> Result<Self, FontError> {
+        
         let _version = reader.read_u16()?;
         let num_tables = reader.read_u16()?;
 
@@ -81,36 +82,13 @@ impl Cmap {
         offset: usize,
     ) -> Result<HashMap<u32, u16>, FontError> {
         let format = reader.read_u16_at(offset)?;
-        println!(
-            "[Cmap Debug] Trying to parse subtable at offset {} with format {}",
-            offset, format
-        );
 
         let length = reader.read_u16_at(offset + 2)? as usize;
-        println!("[Cmap Debug] Subtable length declared: {}", length);
 
         // 创建该子表的专属 Reader
         match reader.slice(offset, length) {
-            Ok(mut sub_reader) => {
-                println!(
-                    "[Cmap Debug] Sub-reader created with data len: {}",
-                    sub_reader.data.len()
-                );
-                match Self::parse_subtable(&mut sub_reader) {
-                    Ok(map) => {
-                        println!("[Cmap Debug] Parsed {} entries", map.len());
-                        Ok(map)
-                    }
-                    Err(e) => {
-                        println!("[Cmap Debug] Parse error: {:?}", e);
-                        Err(e)
-                    }
-                }
-            }
-            Err(e) => {
-                println!("[Cmap Debug] Slice error: {:?}", e);
-                Err(e)
-            }
+            Ok(mut sub_reader) => Self::parse_subtable(&mut sub_reader),
+            Err(e) => Err(e),
         }
     }
 
@@ -159,6 +137,7 @@ impl Cmap {
     fn parse_format4(reader: &mut Reader) -> Result<HashMap<u32, u16>, FontError> {
         let seg_count_x2 = reader.read_u16()?;
         let seg_count = seg_count_x2 / 2;
+        
         let _search_range = reader.read_u16()?;
         let _entry_selector = reader.read_u16()?;
         let _range_shift = reader.read_u16()?;
@@ -180,10 +159,11 @@ impl Cmap {
         let glyph_id_array = reader.read_array::<u16>(remaining_len / 2)?;
 
         let mut map = HashMap::new();
+        
         for i in 0..seg_count {
             let start = start_code[i as usize];
             let end = end_code[i as usize];
-            let delta = id_delta_signed[i as usize] as i32; // 现在是有符号的了
+            let delta = id_delta_signed[i as usize] as i32;
             let range_offset = id_range_offset[i as usize] as usize;
 
             if start == 0 && end == 0xFFFF {
