@@ -13,7 +13,6 @@ pub struct Cmap {
 
 impl Cmap {
     pub fn read_from(reader: &mut Reader) -> Result<Self, FontError> {
-        
         let _version = reader.read_u16()?;
         let num_tables = reader.read_u16()?;
 
@@ -81,7 +80,7 @@ impl Cmap {
         reader: &mut Reader,
         offset: usize,
     ) -> Result<HashMap<u32, u16>, FontError> {
-        let format = reader.read_u16_at(offset)?;
+        let _format = reader.read_u16_at(offset)?;
 
         let length = reader.read_u16_at(offset + 2)? as usize;
 
@@ -137,7 +136,7 @@ impl Cmap {
     fn parse_format4(reader: &mut Reader) -> Result<HashMap<u32, u16>, FontError> {
         let seg_count_x2 = reader.read_u16()?;
         let seg_count = seg_count_x2 / 2;
-        
+
         let _search_range = reader.read_u16()?;
         let _entry_selector = reader.read_u16()?;
         let _range_shift = reader.read_u16()?;
@@ -159,7 +158,7 @@ impl Cmap {
         let glyph_id_array = reader.read_array::<u16>(remaining_len / 2)?;
 
         let mut map = HashMap::new();
-        
+
         for i in 0..seg_count {
             let start = start_code[i as usize];
             let end = end_code[i as usize];

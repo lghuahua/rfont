@@ -41,7 +41,9 @@ pub fn rebuild_cmap(font: &Font, subset_glyphs: &[u16]) -> Result<Vec<u8>, FontE
         .filter(|(_, &gid)| subset_set.contains(&gid))
         .filter_map(|(&unicode, &old_gid)| {
             // 将原始 glyph ID 映射到新的 glyph ID
-            old_to_new_gid.get(&old_gid).map(|&new_gid| (unicode, new_gid))
+            old_to_new_gid
+                .get(&old_gid)
+                .map(|&new_gid| (unicode, new_gid))
         })
         .collect();
 
@@ -66,10 +68,14 @@ pub fn rebuild_cmap(font: &Font, subset_glyphs: &[u16]) -> Result<Vec<u8>, FontE
         build_cmap_format0(&new_unicode_map)
     } else {
         let segments = build_cmap_segments(&new_unicode_map);
-        debug!(format = "Format 4", segment_count = segments.len(), "cmap 格式选择");
+        debug!(
+            format = "Format 4",
+            segment_count = segments.len(),
+            "cmap 格式选择"
+        );
         build_cmap_format4(&segments)
     };
-    
+
     result
 }
 
