@@ -1,188 +1,115 @@
-# rfont - Rust 字体处理库
+# rfont - 字体子集化命令行工具
 
 [![CI](https://github.com/lghuahua/rfont/actions/workflows/ci.yml/badge.svg)](https://github.com/lghuahua/rfont/actions/workflows/ci.yml)
 [![Release](https://github.com/lghuahua/rfont/actions/workflows/release.yml/badge.svg)](https://github.com/lghuahua/rfont/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE-MIT)
 
-一个基于 Rust 开发的字体解析、处理和子集化工具库，支持 TTF 和 WOFF 格式。
+一个基于 Rust 开发的高性能字体子集化和转换命令行工具，支持 TTF、WOFF 和 WOFF2 格式。
 
 ## 功能特性
 
 - ✅ **多格式支持**：支持 TrueType (TTF)、OpenType (OTF/CFF)、WOFF 和 WOFF2
-- ✅ **核心表解析**：完整解析 cmap, glyf, head, hhea, hmtx, loca, maxp 等关键表
-- ✅ **字体子集化**：根据指定文字生成精简的字体文件
-- ✅ **校验和计算**：符合 OpenType 规范的校验和与全局调整
-- ✅ **坐标压缩**：使用相对增量编码优化字形数据体积
-- ✅ **格式检测增强**：详细的格式信息、可变字体识别、必需表验证
+- ✅ **智能子集化**：根据指定文字生成精简的字体文件，大幅减小体积
+- ✅ **格式转换**：在 TTF、WOFF、WOFF2 之间互相转换
+- ✅ **批量处理**：支持批量转换多个字体文件
+- ✅ **详细信息**：查看字体的完整信息和表结构
+- ✅ **高性能**：基于 Rust 编译，速度快，内存占用低
 
 ## 快速开始
 
-### 加载字体
+### 安装
 
-```rust
-use rfont::Font;
-
-// 自动检测格式（支持 .ttf 和 .woff）
-let font = Font::load("path/to/font.ttf")?;
-// 或
-let font = Font::load("path/to/font.woff")?;
-```
-
-### 提取字形并生成子集字体
-
-```rust
-let text = "月到风来";
-
-// 获取文字对应的 GlyphID 列表
-let glyph_ids = font.get_glyph_ids_for_text(text);
-
-// 生成子集字体
-let subset_data = font.subset_and_serialize(&glyph_ids)?;
-
-// 保存为新文件
-std::fs::write("subset.ttf", &subset_data)?;
-```
-
-### 格式检测（无需加载完整字体）
-
-```rust
-use rfont::Font;
-use rfont_types::{FontFormat, CompressionType};
-
-// 读取字体文件数据
-let data = std::fs::read("font.ttf")?;
-
-// 检测格式
-let format_info = Font::detect_format(&data)?;
-
-println!("格式: {}", format_info.format);           // TrueType (TTF)
-println!("版本: {}", format_info.version);           // 0x00010000
-println!("可变字体: {}", format_info.is_variable);   // false
-
-if let Some(compression) = format_info.compression {
-    println!("压缩: {}", compression);               // Zlib 或 Brotli
-}
-
-// 验证必需表
-let all_tables: Vec<String> = format_info.required_tables
-    .iter()
-    .chain(format_info.optional_tables.iter())
-    .cloned()
-    .collect();
-
-if format_info.has_required_tables(&all_tables) {
-    println!("✅ 所有必需表都存在");
-} else {
-    let missing = format_info.missing_required_tables(&all_tables);
-    println!("⚠️ 缺失表: {:?}", missing);
-}
-```
-
-## 项目结构
-
-```
-rfont/
-├── crates/
-│   ├── rfont-types/      # 基础类型定义和 IO Trait
-│   ├── rfont-core/       # 表解析和序列化逻辑
-│   └── rfont/            # 高层 API 和应用逻辑
-└── font_macros/          # 自定义过程宏
-```
-
-## 支持的格式
-
-### TTF (TrueType Font)
-- 直接解析 SFNT 结构
-- 完整支持简单字形和复合字形
-
-### WOFF (Web Open Font Format)
-- 自动检测 "wOFF" 签名
-- 使用 flate2 解压缩 zlib 数据
-- 转换为标准 SFNT 结构后处理
-
-### WOFF2 (Web Open Font Format 2)
-- 自动检测 "wOF2" 签名
-- 使用 brotli 解压缩（更高压缩率）
-- 支持可变字体（Variable Fonts）
-- 表目录使用变长编码优化
-
-## 运行示例
+#### 从源码编译
 
 ```bash
-# 运行子集化测试
-cargo run --example test_alimama -p rfont
-
-# 这将：
-# 1. 加载 src/AlimamaDaoLiTi.ttf 或 .woff
-# 2. 提取指定文字
-# 3. 生成子集字体文件
-
-# 运行格式检测示例
-cargo run --example format_detection_demo -p rfont
-
-# 这将：
-# 1. 检测 TTF/WOFF/WOFF2 三种格式
-# 2. 显示详细的格式信息
-# 3. 验证必需表是否存在
-```
-
-## 测试
-
-项目包含完整的单元测试套件，覆盖基础类型、表解析和高层 API。
-
-```bash
-# 运行所有测试
-cargo test --workspace
-
-# 运行特定 crate 的测试
-cargo test -p rfont-types
-cargo test -p rfont-core
-cargo test -p rfont
-
-# 查看详细输出
-cargo test -- --nocapture
-```
-
-详细测试文档请参考 [TESTING.md](./TESTING.md)。
-
-当前测试覆盖：
-- ✅ **177 个单元测试**，全部通过
-- ✅ 覆盖 cmap、glyf、head、hmtx、maxp、loca、woff、woff2 等核心表的解析
-- ✅ 验证校验和计算、字形去重、格式检测等业务逻辑
-- ✅ 核心解析逻辑覆盖率 > 80%（glyf: 95%, hmtx: 100%, maxp: 98%, loca: 100%）
-- ✅ rfont-types 模块覆盖率 > 69%（io: 100%, format: 100%, error: 93%, primitives: 80%）
-- ✅ rfont-core 模块覆盖率 > 64%（woff: 93%, woff2: 87%, loca: 100%, cmap: 57%）
-- ✅ **rfont 主库子集化测试完善**（cmap: 96%, hmtx: 100%, maxp: 100%, head: 93%, glyf_loca: 81%, post: 90%）
-- ✅ **Reader/Writer 边界条件测试完善**（空数据、精确边界、offset 跟踪、混合读取、数组读取）
-- ✅ **整体代码覆盖率 64.85%**，接近 70% 目标
-
-📊 **代码覆盖率报告**: [COVERAGE_REPORT.md](./COVERAGE_REPORT.md) | [HTML 报告](./coverage/tarpaulin-report.html)
-
-## 命令行工具
-
-### 安装 CLI 工具
-
-```bash
+git clone https://github.com/lghuahua/rfont.git
+cd rfont
 cargo install --path crates/rfont-cli
 ```
 
-### 基本用法
+#### 下载预编译版本
+
+从 [Releases](https://github.com/lghuahua/rfont/releases) 页面下载对应平台的预编译二进制文件。
+
+## 使用指南
+
+### 1. 查看字体信息
 
 ```bash
-# 查看字体信息
+# 查看字体基本信息
 rfont info font.ttf
 
-# 创建字体子集
-rfont subset font.ttf --text "Hello World" -o subset.ttf
-
-# 格式转换
-rfont convert font.ttf --format woff -o font.woff
-
-# 批量转换
-rfont batch convert "*.ttf" --format woff --format woff2
+# 启用详细日志
+rfont -vv info font.ttf
 ```
 
-### 日志控制
+输出示例：
+```
+📝 字体信息
+────────────────────────────────────────────
+
+基本信息:
+  字形数量:     7044
+  Units per EM: 1000
+  边界框:       [-32, -260, 1924, 940]
+
+水平度量:
+  Ascender:     880
+  Descender:    -120
+  Line Gap:     0
+
+字符支持:
+  支持的 Unicode 字符数: 65535
+
+表信息:
+  head, hhea, maxp, cmap, glyf, loca, hmtx, post, name, OS/2
+```
+
+### 2. 创建字体子集
+
+```bash
+# 基本用法
+rfont subset font.ttf --text "Hello World" -o subset.ttf
+
+# 从文件读取文本
+rfont subset font.ttf --text-file chars.txt -o subset.ttf
+
+# 启用详细日志查看处理过程
+rfont -vv subset font.ttf --text "你好世界" -o subset.ttf
+```
+
+**效果**：
+- 原始字体：4.9 MB（7044 个字形）
+- 子集字体：2.6 KB（5 个字形）
+- 压缩率：**99.9%** 🎉
+
+### 3. 格式转换
+
+```bash
+# TTF → WOFF
+rfont convert font.ttf --format woff -o font.woff
+
+# TTF → WOFF2
+rfont convert font.ttf --format woff2 -o font.woff2
+
+# WOFF → TTF
+rfont convert font.woff --format ttf -o font.ttf
+```
+
+### 4. 批量转换
+
+```bash
+# 批量转换目录下所有 TTF 为 WOFF2
+rfont batch convert "fonts/*.ttf" --format woff2
+
+# 同时转换为多种格式
+rfont batch convert "*.ttf" --format woff --format woff2
+
+# 指定输出目录
+rfont batch convert "*.ttf" --format woff2 --output-dir web-fonts/
+```
+
+## 日志控制
 
 CLI 工具支持多级日志输出，方便调试和监控：
 
@@ -191,7 +118,7 @@ CLI 工具支持多级日志输出，方便调试和监控：
 rfont info font.ttf
 
 # INFO 级别（显示操作摘要）
-rfont -v info font.ttf
+rfont -v subset font.ttf --text "Hello"
 
 # DEBUG 级别（显示详细信息）
 rfont -vv subset font.ttf --text "Hello"
@@ -210,51 +137,82 @@ RUST_LOG=error rfont subset font.ttf --text "Hello"
 - `DEBUG` (-vv)：显示详细的处理过程和中间状态
 - `TRACE` (-vvv)：显示最详细的追踪信息
 
-**结构化日志特性**：
-- ✅ Span 追踪关键操作的生命周期
-- ✅ 带上下文的字段（size, count, format 等）
-- ✅ ANSI 颜色输出（自动检测终端支持）
-- ✅ 简洁格式（无时间戳、无模块名）
-
----
-
 ## 技术细节
 
-### 校验和计算
-- 每个表独立计算 32 位校验和
-- `head.checkSumAdjustment` 使用公式：`0xB1B0AFBA - sum(all_tables)`
+### 子集化原理
 
-### 坐标序列化
-- 使用相对增量编码（Delta Encoding）
-- 标志位压缩（Flags Compression）
-- 小数值使用单字节存储
+1. **字形选择**：根据输入文本查找对应的字形 ID
+2. **ID 重新映射**：将选中的字形重新编号（从 0 开始连续）
+3. **表重建**：
+   - `glyf/loca`：只保留选中的字形数据
+   - `hmtx`：只保留选中字形的度量信息
+   - `cmap`：Unicode → 新字形 ID 的映射
+   - `maxp`：更新字形数量
+   - `head`：更新校验和和时间戳
+4. **校验和计算**：确保符合 OpenType 规范
 
-## 依赖
+### 支持的格式
 
-- `flate2`: WOFF 解压缩
-- `chrono`: 时间戳处理
-- `encoding_rs`: 字符串编码转换
+#### TTF (TrueType Font)
+- 直接解析 SFNT 结构
+- 完整支持简单字形和复合字形
 
-## License
+#### WOFF (Web Open Font Format)
+- 自动检测 "wOFF" 签名
+- 使用 flate2 解压缩 zlib 数据
+- 转换为标准 SFNT 结构后处理
 
-MIT
+#### WOFF2 (Web Open Font Format 2)
+- 自动检测 "wOF2" 签名
+- 使用 brotli 解压缩（更高压缩率）
+- 支持可变字体（Variable Fonts）
+- 表目录使用变长编码优化
 
-## Changelog
+### 性能优势
 
-查看完整的版本变更历史：[CHANGELOG.md](CHANGELOG.md)
+- **速度快**：Rust 编译，零运行时开销
+- **内存低**：流式处理，不需要加载整个字体到内存
+- **体积小**：智能子集化，通常可减少 95%+ 的体积
+- **兼容好**：生成的字体符合 OpenType 规范，浏览器完美支持
 
-CHANGELOG 采用自动化生成，基于 [Conventional Commits](https://www.conventionalcommits.org/) 规范。
+## 开发
 
-**自动生成**:
-```bash
-# Windows PowerShell
-.\scripts\generate-changelog.ps1
+### 项目结构
 
-# Linux/Mac
-./scripts/generate-changelog.sh
+```
+rfont/
+├── crates/
+│   ├── rfont-types/      # 基础类型定义和 IO Trait
+│   ├── rfont-core/       # 表解析和序列化逻辑
+│   ├── rfont/            # 高层 API 和子集化逻辑
+│   └── rfont-cli/        # 命令行工具
+└── font_macros/          # 自定义过程宏
 ```
 
-详见 [scripts/README.md](scripts/README.md) 和 [CHANGELOG_GUIDE.md](CHANGELOG_GUIDE.md)。
+### 构建
+
+```bash
+# 构建 CLI 工具
+cargo build --release -p rfont-cli
+
+# 运行测试
+cargo test --workspace
+
+# 代码检查
+cargo clippy --workspace
+cargo fmt --all
+```
+
+### 依赖
+
+- `flate2`: WOFF 解压缩
+- `brotli`: WOFF2 解压缩
+- `chrono`: 时间戳处理
+- `tracing`: 结构化日志系统
+
+## 许可证
+
+MIT
 
 ## CI/CD
 
