@@ -7,6 +7,82 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-12
+
+### Added
+
+- *(scripts)* 添加自动生成 CHANGELOG 的脚本工具
+- *(cli)* 添加详细的日志记录功能
+- 删除无用文件
+- *(font)* 添加字体格式检测功能
+- *(rfont)* 添加并行处理功能支持
+- 添加错误恢复建议和解析错误类型
+- 优化 post 表子集化实现
+- 添加批量字体转换功能
+- 添加 WOFF2 格式支持
+- 添加命令行字体子集化和转换工具
+- 添加 Builder 模式 API 用于字体子集化
+- 添加字体元数据查询API并更新TODO清单
+- 实现结构化错误处理机制
+- 初始化rfont项目基础架构
+
+### CI/CD
+
+- *(workflow)* 添加 CI/CD 工作流配置
+
+### Changed
+
+- *(font)* 将打印语句替换为调试日志
+- *(workflow)* 移除 CHANGELOG 生成步骤并优化发布流程
+- *(ci)* 重构 GitHub Actions 工作流以提高可维护性
+- *(rfont)* 优化代码实现并改进 CI 配置
+- *(rfont)* 优化性能基准测试并完善文档
+- *(font)* 优化字体解析和校验功能的代码结构
+- *(cmap)* 重构cmap子表解析逻辑
+- 实现字体解析性能优化功能
+- 重构字体库模块结构并实现SFNT校验和计算
+
+### Chores
+
+- *(project)* 添加 justfile 任务管理器配置
+- *(release)* 修复版本变量模板语法错误
+- *(release)* 添加 CHANGELOG.md 并配置自动化发布流程
+- *(ci)* 配置工作流忽略文档和发布文件
+- *(ci)* 更新代码覆盖率工具为 cargo-llvm-cov
+- *(workflow)* 更新 GitHub Actions 依赖版本
+- *(build)* 更新 .gitignore 配置
+- *(project)* 更新项目许可证和作者信息
+- 优化 Cargo.toml 配置和依赖管理
+
+### Documentation
+
+- *(readme)* 更新项目文档以反映 CLI 工具功能
+- *(readme)* 更新 README 添加 CI/CD 和 CHANGELOG 相关信息
+- *(guidelines)* 添加基准测试基线管理、代码覆盖率和文档生成指南
+- *(checksum)* 更新 calc_sfnt_checksum 函数文档注释
+- *(rfont)* 添加详细的API文档注释
+- 更新项目待办事项文档
+
+### Fixed
+
+- *(ci)* 修复Windows构建脚本和产物命名问题
+- *(font)* 修复字体子集化中的表复制和cmap重建问题
+- *(subset)* 修复cmap表子集化中的glyph ID连续性检查逻辑
+
+### Style
+
+- *(font)* 优化代码格式和调试日志格式
+
+### Testing
+
+- *(font)* 添加字体子集化功能的全面测试覆盖
+- 添加水平度量表解析功能的全面测试用例
+- 添加 glyf 和 hmtx 表的单元测试
+
+### Build
+
+- *(workflow)* 更新发布工作流配置
+
 ---
 
 ## 相关链接
