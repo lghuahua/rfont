@@ -275,10 +275,10 @@ impl Font {
                 .copy_from_slice(&(*orig_length as u32).to_be_bytes());
         }
 
-        println!(
-            "Table directory written at offset {}, {} entries",
-            table_dir_start,
-            decompressed_tables.len()
+        debug!(
+            offset = table_dir_start,
+            entries = decompressed_tables.len(),
+            "Table directory written"
         );
 
         // 使用重组后的 SFNT 数据创建 Font
@@ -394,10 +394,10 @@ impl Font {
             current_offset += entry.orig_length + padding;
         }
 
-        println!(
-            "WOFF2 Table directory written at offset {}, {} entries",
-            table_dir_start,
-            table_entries.len()
+        debug!(
+            offset = table_dir_start,
+            entries = table_entries.len(),
+            "WOFF2 Table directory written"
         );
 
         // 使用重组后的 SFNT 数据创建 Font

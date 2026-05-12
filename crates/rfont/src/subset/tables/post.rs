@@ -100,11 +100,11 @@ fn subset_post_v2_to_v3(original_post: &[u8]) -> Result<Vec<u8>, FontError> {
     // Version 3.0 没有后续数据（无字形名称数组）
 
     let size_reduction = original_post.len() as f64 / new_post.len() as f64;
-    println!(
-        "  ✂️  post 表优化: v2 ({:>6} bytes) → v3 ({:>3} bytes), 减少 {:.1}%",
-        original_post.len(),
-        new_post.len(),
-        (1.0 - 1.0 / size_reduction) * 100.0
+    tracing::info!(
+        original_size = original_post.len(),
+        new_size = new_post.len(),
+        reduction_percent = (1.0 - 1.0 / size_reduction) * 100.0,
+        "post 表优化: v2 → v3"
     );
 
     Ok(new_post)
@@ -261,7 +261,6 @@ mod tests {
 
         // 计算压缩率
         let reduction = (1.0 - new_size as f64 / original_size as f64) * 100.0;
-        println!("Post 表大小减少: {:.1}%", reduction);
 
         // 注意：这个测试使用的是简化数据（没有字符串池）
         // 实际字体中，post v2 表通常包含大量字形名称，可以减少 90%+ 的体积

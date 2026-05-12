@@ -18,6 +18,7 @@ pub struct CmapGroup {
 use crate::Font;
 use rfont_types::FontError;
 use std::collections::{HashMap, HashSet};
+use tracing::debug;
 
 use crate::constants::{CMAP_HEADER_SIZE, ENCODING_RECORD_SIZE};
 
@@ -58,14 +59,14 @@ pub fn rebuild_cmap(font: &Font, subset_glyphs: &[u16]) -> Result<Vec<u8>, FontE
 
     // 智能选择格式
     let result = if has_non_bmp {
-        println!("  cmap 格式: Format 12 (支持 Unicode 补充平面)");
+        debug!(format = "Format 12", "cmap 格式选择");
         build_cmap_format12(&new_unicode_map)
     } else if all_in_byte_range && new_unicode_map.len() <= 256 {
-        println!("  cmap 格式: Format 0 (简单字节映射)");
+        debug!(format = "Format 0", "cmap 格式选择");
         build_cmap_format0(&new_unicode_map)
     } else {
         let segments = build_cmap_segments(&new_unicode_map);
-        println!("  cmap 格式: Format 4 ({} 个段)", segments.len());
+        debug!(format = "Format 4", segment_count = segments.len(), "cmap 格式选择");
         build_cmap_format4(&segments)
     };
     
@@ -238,10 +239,10 @@ fn build_cmap_format12(unicode_map: &[(u32, u16)]) -> Result<Vec<u8>, FontError>
     // 构建连续的组（groups）
     let groups = build_cmap_groups(unicode_map);
 
-    println!(
-        "  cmap Format 12: {} 个字符 -> {} 个组",
-        unicode_map.len(),
-        groups.len()
+    debug!(
+        char_count = unicode_map.len(),
+        group_count = groups.len(),
+        "cmap Format 12"
     );
 
     let mut data = Vec::new();

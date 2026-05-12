@@ -383,16 +383,16 @@ impl Font {
             })?;
 
         // 打印各表大小统计
-        println!("各表大小统计:");
-        println!("  head: {} bytes", new_head_data.len());
-        println!("  maxp: {} bytes", new_maxp_data.len());
-        println!("  cmap: {} bytes", new_cmap_data.len());
-        println!("  hhea: {} bytes", hhea_data.len());
-        println!("  hmtx: {} bytes", new_hmtx_data.len());
-        println!("  loca: {} bytes", new_loca_data.len());
-        println!("  glyf: {} bytes", new_glyf_data.len());
+        debug!("各表大小统计:");
+        debug!(table = "head", size = new_head_data.len());
+        debug!(table = "maxp", size = new_maxp_data.len());
+        debug!(table = "cmap", size = new_cmap_data.len());
+        debug!(table = "hhea", size = hhea_data.len());
+        debug!(table = "hmtx", size = new_hmtx_data.len());
+        debug!(table = "loca", size = new_loca_data.len());
+        debug!(table = "glyf", size = new_glyf_data.len());
         for (tag, data) in &other_tables {
-            println!("  {:?}: {} bytes", tag, data.len());
+            debug!(table = ?tag, size = data.len(), "其他表");
         }
 
         // 8. 组装最终的 TTF 文件
@@ -407,7 +407,7 @@ impl Font {
             &other_tables,
         )?;
 
-        println!("子集字体生成完成，大小: {} bytes", final_font.len());
+        info!(size = final_font.len(), "子集字体生成完成");
 
         // 验证校验和
         if let Some(_head_bytes) = self.font_data.get_table_bytes(Tag(*b"head")) {
@@ -432,7 +432,7 @@ impl Font {
                         final_font[offset + 10],
                         final_font[offset + 11],
                     ]);
-                    println!("  head.checkSumAdjustment: 0x{:08X}", checksum_adj);
+                    debug!(checksum = format!("0x{:08X}", checksum_adj), "head.checkSumAdjustment");
                 }
             }
         }
