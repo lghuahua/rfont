@@ -1,6 +1,6 @@
 use crate::Font;
 use rfont_types::{Reader, Tag};
-use tracing::{debug, span, Level};
+use tracing::{debug, info, span, Level};
 
 use crate::checksum::calc_sfnt_checksum;
 use crate::constants::SFNT_CHECKSUM_MAGIC;
@@ -791,32 +791,104 @@ impl Font {
         // 压缩并写入表数据
         let mut table_entries = Vec::new();
         let mut current_offset = woff_writer.data.len() as u32;
-        let mut total_sfnt_size = 0u32;
 
-        for (tag, checksum, offset, length) in &table_records {
-            let table_data = &ttf_data[*offset as usize..(*offset + *length) as usize];
-            total_sfnt_size += length + (4 - (length % 4)) % 4; // 对齐到 4 字节
+        // 计算 total_sfnt_size: SFNT Offset Table (12) + Table Directory (num_tables * 16) + 所有表数据（4字节对齐）
+        let mut total_sfnt_size = 12u32 + (num_tables as u32) * 16;
+
+        for (tag, _checksum, offset, length) in &table_records {
+            // 读取原始表数据
+            let mut table_data = ttf_data[*offset as usize..(*offset + *length) as usize].to_vec();
+            
+            // 特殊处理 head 表：将 checkSumAdjustment 设置为 0
+            if tag.as_str() == "head" && table_data.len() >= 12 {
+                // checkSumAdjustment 位于 head 表的第 8-11 字节
+                table_data[8] = 0;
+                table_data[9] = 0;
+                table_data[10] = 0;
+                table_data[11] = 0;
+            }
+            
+            // 每个表数据需要 4 字节对齐
+            let padded_length = (*length + 3) & !3;
+            total_sfnt_size += padded_length;
+
+            // 准备 4 字节对齐的数据（用于计算 checksum）
+            let mut aligned_data = table_data.to_vec();
+            if aligned_data.len() < padded_length as usize {
+                aligned_data.resize(padded_length as usize, 0);
+            }
 
             // 使用 zlib 压缩
-            let compression = match compression_level {
-                0 => Compression::none(),
-                1..=3 => Compression::fast(),
-                4..=6 => Compression::new(compression_level as u32),
-                _ => Compression::best(),
-            };
+            let compressed_data = if compression_level == 0 {
+                // 不压缩，直接使用原始数据
+                table_data.clone()
+            } else {
+                let compression = match compression_level {
+                    1..=3 => Compression::fast(),
+                    4..=6 => Compression::new(compression_level as u32),
+                    _ => Compression::best(),
+                };
 
-            let mut encoder = ZlibEncoder::new(Vec::new(), compression);
-            encoder
-                .write_all(table_data)
-                .map_err(|e| FontError::Generic(format!("WOFF compression failed: {}", e)))?;
-            let compressed_data = encoder.finish().map_err(|e| {
-                FontError::Generic(format!("WOFF compression finish failed: {}", e))
-            })?;
+                let mut encoder = ZlibEncoder::new(Vec::new(), compression);
+                encoder
+                    .write_all(&table_data)
+                    .map_err(|e| FontError::Generic(format!("WOFF compression failed: {}", e)))?;
+                let result = encoder.finish().map_err(|e| {
+                    FontError::Generic(format!("WOFF compression finish failed: {}", e))
+                })?;
+                
+                // 如果压缩后反而变大，使用原始数据（不压缩）
+                if result.len() >= table_data.len() {
+                    if tag.as_str() == "head" {
+                        eprintln!("DEBUG: head 表压缩后变大 ({} >= {}), 使用原始数据", result.len(), table_data.len());
+                    }
+                    info!(
+                        tag = tag.as_str(),
+                        original_size = table_data.len(),
+                        compressed_size = result.len(),
+                        "表数据压缩后变大，使用原始数据"
+                    );
+                    table_data.clone()
+                } else {
+                    if tag.as_str() == "head" {
+                        eprintln!("DEBUG: head 表压缩成功 ({} < {})", result.len(), table_data.len());
+                    }
+                    debug!(
+                        tag = tag.as_str(),
+                        original_size = table_data.len(),
+                        compressed_size = result.len(),
+                        "表数据压缩成功"
+                    );
+                    result
+                }
+            };
 
             let comp_length = compressed_data.len() as u32;
             let padded_comp_length = (comp_length + 3) & !3; // 对齐到 4 字节
+            
+            if tag.as_str() == "head" {
+                eprintln!("DEBUG: head 表 - comp_length={}, orig_length={}, compressed_data.len()={}", 
+                    comp_length, *length, compressed_data.len());
+            }
 
-            table_entries.push((*tag, current_offset, comp_length, *length, *checksum));
+            // 记录表条目信息
+            table_entries.push((
+                *tag,
+                current_offset,
+                comp_length,
+                padded_comp_length,
+                *length,
+                padded_length,
+            ));
+
+            debug!(
+                tag = tag.as_str(),
+                orig_length = length,
+                padded_length = padded_length,
+                comp_length = comp_length,
+                offset = current_offset,
+                "WOFF 表压缩完成"
+            );
 
             woff_writer.data.extend_from_slice(&compressed_data);
             // 填充到 4 字节边界
@@ -828,18 +900,51 @@ impl Font {
         }
 
         // 回填表目录
-        for (i, (tag, offset, comp_length, orig_length, checksum)) in
+        for (i, (tag, woff_offset, comp_length, _padded_comp_length, orig_length, padded_length)) in
             table_entries.iter().enumerate()
         {
             let dir_offset = table_dir_start + i * 20;
+            
+            // 从原始 TTF 数据中读取表数据（使用原始的 ttf_offset）
+            // 注意：table_records 中存储的是 (Tag, checksum, ttf_offset, length)
+            // 我们需要找到对应的 ttf_offset
+            let ttf_offset = table_records.iter()
+                .find(|(t, _, _, _)| t == tag)
+                .map(|(_, _, o, _)| *o)
+                .unwrap();
+            
+            let table_data = &ttf_data[ttf_offset as usize..(ttf_offset + *orig_length) as usize];
+            let mut aligned_data = table_data.to_vec();
+            if aligned_data.len() < *padded_length as usize {
+                aligned_data.resize(*padded_length as usize, 0);
+            }
+            
+            // 计算校验和（基于 4 字节对齐的数据）
+            let mut checksum: u32 = 0;
+            for chunk in aligned_data.chunks(4) {
+                let mut value: u32 = 0;
+                for (i, &byte) in chunk.iter().enumerate() {
+                    value |= (byte as u32) << (24 - i * 8);
+                }
+                checksum = checksum.wrapping_add(value);
+            }
+            
             woff_writer.data[dir_offset..dir_offset + 4].copy_from_slice(&tag.0);
-            woff_writer.data[dir_offset + 4..dir_offset + 8].copy_from_slice(&offset.to_be_bytes());
+            woff_writer.data[dir_offset + 4..dir_offset + 8].copy_from_slice(&woff_offset.to_be_bytes());
             woff_writer.data[dir_offset + 8..dir_offset + 12]
                 .copy_from_slice(&comp_length.to_be_bytes());
             woff_writer.data[dir_offset + 12..dir_offset + 16]
                 .copy_from_slice(&orig_length.to_be_bytes());
             woff_writer.data[dir_offset + 16..dir_offset + 20]
                 .copy_from_slice(&checksum.to_be_bytes());
+            
+            debug!(
+                tag = tag.as_str(),
+                dir_offset = dir_offset,
+                data_offset = woff_offset,
+                checksum = format!("0x{:08X}", checksum),
+                "WOFF 表目录回填"
+            );
         }
 
         // 回填 header 中的长度字段
