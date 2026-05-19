@@ -1,5 +1,6 @@
 pub mod cmap;
 pub mod glyf;
+pub mod glyf_lazy;
 pub mod head;
 pub mod hhea;
 pub mod hmtx;
