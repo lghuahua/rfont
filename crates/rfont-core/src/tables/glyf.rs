@@ -1,5 +1,31 @@
 use rfont_types::{FontError, Reader, WriteBytes, Writer};
 
+// ==================== Glyf 表标志位常量 ====================
+// 参考 OpenType 规范和 woff2 项目 glyph.cc
+
+// 简单字形标志位 (Simple Glyph Flags)
+pub const FLAG_ON_CURVE: u8 = 0x01;          // bit 0: 点在曲线上
+pub const FLAG_X_SHORT: u8 = 0x02;           // bit 1: X 坐标使用单字节
+pub const FLAG_Y_SHORT: u8 = 0x04;           // bit 2: Y 坐标使用单字节
+pub const FLAG_REPEAT: u8 = 0x08;            // bit 3: 标志位重复
+pub const FLAG_X_IS_SAME_OR_POSITIVE: u8 = 0x10;  // bit 4: X 增量为正或相同
+pub const FLAG_Y_IS_SAME_OR_POSITIVE: u8 = 0x20;  // bit 5: Y 增量为正或相同
+pub const FLAG_OVERLAP_SIMPLE: u8 = 0x40;    // bit 6: 简单字形重叠
+
+// 复合字形标志位 (Composite Glyph Flags)
+pub const ARG_1_AND_2_ARE_WORDS: u16 = 0x0001;     // bit 0: 参数是双字节
+pub const ARGS_ARE_XY_VALUES: u16 = 0x0002;        // bit 1: 参数是 XY 值（而非点）
+pub const ROUND_XY_TO_GRID: u16 = 0x0004;          // bit 2: 舍入到网格
+pub const WE_HAVE_A_SCALE: u16 = 0x0008;           // bit 3: 有缩放因子
+pub const MORE_COMPONENTS: u16 = 0x0020;           // bit 5: 还有更多组件
+pub const WE_HAVE_AN_X_AND_Y_SCALE: u16 = 0x0040;  // bit 6: 有 X 和 Y 缩放
+pub const WE_HAVE_A_TWO_BY_TWO: u16 = 0x0080;      // bit 7: 有 2x2 变换矩阵
+pub const WE_HAVE_INSTRUCTIONS: u16 = 0x0100;      // bit 8: 有指令
+pub const USE_MY_METRICS: u16 = 0x0200;            // bit 9: 使用我的度量
+pub const OVERLAP_COMPOUND: u16 = 0x0400;          // bit 10: 复合字形重叠
+pub const SCALED_COMPONENT_OFFSET: u16 = 0x0800;   // bit 11: 缩放的组件偏移
+pub const UNSCALED_COMPONENT_OFFSET: u16 = 0x1000; // bit 12: 未缩放的组件偏移
+
 #[derive(Debug, Clone)]
 pub struct GlyfRecord {
     pub glyph_id: u16,
@@ -70,7 +96,7 @@ impl GlyfRecord {
             // 计算总点数
             let total_points = end_pts_of_contours.last().copied().unwrap_or(0) as usize + 1;
 
-            // 读取 Flags
+            // 读取 Flags（支持 run-length 编码）
             let mut flags = Vec::with_capacity(total_points);
             let mut remaining = total_points;
             while remaining > 0 {
@@ -78,8 +104,8 @@ impl GlyfRecord {
                 flags.push(flag);
                 remaining -= 1;
 
-                // 如果设置了 Repeat 位 (3)，则后面跟着一个重复次数
-                if flag & 0x08 != 0 {
+                // 如果设置了 Repeat 位 (bit 3)，则后面跟着一个重复次数
+                if flag & FLAG_REPEAT != 0 {
                     let repeat_count = reader.read_u8()? as usize;
                     for _ in 0..repeat_count {
                         flags.push(flag);
@@ -88,16 +114,76 @@ impl GlyfRecord {
                 }
             }
 
-            // 读取坐标 (X 和 Y 是分开存储的，且可能是相对值)
-            // 这里为了简化，先实现基础读取，后续可能需要处理相对坐标转换
+            // 读取 X 坐标（相对增量编码）
             let mut x_coordinates = Vec::with_capacity(total_points);
-            let mut y_coordinates = Vec::with_capacity(total_points);
+            let mut prev_x: i16 = 0;
+            
+            for i in 0..total_points {
+                let flag = flags[i];
+                
+                // bit 1: X_IS_SHORT (单字节)
+                if flag & FLAG_X_SHORT != 0 {
+                    // 单字节坐标值
+                    let x_byte = reader.read_u8()?;
+                    
+                    // bit 4: X_IS_SAME_OR_POSITIVE
+                    // 如果为 1，表示正值；如果为 0，表示负值
+                    if flag & FLAG_X_IS_SAME_OR_POSITIVE != 0 {
+                        // 正值
+                        prev_x = prev_x.wrapping_add(x_byte as i16);
+                    } else {
+                        // 负值
+                        prev_x = prev_x.wrapping_sub(x_byte as i16);
+                    }
+                } else {
+                    // bit 4: X_IS_SAME_OR_ZERO
+                    if flag & FLAG_X_IS_SAME_OR_POSITIVE != 0 {
+                        // X 坐标与前一个相同（增量为 0）
+                        // prev_x 保持不变
+                    } else {
+                        // 双字节有符号坐标值
+                        let x_delta = reader.read_i16()?;
+                        prev_x = prev_x.wrapping_add(x_delta);
+                    }
+                }
+                
+                x_coordinates.push(prev_x);
+            }
 
-            // 简化的坐标读取逻辑（实际规范更复杂，涉及相对坐标和标志位解析）
-            // 暂时占位，确保结构完整
-            for _ in 0..total_points {
-                x_coordinates.push(0);
-                y_coordinates.push(0);
+            // 读取 Y 坐标（相对增量编码）
+            let mut y_coordinates = Vec::with_capacity(total_points);
+            let mut prev_y: i16 = 0;
+            
+            for i in 0..total_points {
+                let flag = flags[i];
+                
+                // bit 2: Y_IS_SHORT (单字节)
+                if flag & FLAG_Y_SHORT != 0 {
+                    // 单字节坐标值
+                    let y_byte = reader.read_u8()?;
+                    
+                    // bit 5: Y_IS_SAME_OR_POSITIVE
+                    // 如果为 1，表示正值；如果为 0，表示负值
+                    if flag & FLAG_Y_IS_SAME_OR_POSITIVE != 0 {
+                        // 正值
+                        prev_y = prev_y.wrapping_add(y_byte as i16);
+                    } else {
+                        // 负值
+                        prev_y = prev_y.wrapping_sub(y_byte as i16);
+                    }
+                } else {
+                    // bit 5: Y_IS_SAME_OR_ZERO
+                    if flag & FLAG_Y_IS_SAME_OR_POSITIVE != 0 {
+                        // Y 坐标与前一个相同（增量为 0）
+                        // prev_y 保持不变
+                    } else {
+                        // 双字节有符号坐标值
+                        let y_delta = reader.read_i16()?;
+                        prev_y = prev_y.wrapping_add(y_delta);
+                    }
+                }
+                
+                y_coordinates.push(prev_y);
             }
 
             GlyphData::Simple(SimpleGlyph {
@@ -119,7 +205,7 @@ impl GlyfRecord {
                 let flags = reader.read_u16()?;
                 let glyph_index = reader.read_u16()?;
 
-                let arg_is_1_and_2_words = (flags & 0x0001) != 0;
+                let arg_is_1_and_2_words = (flags & ARG_1_AND_2_ARE_WORDS) != 0;
                 let (arg1, arg2) = if arg_is_1_and_2_words {
                     (reader.read_i16()?, reader.read_i16()?)
                 } else {
@@ -134,7 +220,7 @@ impl GlyfRecord {
                 });
 
                 // 如果 MORE_COMPONENTS 位 (5) 为 0，则结束
-                if (flags & 0x0020) == 0 {
+                if (flags & MORE_COMPONENTS) == 0 {
                     break;
                 }
             }
@@ -176,16 +262,13 @@ impl WriteBytes for GlyfRecord {
                     writer.write_u8(*inst)?;
                 }
 
-                // 4. 处理坐标：转换为相对增量并生成 Flags
-                let total_points = simple.flags.len();
+                // 4. 处理坐标：转换为相对增量并重新生成 Flags
+                let total_points = simple.x_coordinates.len();
                 if total_points == 0 {
                     return Ok(());
                 }
 
-                let mut x_coords_delta = Vec::with_capacity(total_points);
-                let mut y_coords_delta = Vec::with_capacity(total_points);
                 let mut processed_flags = Vec::with_capacity(total_points);
-
                 let mut last_x: i16 = 0;
                 let mut last_y: i16 = 0;
 
@@ -196,74 +279,91 @@ impl WriteBytes for GlyfRecord {
                     let dx = curr_x - last_x;
                     let dy = curr_y - last_y;
 
-                    x_coords_delta.push(dx);
-                    y_coords_delta.push(dy);
-
-                    let mut flag = simple.flags[i] & 0xCF; // 保留原始标志的核心位，清除重复位
+                    // 从原始 flags 中保留 on-curve 位 (bit 0) 和 overlap 位 (bit 6)
+                    let original_flag = if i < simple.flags.len() {
+                        simple.flags[i]
+                    } else {
+                        0
+                    };
+                    
+                    let mut flag = original_flag & (FLAG_ON_CURVE | FLAG_OVERLAP_SIMPLE);
 
                     // 处理 X 坐标标志
                     if dx == 0 {
-                        flag |= 0x02; // THIS_X_IS_SAME
-                    } else if dx > 0 && dx <= 255 {
-                        flag |= 0x12; // X_IS_BYTE | THIS_X_IS_SAME (positive)
-                    } else if (-255..0).contains(&dx) {
-                        flag |= 0x10; // X_IS_BYTE (negative, bit 1 is 0)
-                                      // 注意：在写入时，负数需要取绝对值存入单字节
+                        // X 增量为 0：设置 bit 1 (X_IS_SHORT) 和 bit 4 (X_IS_SAME)
+                        flag |= FLAG_X_SHORT | FLAG_X_IS_SAME_OR_POSITIVE;
+                    } else if dx > -256 && dx < 256 {
+                        // X 增量在单字节范围内：设置 bit 1 (X_IS_SHORT)
+                        flag |= FLAG_X_SHORT;
+                        // bit 4 (X_IS_SAME_OR_POSITIVE): 1=正, 0=负
+                        if dx > 0 {
+                            flag |= FLAG_X_IS_SAME_OR_POSITIVE;
+                        }
+                        // 如果 dx < 0，bit 4 保持为 0
                     }
+                    // 否则使用双字节，bit 1 和 bit 4 都为 0
 
                     // 处理 Y 坐标标志
                     if dy == 0 {
-                        flag |= 0x04; // THIS_Y_IS_SAME
-                    } else if dy > 0 && dy <= 255 {
-                        flag |= 0x24; // Y_IS_BYTE | THIS_Y_IS_SAME (positive)
-                    } else if (-255..0).contains(&dy) {
-                        flag |= 0x20; // Y_IS_BYTE (negative, bit 2 is 0)
+                        // Y 增量为 0：设置 bit 2 (Y_IS_SHORT) 和 bit 5 (Y_IS_SAME)
+                        flag |= FLAG_Y_SHORT | FLAG_Y_IS_SAME_OR_POSITIVE;
+                    } else if dy > -256 && dy < 256 {
+                        // Y 增量在单字节范围内：设置 bit 2 (Y_IS_SHORT)
+                        flag |= FLAG_Y_SHORT;
+                        // bit 5 (Y_IS_SAME_OR_POSITIVE): 1=正, 0=负
+                        if dy > 0 {
+                            flag |= FLAG_Y_IS_SAME_OR_POSITIVE;
+                        }
+                        // 如果 dy < 0，bit 5 保持为 0
                     }
+                    // 否则使用双字节，bit 2 和 bit 5 都为 0
 
-                    // 处理重复标志 (Run-length encoding for flags)
-                    // 这是一个简化处理，实际规范更复杂。这里我们暂时不合并重复标志，
-                    // 而是确保每个点都有对应的标志位。
                     processed_flags.push(flag);
-
                     last_x = curr_x;
                     last_y = curr_y;
                 }
 
-                // 5. 写入标志位
+                // 5. 写入标志位（不实现 run-length 编码以保持简单）
                 for flag in &processed_flags {
                     writer.write_u8(*flag)?;
                 }
 
                 // 6. 写入 X 坐标增量
-                for (i, &dx) in x_coords_delta.iter().enumerate() {
+                last_x = 0;
+                for (i, &curr_x) in simple.x_coordinates.iter().enumerate() {
+                    let dx = curr_x - last_x;
                     let flag = processed_flags[i];
-                    if (flag & 0x10) != 0 {
-                        // X_IS_BYTE
-                        // 如果是单字节存储，根据 THIS_X_IS_SAME 位判断正负
-                        if (flag & 0x02) != 0 {
-                            writer.write_u8(dx as u8)?; // Positive or Zero
-                        } else {
-                            writer.write_u8((-dx) as u8)?; // Negative
-                        }
-                    } else if (flag & 0x02) == 0 {
-                        // Not same, must be short
+                    
+                    if (flag & FLAG_X_SHORT) != 0 {
+                        // X_IS_SHORT: 单字节
+                        let abs_dx = dx.unsigned_abs() as u8;
+                        writer.write_u8(abs_dx)?;
+                    } else if (flag & FLAG_X_IS_SAME_OR_POSITIVE) == 0 {
+                        // 非相同且非单字节：双字节有符号
                         writer.write_i16(dx)?;
                     }
+                    // 如果 bit 4 为 1 且 bit 1 为 0，表示增量为 0，不写入数据
+                    
+                    last_x = curr_x;
                 }
 
                 // 7. 写入 Y 坐标增量
-                for (i, &dy) in y_coords_delta.iter().enumerate() {
+                last_y = 0;
+                for (i, &curr_y) in simple.y_coordinates.iter().enumerate() {
+                    let dy = curr_y - last_y;
                     let flag = processed_flags[i];
-                    if (flag & 0x20) != 0 {
-                        // Y_IS_BYTE
-                        if (flag & 0x04) != 0 {
-                            writer.write_u8(dy as u8)?;
-                        } else {
-                            writer.write_u8((-dy) as u8)?;
-                        }
-                    } else if (flag & 0x04) == 0 {
+                    
+                    if (flag & FLAG_Y_SHORT) != 0 {
+                        // Y_IS_SHORT: 单字节
+                        let abs_dy = dy.unsigned_abs() as u8;
+                        writer.write_u8(abs_dy)?;
+                    } else if (flag & FLAG_Y_IS_SAME_OR_POSITIVE) == 0 {
+                        // 非相同且非单字节：双字节有符号
                         writer.write_i16(dy)?;
                     }
+                    // 如果 bit 5 为 1 且 bit 2 为 0，表示增量为 0，不写入数据
+                    
+                    last_y = curr_y;
                 }
 
                 Ok(())
@@ -283,13 +383,13 @@ impl WriteBytes for GlyfRecord {
                 for (i, comp) in composite.components.iter().enumerate() {
                     let mut flags = comp.flags;
                     if i < last {
-                        flags |= 0x0020;
-                    } // MORE_COMPONENTS
+                        flags |= MORE_COMPONENTS;
+                    }
 
                     writer.write_u16(flags)?;
                     writer.write_u16(comp.glyph_index)?;
 
-                    let arg_is_words = (flags & 0x0001) != 0;
+                    let arg_is_words = (flags & ARG_1_AND_2_ARE_WORDS) != 0;
                     if arg_is_words {
                         writer.write_i16(comp.argument1)?;
                         writer.write_i16(comp.argument2)?;
@@ -327,20 +427,31 @@ mod tests {
 
     #[test]
     fn test_glyf_simple_glyph_basic() {
-        // 测试简单的单轮廓字形
-        // 结构：num_contours=1, bbox, end_pts, instruction_len, instructions
+        // 测试简单的单轮廓字形（正方形）
+        // 4个点：(0,0), (100,0), (100,100), (0,100)
         let data = vec![
             // num_contours = 1 (简单字形)
-            0x00, 0x01, // x_min = -50 (0xFFCE)
-            0xFF, 0xCE, // y_min = -100 (0xFF9C)
-            0xFF, 0x9C, // x_max = 200 (0x00C8)
-            0x00, 0xC8, // y_max = 300 (0x012C)
-            0x01, 0x2C, // end_pts_of_contours: [3] (4个点，索引从0开始)
-            0x00, 0x03, // instruction_length = 0
-            0x00, 0x00, // flags (4个点的标志)
-            0x01, 0x01, 0x01, 0x01, // x_coordinates (4个值，这里简化为0)
-            0x00, 0x00, 0x00, 0x00, // y_coordinates (4个值)
-            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01,
+            // bbox: x_min=0, y_min=0, x_max=100, y_max=100
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x64,
+            // end_pts_of_contours: [3] (4个点，索引从0开始)
+            0x00, 0x03,
+            // instruction_length = 0
+            0x00, 0x00,
+            // flags (4个点):
+            // bit 0=on-curve, bit 1=x-short, bit 2=y-short, bit 4=x-positive/same, bit 5=y-positive/same
+            // 点0 (0,0): on-curve(1), x-delta=0(bit1+bit4=0x12), y-delta=0(bit2+bit5=0x24) => 0x01|0x12|0x24 = 0x37
+            0x37,
+            // 点1 (100,0): on-curve(1), x-delta=100(short+positive=0x12), y-delta=0(0x24) => 0x01|0x12|0x24 = 0x37
+            0x37,
+            // 点2 (100,100): on-curve(1), x-delta=0(0x12), y-delta=100(short+positive=0x24) => 0x01|0x12|0x24 = 0x37
+            0x37,
+            // 点3 (0,100): on-curve(1), x-delta=-100(short+negative: bit1=1,bit4=0 => 0x02), y-delta=0(0x24) => 0x01|0x02|0x24 = 0x27
+            0x27,
+            // x coordinates: 0, 100, 0, 100 (absolute values for short encoding)
+            0x00, 0x64, 0x00, 0x64,
+            // y coordinates: 0, 0, 100, 0
+            0x00, 0x00, 0x64, 0x00,
         ];
 
         let mut reader = Reader::new(&data);
@@ -350,13 +461,16 @@ mod tests {
         match &record.data {
             GlyphData::Simple(simple) => {
                 assert_eq!(simple.num_contours, 1);
-                assert_eq!(simple.x_min, -50);
-                assert_eq!(simple.y_min, -100);
-                assert_eq!(simple.x_max, 200);
-                assert_eq!(simple.y_max, 300);
+                assert_eq!(simple.x_min, 0);
+                assert_eq!(simple.y_min, 0);
+                assert_eq!(simple.x_max, 100);
+                assert_eq!(simple.y_max, 100);
                 assert_eq!(simple.end_pts_of_contours, vec![3]);
                 assert!(simple.instructions.is_empty());
                 assert_eq!(simple.flags.len(), 4);
+                // 验证坐标解码正确
+                assert_eq!(simple.x_coordinates, vec![0, 100, 100, 0]);
+                assert_eq!(simple.y_coordinates, vec![0, 0, 100, 100]);
             }
             _ => panic!("Expected Simple glyph"),
         }
@@ -364,16 +478,30 @@ mod tests {
 
     #[test]
     fn test_glyf_simple_glyph_with_instructions() {
-        // 测试带指令的字形
+        // 测试带指令的字形（三角形）
+        // 3个点：(0,0), (50,100), (100,0)
         let data = vec![
             // num_contours = 1
-            0x00, 0x01, // bbox
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x64, // end_pts_of_contours: [2]
-            0x00, 0x02, // instruction_length = 3
-            0x00, 0x03, // instructions: [0x10, 0x20, 0x30]
-            0x10, 0x20, 0x30, // flags (3个点)
-            0x01, 0x01, 0x01, // coordinates (简化)
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01,
+            // bbox
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x64,
+            // end_pts_of_contours: [2]
+            0x00, 0x02,
+            // instruction_length = 3
+            0x00, 0x03,
+            // instructions: [0x10, 0x20, 0x30]
+            0x10, 0x20, 0x30,
+            // flags (3个点): on-curve + coordinates
+            // 点0 (0,0): x=0,y=0 => 0x01|0x12|0x24 = 0x37
+            0x37,
+            // 点1 (50,100): dx=50(short+pos=0x12), dy=100(short+pos=0x24) => 0x01|0x12|0x24 = 0x37
+            0x37,
+            // 点2 (100,0): dx=50(short+pos=0x12), dy=-100(short+neg: bit2=1,bit5=0 => 0x04) => 0x01|0x12|0x04 = 0x17
+            0x17,
+            // x coordinates: 0, 50, 50
+            0x00, 0x32, 0x32,
+            // y coordinates: 0, 100, 100 (abs value)
+            0x00, 0x64, 0x64,
         ];
 
         let mut reader = Reader::new(&data);
@@ -383,6 +511,8 @@ mod tests {
             GlyphData::Simple(simple) => {
                 assert_eq!(simple.instructions, vec![0x10, 0x20, 0x30]);
                 assert_eq!(simple.end_pts_of_contours, vec![2]);
+                assert_eq!(simple.x_coordinates, vec![0, 50, 100]);
+                assert_eq!(simple.y_coordinates, vec![0, 100, 0]);
             }
             _ => panic!("Expected Simple glyph"),
         }
@@ -391,16 +521,22 @@ mod tests {
     #[test]
     fn test_glyf_simple_glyph_multiple_contours() {
         // 测试多轮廓字形（如字母 "B" 有两个孔）
+        // 8个点，2个轮廓
         let data = vec![
             // num_contours = 2
-            0x00, 0x02, // bbox
+            0x00, 0x02,
+            // bbox
             0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x64,
             // end_pts_of_contours: [3, 7] (第一个轮廓4点，第二个轮廓4点)
-            0x00, 0x03, 0x00, 0x07, // instruction_length = 0
-            0x00, 0x00, // flags (8个点)
-            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, // coordinates (简化)
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03, 0x00, 0x07,
+            // instruction_length = 0
             0x00, 0x00,
+            // flags (8个点): all on-curve with zero deltas
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            // x coordinates: all zeros
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // y coordinates: all zeros
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
 
         let mut reader = Reader::new(&data);
@@ -411,6 +547,8 @@ mod tests {
                 assert_eq!(simple.num_contours, 2);
                 assert_eq!(simple.end_pts_of_contours, vec![3, 7]);
                 assert_eq!(simple.flags.len(), 8);
+                assert_eq!(simple.x_coordinates.len(), 8);
+                assert_eq!(simple.y_coordinates.len(), 8);
             }
             _ => panic!("Expected Simple glyph"),
         }
@@ -420,16 +558,24 @@ mod tests {
     fn test_glyf_simple_glyph_flag_repeat() {
         // 测试标志位的重复编码
         // 如果有 repeat 标志 (bit 3 = 1)，后面跟着重复次数
+        // 5个点，所有点都有相同的标志
         let data = vec![
             // num_contours = 1
-            0x00, 0x01, // bbox
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x0A, // end_pts_of_contours: [4]
-            0x00, 0x04, // instruction_length = 0
-            0x00, 0x00, // flags: 第一个标志有 repeat 位，重复 3 次
-            0x09, 0x03, // 0x09 = 0x01 | 0x08 (repeat), 0x03 = repeat count
-            0x01, // 最后一个标志
-            // coordinates (5个点)
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01,
+            // bbox
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x0A,
+            // end_pts_of_contours: [4]
+            0x00, 0x04,
+            // instruction_length = 0
+            0x00, 0x00,
+            // flags: 第一个标志有 repeat 位，重复 3 次
+            // 0x33 | 0x08 = 0x3B (on-curve + x-short+same + y-short+same + repeat)
+            0x3B, 0x03, // repeat count = 3
+            // 最后一个标志
+            0x33,
+            // coordinates (5个点): all zeros
+            0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00,
         ];
 
         let mut reader = Reader::new(&data);
@@ -439,11 +585,14 @@ mod tests {
             GlyphData::Simple(simple) => {
                 // 应该有 5 个标志：1个原始 + 3个重复 + 1个最后
                 assert_eq!(simple.flags.len(), 5);
-                assert_eq!(simple.flags[0], 0x09);
-                assert_eq!(simple.flags[1], 0x09);
-                assert_eq!(simple.flags[2], 0x09);
-                assert_eq!(simple.flags[3], 0x09);
-                assert_eq!(simple.flags[4], 0x01);
+                assert_eq!(simple.flags[0], 0x3B);
+                assert_eq!(simple.flags[1], 0x3B);
+                assert_eq!(simple.flags[2], 0x3B);
+                assert_eq!(simple.flags[3], 0x3B);
+                assert_eq!(simple.flags[4], 0x33);
+                // 所有坐标都应该是 0
+                assert_eq!(simple.x_coordinates, vec![0, 0, 0, 0, 0]);
+                assert_eq!(simple.y_coordinates, vec![0, 0, 0, 0, 0]);
             }
             _ => panic!("Expected Simple glyph"),
         }
