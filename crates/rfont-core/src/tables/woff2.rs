@@ -5,12 +5,20 @@ use rfont_types::{FontError, ReadBytes, Reader, Tag};
 /// 参考: <https://www.w3.org/TR/WOFF2/#woff20Header>
 #[derive(Debug, Clone, ReadBytes)]
 pub struct Woff2Header {
-    pub signature: u32,       // 0x774F4632 ('wOF2')
-    pub flavor: u32,          // Original font signature (0x00010000 for TrueType)
-    pub length: u32,          // Total size of WOFF2 file
-    pub num_tables: u16,      // Number of tables
-    pub reserved: u16,        // Reserved (set to 0)
-    pub total_sfnt_size: u32, // Uncompressed size of the entire font
+    pub signature: u32,             // 0x774F4632 ('wOF2')
+    pub flavor: u32,                // Original font signature (0x00010000 for TrueType)
+    pub length: u32,                // Total size of WOFF2 file
+    pub num_tables: u16,            // Number of tables
+    pub reserved: u16,              // Reserved (set to 0)
+    pub total_sfnt_size: u32,       // Uncompressed size of the entire font
+    pub total_compressed_size: u32, // Compressed size including table directory
+    pub major_version: u16,         // Major version of WOFF2 format
+    pub minor_version: u16,         // Minor version of WOFF2 format
+    pub meta_offset: u32,           // Offset to metadata block (0 if none)
+    pub meta_length: u32,           // Length of compressed metadata (0 if none)
+    pub meta_orig_length: u32,      // Uncompressed length of metadata (0 if none)
+    pub priv_offset: u32,           // Offset to private data block (0 if none)
+    pub priv_length: u32,           // Length of private data block (0 if none)
 }
 
 impl Woff2Header {
@@ -54,8 +62,11 @@ impl Woff2TableDirectoryEntry {
     pub fn read_from(reader: &mut Reader, known_tags: &[Tag]) -> Result<Self, FontError> {
         let flags = reader.read_u8()?;
 
-        // 提取 table type (高 6 bits)
-        let table_type = (flags >> 2) & 0x3F;
+        // 提取 table type (低 6 bits)
+        // flags 结构: [transform_version(2 bits, high) | table_type(6 bits, low)]
+        // bits 7-6: transform_version
+        // bits 5-0: table_type (index)
+        let table_type = flags & 0x3F;
 
         let tag = if table_type < 63 {
             // 使用预定义标签
@@ -78,14 +89,15 @@ impl Woff2TableDirectoryEntry {
         };
 
         // 读取原始长度（使用 Base128 编码）
-        let orig_length = Self::read_base128(reader)?;
+        let orig_length = reader.read_base128()?;
 
         // 检查是否有转换长度（glyf 和 loca 表）
-        // 在 WOFF2 中，通过标签判断是否需要转换长度
+        // 只有当 transform_version != 3 时才需要读取 transformLength
+        let transform_version = (flags >> 6) & 0x03;
         let transform_length = if let Some(tag) = tag {
-            if tag.as_str() == "glyf" || tag.as_str() == "loca" {
-                // glyf 和 loca 表有转换
-                Some(Self::read_base128(reader)?)
+            if (tag.as_str() == "glyf" || tag.as_str() == "loca") && transform_version != 3 {
+                // glyf 和 loca 表有转换，且不是 null transform
+                Some(reader.read_base128()?)
             } else {
                 None
             }
@@ -99,26 +111,6 @@ impl Woff2TableDirectoryEntry {
             orig_length,
             transform_length,
         })
-    }
-
-    /// 读取 Base128 编码的整数
-    fn read_base128(reader: &mut Reader) -> Result<u32, FontError> {
-        let mut result: u32 = 0;
-
-        loop {
-            if result > 0x0FFFFFFF {
-                return Err(FontError::Generic("WOFF2: Base128 overflow".to_string()));
-            }
-
-            let byte = reader.read_u8()?;
-            result = (result << 7) | ((byte & 0x7F) as u32);
-
-            if byte & 0x80 == 0 {
-                break;
-            }
-        }
-
-        Ok(result)
     }
 }
 
@@ -193,7 +185,7 @@ pub const WOFF2_KNOWN_TAGS: [Tag; 63] = [
 impl Woff2TableDirectoryEntry {
     #[cfg(test)]
     pub fn read_base128_test(reader: &mut Reader) -> Result<u32, FontError> {
-        Self::read_base128(reader)
+        reader.read_base128()
     }
 }
 
@@ -204,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_woff2_header_read() {
-        // 测试 WOFF2 Header 读取
+        // 测试 WOFF2 Header 读取（完整的 48 字节）
         let data = vec![
             // signature: 'wOF2' (0x774F4632)
             0x77, 0x4F, 0x46, 0x32, // flavor: TrueType (0x00010000)
@@ -212,7 +204,15 @@ mod tests {
             0x00, 0x00, 0x03, 0xE8, // num_tables: 5
             0x00, 0x05, // reserved: 0
             0x00, 0x00, // total_sfnt_size: 2000 bytes
-            0x00, 0x00, 0x07, 0xD0,
+            0x00, 0x00, 0x07, 0xD0, // total_compressed_size: 800 bytes
+            0x00, 0x00, 0x03, 0x20, // major_version: 1
+            0x00, 0x01, // minor_version: 0
+            0x00, 0x00, // meta_offset: 0
+            0x00, 0x00, 0x00, 0x00, // meta_length: 0
+            0x00, 0x00, 0x00, 0x00, // meta_orig_length: 0
+            0x00, 0x00, 0x00, 0x00, // priv_offset: 0
+            0x00, 0x00, 0x00, 0x00, // priv_length: 0
+            0x00, 0x00, 0x00, 0x00,
         ];
 
         let mut reader = Reader::new(&data);
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_woff2_header_validation() {
-        // 测试有效的 WOFF2 Header
+        // 测试有效的 WOFF2 Header（完整的 48 字节）
         let valid_data = vec![
             0x77, 0x4F, 0x46, 0x32, // signature
             0x00, 0x01, 0x00, 0x00, // flavor
@@ -235,6 +235,14 @@ mod tests {
             0x00, 0x05, // num_tables
             0x00, 0x00, // reserved
             0x00, 0x00, 0x07, 0xD0, // total_sfnt_size
+            0x00, 0x00, 0x03, 0x20, // total_compressed_size
+            0x00, 0x01, // major_version
+            0x00, 0x00, // minor_version
+            0x00, 0x00, 0x00, 0x00, // meta_offset
+            0x00, 0x00, 0x00, 0x00, // meta_length
+            0x00, 0x00, 0x00, 0x00, // meta_orig_length
+            0x00, 0x00, 0x00, 0x00, // priv_offset
+            0x00, 0x00, 0x00, 0x00, // priv_length
         ];
 
         let mut reader = Reader::new(&valid_data);
@@ -244,8 +252,19 @@ mod tests {
         // 测试无效的签名
         let invalid_data = vec![
             0x77, 0x4F, 0x46, 0x46, // 'wOFF' instead of 'wOF2'
-            0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x03, 0xE8, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00,
-            0x07, 0xD0,
+            0x00, 0x01, 0x00, 0x00, // flavor
+            0x00, 0x00, 0x03, 0xE8, // length
+            0x00, 0x05, // num_tables
+            0x00, 0x00, // reserved
+            0x00, 0x00, 0x07, 0xD0, // total_sfnt_size
+            0x00, 0x00, 0x03, 0x20, // total_compressed_size
+            0x00, 0x01, // major_version
+            0x00, 0x00, // minor_version
+            0x00, 0x00, 0x00, 0x00, // meta_offset
+            0x00, 0x00, 0x00, 0x00, // meta_length
+            0x00, 0x00, 0x00, 0x00, // meta_orig_length
+            0x00, 0x00, 0x00, 0x00, // priv_offset
+            0x00, 0x00, 0x00, 0x00, // priv_length
         ];
 
         let mut reader2 = Reader::new(&invalid_data);
@@ -297,9 +316,11 @@ mod tests {
     #[test]
     fn test_woff2_table_directory_predefined_tag() {
         // 测试使用预定义标签的表目录项
-        // table_type = 2 (hhea), flags = 2 << 2 = 0x08
+        // hhea 在 WOFF2_KNOWN_TAGS 中的索引是 2
+        // flags: transform_version = 0 (高 2 bits), table_type = 2 (低 6 bits)
+        // flags = 0b00_000010 = 0x02
         let data = vec![
-            0x08, // flags: table_type = 2 (hhea)
+            0x02, // flags: table_type = 2 (hhea), transform_version = 0
             0x81, 0x00, // orig_length = 128 (Base128: 0x81 0x00)
         ];
 
@@ -331,9 +352,11 @@ mod tests {
     #[test]
     fn test_woff2_table_directory_glyf_with_transform() {
         // glyf 表应该有转换长度
-        // flags: table_type = 10 (glyf) << 2 = 0x28
+        // glyf 在 WOFF2_KNOWN_TAGS 中的索引是 10
+        // flags: table_type = 10 (低 6 bits), transform_version = 0 (高 2 bits)
+        // flags = 0b00_001010 = 0x0A
         let data = vec![
-            0x28, // flags: table_type = 10 (glyf)
+            0x0A, // flags: table_type = 10 (glyf), transform_version = 0
             0x84, 0x00, // orig_length = 512 (Base128: 0x84 0x00)
             0x82, 0x00, // transform_length = 256 (Base128: 0x82 0x00)
         ];
@@ -378,5 +401,51 @@ mod tests {
         let mut reader = Reader::new(&data);
         let value = Woff2TableDirectoryEntry::read_base128_test(&mut reader).unwrap();
         assert_eq!(value, 300);
+    }
+
+    #[test]
+    fn test_base128_write() {
+        use rfont_types::Writer;
+
+        // 测试 Base128 写入
+        // 值 0
+        let mut writer = Writer::new();
+        writer.write_base128(0).unwrap();
+        assert_eq!(writer.data, vec![0x00]);
+
+        // 值 127 (单字节)
+        let mut writer = Writer::new();
+        writer.write_base128(127).unwrap();
+        assert_eq!(writer.data, vec![0x7F]);
+
+        // 值 128 (双字节)
+        let mut writer = Writer::new();
+        writer.write_base128(128).unwrap();
+        assert_eq!(writer.data, vec![0x81, 0x00]);
+
+        // 值 300 (双字节)
+        let mut writer = Writer::new();
+        writer.write_base128(300).unwrap();
+        assert_eq!(writer.data, vec![0x82, 0x2C]);
+    }
+
+    #[test]
+    fn test_base128_roundtrip() {
+        use rfont_types::Writer;
+
+        // 测试读写往返
+        let test_values = vec![0, 1, 64, 127, 128, 255, 256, 300, 1000, 16383, 16384];
+
+        for value in test_values {
+            // 写入
+            let mut writer = Writer::new();
+            writer.write_base128(value).unwrap();
+
+            // 读取
+            let mut reader = Reader::new(&writer.data);
+            let read_value = Woff2TableDirectoryEntry::read_base128_test(&mut reader).unwrap();
+
+            assert_eq!(read_value, value, "Failed for value {}", value);
+        }
     }
 }

@@ -4,26 +4,26 @@ use rfont_types::{FontError, Reader, WriteBytes, Writer};
 // 参考 OpenType 规范和 woff2 项目 glyph.cc
 
 // 简单字形标志位 (Simple Glyph Flags)
-pub const FLAG_ON_CURVE: u8 = 0x01;          // bit 0: 点在曲线上
-pub const FLAG_X_SHORT: u8 = 0x02;           // bit 1: X 坐标使用单字节
-pub const FLAG_Y_SHORT: u8 = 0x04;           // bit 2: Y 坐标使用单字节
-pub const FLAG_REPEAT: u8 = 0x08;            // bit 3: 标志位重复
-pub const FLAG_X_IS_SAME_OR_POSITIVE: u8 = 0x10;  // bit 4: X 增量为正或相同
-pub const FLAG_Y_IS_SAME_OR_POSITIVE: u8 = 0x20;  // bit 5: Y 增量为正或相同
-pub const FLAG_OVERLAP_SIMPLE: u8 = 0x40;    // bit 6: 简单字形重叠
+pub const FLAG_ON_CURVE: u8 = 0x01; // bit 0: 点在曲线上
+pub const FLAG_X_SHORT: u8 = 0x02; // bit 1: X 坐标使用单字节
+pub const FLAG_Y_SHORT: u8 = 0x04; // bit 2: Y 坐标使用单字节
+pub const FLAG_REPEAT: u8 = 0x08; // bit 3: 标志位重复
+pub const FLAG_X_IS_SAME_OR_POSITIVE: u8 = 0x10; // bit 4: X 增量为正或相同
+pub const FLAG_Y_IS_SAME_OR_POSITIVE: u8 = 0x20; // bit 5: Y 增量为正或相同
+pub const FLAG_OVERLAP_SIMPLE: u8 = 0x40; // bit 6: 简单字形重叠
 
 // 复合字形标志位 (Composite Glyph Flags)
-pub const ARG_1_AND_2_ARE_WORDS: u16 = 0x0001;     // bit 0: 参数是双字节
-pub const ARGS_ARE_XY_VALUES: u16 = 0x0002;        // bit 1: 参数是 XY 值（而非点）
-pub const ROUND_XY_TO_GRID: u16 = 0x0004;          // bit 2: 舍入到网格
-pub const WE_HAVE_A_SCALE: u16 = 0x0008;           // bit 3: 有缩放因子
-pub const MORE_COMPONENTS: u16 = 0x0020;           // bit 5: 还有更多组件
-pub const WE_HAVE_AN_X_AND_Y_SCALE: u16 = 0x0040;  // bit 6: 有 X 和 Y 缩放
-pub const WE_HAVE_A_TWO_BY_TWO: u16 = 0x0080;      // bit 7: 有 2x2 变换矩阵
-pub const WE_HAVE_INSTRUCTIONS: u16 = 0x0100;      // bit 8: 有指令
-pub const USE_MY_METRICS: u16 = 0x0200;            // bit 9: 使用我的度量
-pub const OVERLAP_COMPOUND: u16 = 0x0400;          // bit 10: 复合字形重叠
-pub const SCALED_COMPONENT_OFFSET: u16 = 0x0800;   // bit 11: 缩放的组件偏移
+pub const ARG_1_AND_2_ARE_WORDS: u16 = 0x0001; // bit 0: 参数是双字节
+pub const ARGS_ARE_XY_VALUES: u16 = 0x0002; // bit 1: 参数是 XY 值（而非点）
+pub const ROUND_XY_TO_GRID: u16 = 0x0004; // bit 2: 舍入到网格
+pub const WE_HAVE_A_SCALE: u16 = 0x0008; // bit 3: 有缩放因子
+pub const MORE_COMPONENTS: u16 = 0x0020; // bit 5: 还有更多组件
+pub const WE_HAVE_AN_X_AND_Y_SCALE: u16 = 0x0040; // bit 6: 有 X 和 Y 缩放
+pub const WE_HAVE_A_TWO_BY_TWO: u16 = 0x0080; // bit 7: 有 2x2 变换矩阵
+pub const WE_HAVE_INSTRUCTIONS: u16 = 0x0100; // bit 8: 有指令
+pub const USE_MY_METRICS: u16 = 0x0200; // bit 9: 使用我的度量
+pub const OVERLAP_COMPOUND: u16 = 0x0400; // bit 10: 复合字形重叠
+pub const SCALED_COMPONENT_OFFSET: u16 = 0x0800; // bit 11: 缩放的组件偏移
 pub const UNSCALED_COMPONENT_OFFSET: u16 = 0x1000; // bit 12: 未缩放的组件偏移
 
 #[derive(Debug, Clone)]
@@ -117,15 +117,15 @@ impl GlyfRecord {
             // 读取 X 坐标（相对增量编码）
             let mut x_coordinates = Vec::with_capacity(total_points);
             let mut prev_x: i16 = 0;
-            
+
             for i in 0..total_points {
                 let flag = flags[i];
-                
+
                 // bit 1: X_IS_SHORT (单字节)
                 if flag & FLAG_X_SHORT != 0 {
                     // 单字节坐标值
                     let x_byte = reader.read_u8()?;
-                    
+
                     // bit 4: X_IS_SAME_OR_POSITIVE
                     // 如果为 1，表示正值；如果为 0，表示负值
                     if flag & FLAG_X_IS_SAME_OR_POSITIVE != 0 {
@@ -146,22 +146,22 @@ impl GlyfRecord {
                         prev_x = prev_x.wrapping_add(x_delta);
                     }
                 }
-                
+
                 x_coordinates.push(prev_x);
             }
 
             // 读取 Y 坐标（相对增量编码）
             let mut y_coordinates = Vec::with_capacity(total_points);
             let mut prev_y: i16 = 0;
-            
+
             for i in 0..total_points {
                 let flag = flags[i];
-                
+
                 // bit 2: Y_IS_SHORT (单字节)
                 if flag & FLAG_Y_SHORT != 0 {
                     // 单字节坐标值
                     let y_byte = reader.read_u8()?;
-                    
+
                     // bit 5: Y_IS_SAME_OR_POSITIVE
                     // 如果为 1，表示正值；如果为 0，表示负值
                     if flag & FLAG_Y_IS_SAME_OR_POSITIVE != 0 {
@@ -182,7 +182,7 @@ impl GlyfRecord {
                         prev_y = prev_y.wrapping_add(y_delta);
                     }
                 }
-                
+
                 y_coordinates.push(prev_y);
             }
 
@@ -285,7 +285,7 @@ impl WriteBytes for GlyfRecord {
                     } else {
                         0
                     };
-                    
+
                     let mut flag = original_flag & (FLAG_ON_CURVE | FLAG_OVERLAP_SIMPLE);
 
                     // 处理 X 坐标标志
@@ -333,7 +333,7 @@ impl WriteBytes for GlyfRecord {
                 for (i, &curr_x) in simple.x_coordinates.iter().enumerate() {
                     let dx = curr_x - last_x;
                     let flag = processed_flags[i];
-                    
+
                     if (flag & FLAG_X_SHORT) != 0 {
                         // X_IS_SHORT: 单字节
                         let abs_dx = dx.unsigned_abs() as u8;
@@ -343,7 +343,7 @@ impl WriteBytes for GlyfRecord {
                         writer.write_i16(dx)?;
                     }
                     // 如果 bit 4 为 1 且 bit 1 为 0，表示增量为 0，不写入数据
-                    
+
                     last_x = curr_x;
                 }
 
@@ -352,7 +352,7 @@ impl WriteBytes for GlyfRecord {
                 for (i, &curr_y) in simple.y_coordinates.iter().enumerate() {
                     let dy = curr_y - last_y;
                     let flag = processed_flags[i];
-                    
+
                     if (flag & FLAG_Y_SHORT) != 0 {
                         // Y_IS_SHORT: 单字节
                         let abs_dy = dy.unsigned_abs() as u8;
@@ -362,7 +362,7 @@ impl WriteBytes for GlyfRecord {
                         writer.write_i16(dy)?;
                     }
                     // 如果 bit 5 为 1 且 bit 2 为 0，表示增量为 0，不写入数据
-                    
+
                     last_y = curr_y;
                 }
 
@@ -431,12 +431,10 @@ mod tests {
         // 4个点：(0,0), (100,0), (100,100), (0,100)
         let data = vec![
             // num_contours = 1 (简单字形)
-            0x00, 0x01,
-            // bbox: x_min=0, y_min=0, x_max=100, y_max=100
+            0x00, 0x01, // bbox: x_min=0, y_min=0, x_max=100, y_max=100
             0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x64,
             // end_pts_of_contours: [3] (4个点，索引从0开始)
-            0x00, 0x03,
-            // instruction_length = 0
+            0x00, 0x03, // instruction_length = 0
             0x00, 0x00,
             // flags (4个点):
             // bit 0=on-curve, bit 1=x-short, bit 2=y-short, bit 4=x-positive/same, bit 5=y-positive/same
@@ -447,10 +445,8 @@ mod tests {
             // 点2 (100,100): on-curve(1), x-delta=0(0x12), y-delta=100(short+positive=0x24) => 0x01|0x12|0x24 = 0x37
             0x37,
             // 点3 (0,100): on-curve(1), x-delta=-100(short+negative: bit1=1,bit4=0 => 0x02), y-delta=0(0x24) => 0x01|0x02|0x24 = 0x27
-            0x27,
-            // x coordinates: 0, 100, 0, 100 (absolute values for short encoding)
-            0x00, 0x64, 0x00, 0x64,
-            // y coordinates: 0, 0, 100, 0
+            0x27, // x coordinates: 0, 100, 0, 100 (absolute values for short encoding)
+            0x00, 0x64, 0x00, 0x64, // y coordinates: 0, 0, 100, 0
             0x00, 0x00, 0x64, 0x00,
         ];
 
@@ -482,14 +478,10 @@ mod tests {
         // 3个点：(0,0), (50,100), (100,0)
         let data = vec![
             // num_contours = 1
-            0x00, 0x01,
-            // bbox
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x64,
-            // end_pts_of_contours: [2]
-            0x00, 0x02,
-            // instruction_length = 3
-            0x00, 0x03,
-            // instructions: [0x10, 0x20, 0x30]
+            0x00, 0x01, // bbox
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x64, // end_pts_of_contours: [2]
+            0x00, 0x02, // instruction_length = 3
+            0x00, 0x03, // instructions: [0x10, 0x20, 0x30]
             0x10, 0x20, 0x30,
             // flags (3个点): on-curve + coordinates
             // 点0 (0,0): x=0,y=0 => 0x01|0x12|0x24 = 0x37
@@ -497,10 +489,8 @@ mod tests {
             // 点1 (50,100): dx=50(short+pos=0x12), dy=100(short+pos=0x24) => 0x01|0x12|0x24 = 0x37
             0x37,
             // 点2 (100,0): dx=50(short+pos=0x12), dy=-100(short+neg: bit2=1,bit5=0 => 0x04) => 0x01|0x12|0x04 = 0x17
-            0x17,
-            // x coordinates: 0, 50, 50
-            0x00, 0x32, 0x32,
-            // y coordinates: 0, 100, 100 (abs value)
+            0x17, // x coordinates: 0, 50, 50
+            0x00, 0x32, 0x32, // y coordinates: 0, 100, 100 (abs value)
             0x00, 0x64, 0x64,
         ];
 
@@ -524,18 +514,13 @@ mod tests {
         // 8个点，2个轮廓
         let data = vec![
             // num_contours = 2
-            0x00, 0x02,
-            // bbox
+            0x00, 0x02, // bbox
             0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x64,
             // end_pts_of_contours: [3, 7] (第一个轮廓4点，第二个轮廓4点)
-            0x00, 0x03, 0x00, 0x07,
-            // instruction_length = 0
-            0x00, 0x00,
-            // flags (8个点): all on-curve with zero deltas
-            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            // x coordinates: all zeros
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            // y coordinates: all zeros
+            0x00, 0x03, 0x00, 0x07, // instruction_length = 0
+            0x00, 0x00, // flags (8个点): all on-curve with zero deltas
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, // x coordinates: all zeros
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // y coordinates: all zeros
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
 
@@ -561,21 +546,16 @@ mod tests {
         // 5个点，所有点都有相同的标志
         let data = vec![
             // num_contours = 1
-            0x00, 0x01,
-            // bbox
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x0A,
-            // end_pts_of_contours: [4]
-            0x00, 0x04,
-            // instruction_length = 0
+            0x00, 0x01, // bbox
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x0A, // end_pts_of_contours: [4]
+            0x00, 0x04, // instruction_length = 0
             0x00, 0x00,
             // flags: 第一个标志有 repeat 位，重复 3 次
             // 0x33 | 0x08 = 0x3B (on-curve + x-short+same + y-short+same + repeat)
             0x3B, 0x03, // repeat count = 3
             // 最后一个标志
-            0x33,
-            // coordinates (5个点): all zeros
-            0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00,
+            0x33, // coordinates (5个点): all zeros
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
 
         let mut reader = Reader::new(&data);

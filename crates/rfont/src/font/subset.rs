@@ -1,6 +1,6 @@
 use crate::Font;
-use rfont_types::{Reader, Tag};
-use tracing::{debug, info, span, Level};
+use rfont_types::{Reader, Tag, WriteBytes};
+use tracing::{debug, info, span, warn, Level};
 
 use crate::checksum::calc_sfnt_checksum;
 use crate::constants::SFNT_CHECKSUM_MAGIC;
@@ -355,16 +355,20 @@ impl Font {
 
         // 1.5. 解析复合字形的依赖关系（使用懒加载）
         // 只在需要时才解析字形，避免不必要的解析工作
-        let glyf_data = self.font_data.get_table_bytes(rfont_types::Tag(*b"glyf"))
-            .ok_or(FontError::TableNotFound { tag: "glyf".to_string() })?;
-        
+        let glyf_data = self
+            .font_data
+            .get_table_bytes(rfont_types::Tag(*b"glyf"))
+            .ok_or(FontError::TableNotFound {
+                tag: "glyf".to_string(),
+            })?;
+
         use rfont_core::tables::glyf_lazy::GlyfLazyLoader;
-        let loader = GlyfLazyLoader::new(&glyf_data, &self.loca.offsets);
+        let loader = GlyfLazyLoader::new(glyf_data, &self.loca.offsets);
         let resolved_glyphs = loader.resolve_dependencies(&subset_glyphs_vec)?;
-        
+
         subset_glyphs_vec = resolved_glyphs.into_iter().collect();
         subset_glyphs_vec.sort();
-        
+
         info!(
             resolved_glyph_count = subset_glyphs_vec.len(),
             "复合字形依赖解析完成"
@@ -815,7 +819,7 @@ impl Font {
         for (tag, _checksum, offset, length) in &table_records {
             // 读取原始表数据
             let mut table_data = ttf_data[*offset as usize..(*offset + *length) as usize].to_vec();
-            
+
             // 特殊处理 head 表：将 checkSumAdjustment 设置为 0
             if tag.as_str() == "head" && table_data.len() >= 12 {
                 // checkSumAdjustment 位于 head 表的第 8-11 字节
@@ -824,7 +828,7 @@ impl Font {
                 table_data[10] = 0;
                 table_data[11] = 0;
             }
-            
+
             // 每个表数据需要 4 字节对齐
             let padded_length = (*length + 3) & !3;
             total_sfnt_size += padded_length;
@@ -853,11 +857,15 @@ impl Font {
                 let result = encoder.finish().map_err(|e| {
                     FontError::Generic(format!("WOFF compression finish failed: {}", e))
                 })?;
-                
+
                 // 如果压缩后反而变大，使用原始数据（不压缩）
                 if result.len() >= table_data.len() {
                     if tag.as_str() == "head" {
-                        eprintln!("DEBUG: head 表压缩后变大 ({} >= {}), 使用原始数据", result.len(), table_data.len());
+                        eprintln!(
+                            "DEBUG: head 表压缩后变大 ({} >= {}), 使用原始数据",
+                            result.len(),
+                            table_data.len()
+                        );
                     }
                     info!(
                         tag = tag.as_str(),
@@ -868,7 +876,11 @@ impl Font {
                     table_data.clone()
                 } else {
                     if tag.as_str() == "head" {
-                        eprintln!("DEBUG: head 表压缩成功 ({} < {})", result.len(), table_data.len());
+                        eprintln!(
+                            "DEBUG: head 表压缩成功 ({} < {})",
+                            result.len(),
+                            table_data.len()
+                        );
                     }
                     debug!(
                         tag = tag.as_str(),
@@ -882,10 +894,14 @@ impl Font {
 
             let comp_length = compressed_data.len() as u32;
             let padded_comp_length = (comp_length + 3) & !3; // 对齐到 4 字节
-            
+
             if tag.as_str() == "head" {
-                eprintln!("DEBUG: head 表 - comp_length={}, orig_length={}, compressed_data.len()={}", 
-                    comp_length, *length, compressed_data.len());
+                eprintln!(
+                    "DEBUG: head 表 - comp_length={}, orig_length={}, compressed_data.len()={}",
+                    comp_length,
+                    *length,
+                    compressed_data.len()
+                );
             }
 
             // 记录表条目信息
@@ -921,21 +937,22 @@ impl Font {
             table_entries.iter().enumerate()
         {
             let dir_offset = table_dir_start + i * 20;
-            
+
             // 从原始 TTF 数据中读取表数据（使用原始的 ttf_offset）
             // 注意：table_records 中存储的是 (Tag, checksum, ttf_offset, length)
             // 我们需要找到对应的 ttf_offset
-            let ttf_offset = table_records.iter()
+            let ttf_offset = table_records
+                .iter()
                 .find(|(t, _, _, _)| t == tag)
                 .map(|(_, _, o, _)| *o)
                 .unwrap();
-            
+
             let table_data = &ttf_data[ttf_offset as usize..(ttf_offset + *orig_length) as usize];
             let mut aligned_data = table_data.to_vec();
             if aligned_data.len() < *padded_length as usize {
                 aligned_data.resize(*padded_length as usize, 0);
             }
-            
+
             // 计算校验和（基于 4 字节对齐的数据）
             let mut checksum: u32 = 0;
             for chunk in aligned_data.chunks(4) {
@@ -945,16 +962,17 @@ impl Font {
                 }
                 checksum = checksum.wrapping_add(value);
             }
-            
+
             woff_writer.data[dir_offset..dir_offset + 4].copy_from_slice(&tag.0);
-            woff_writer.data[dir_offset + 4..dir_offset + 8].copy_from_slice(&woff_offset.to_be_bytes());
+            woff_writer.data[dir_offset + 4..dir_offset + 8]
+                .copy_from_slice(&woff_offset.to_be_bytes());
             woff_writer.data[dir_offset + 8..dir_offset + 12]
                 .copy_from_slice(&comp_length.to_be_bytes());
             woff_writer.data[dir_offset + 12..dir_offset + 16]
                 .copy_from_slice(&orig_length.to_be_bytes());
             woff_writer.data[dir_offset + 16..dir_offset + 20]
                 .copy_from_slice(&checksum.to_be_bytes());
-            
+
             debug!(
                 tag = tag.as_str(),
                 dir_offset = dir_offset,
@@ -1001,9 +1019,8 @@ impl Font {
         ttf_data: &[u8],
         compression_level: u8,
     ) -> Result<Vec<u8>, FontError> {
-        use brotli::CompressorWriter;
-        use rfont_types::Writer;
-        use std::io::Write;
+        use brotli::BrotliCompress;
+        use rfont_types::{Reader, Writer};
 
         // 解析 TTF 数据结构
         let mut reader = Reader::new(ttf_data);
@@ -1028,52 +1045,266 @@ impl Font {
             table_records.push((Tag(tag_bytes), offset, length));
         }
 
-        // 构建要压缩的数据块（所有表数据按顺序拼接）
-        let mut uncompressed_data = Vec::new();
-        let mut total_sfnt_size = 0u32;
+        // 按照 WOFF2 规范的顺序对表进行排序
+        let predefined_tags = rfont_core::tables::woff2::WOFF2_KNOWN_TAGS;
+        let mut sorted_tables: Vec<(Tag, u32, u32)> = table_records.clone();
+        sorted_tables.sort_by(|a, b| {
+            let a_idx = predefined_tags.iter().position(|t| t == &a.0);
+            let b_idx = predefined_tags.iter().position(|t| t == &b.0);
+            match (a_idx, b_idx) {
+                (Some(ai), Some(bi)) => ai.cmp(&bi),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.0.as_str().cmp(b.0.as_str()),
+            }
+        });
 
-        for (_tag, offset, length) in &table_records {
-            let table_data = &ttf_data[*offset as usize..(*offset + *length) as usize];
-            uncompressed_data.extend_from_slice(table_data);
-            total_sfnt_size += length + (4 - (length % 4)) % 4; // 对齐到 4 字节
+        // 计算总 SFNT 大小（包含填充）
+        let mut total_sfnt_size = 12u32 + (num_tables as u32) * 16;
+        for (_, _, length) in &sorted_tables {
+            total_sfnt_size += length + (4 - (length % 4)) % 4;
         }
 
-        // 使用 Brotli 压缩
-        let quality = compression_level.min(11) as u32; // Brotli quality 0-11
-        let lgwin = 22u32; // Window size
+        // ⭐ 关键改进：对 glyf/loca 表执行转换以提高压缩率
+        let mut transformed_tables: std::collections::HashMap<Tag, Vec<u8>> =
+            std::collections::HashMap::new();
 
-        let mut compressor = CompressorWriter::new(Vec::new(), 4096, quality, lgwin);
-        compressor
-            .write_all(&uncompressed_data)
-            .map_err(|e| FontError::Generic(format!("WOFF2 compression failed: {}", e)))?;
-        let compressed_data = compressor.into_inner();
+        // 查找 glyf、loca 和 head 表
+        let glyf_record = sorted_tables
+            .iter()
+            .find(|(tag, _, _)| tag.as_str() == "glyf");
+        let loca_record = sorted_tables
+            .iter()
+            .find(|(tag, _, _)| tag.as_str() == "loca");
+        let head_record = sorted_tables
+            .iter()
+            .find(|(tag, _, _)| tag.as_str() == "head");
+
+        if let (Some((_, glyf_offset, glyf_length)), Some((_, loca_offset, loca_length))) =
+            (glyf_record, loca_record)
+        {
+            use rfont_core::tables::glyf_lazy::GlyfLazyLoader;
+            use rfont_core::tables::glyf_transform::transform_glyf_and_loca;
+
+            // 提取 glyf 和 loca 数据
+            let glyf_data =
+                &ttf_data[*glyf_offset as usize..(*glyf_offset + *glyf_length) as usize];
+            let loca_data =
+                &ttf_data[*loca_offset as usize..(*loca_offset + *loca_length) as usize];
+
+            // 从 head 表获取 loca 格式（offset 51-52）
+            let index_to_loc_format = if let Some((_, head_offset, _)) = head_record {
+                if *head_offset as usize + 51 < ttf_data.len() {
+                    ttf_data[*head_offset as usize + 51]
+                } else {
+                    1 // 默认为 long 格式
+                }
+            } else {
+                1 // 默认为 long 格式
+            };
+
+            debug!(
+                index_to_loc_format = index_to_loc_format,
+                loca_table_size = loca_length,
+                "开始解析 loca 表"
+            );
+
+            // 解析 loca 表获取偏移量
+            let mut loca_offsets = Vec::new();
+            if index_to_loc_format == 0 {
+                // Short format: 2 bytes per offset, values are divided by 2
+                let mut i = 0;
+                while i + 2 <= loca_data.len() {
+                    let offset = u16::from_be_bytes([loca_data[i], loca_data[i + 1]]) as u32 * 2;
+                    loca_offsets.push(offset);
+                    i += 2;
+                }
+            } else {
+                // Long format: 4 bytes per offset
+                let mut i = 0;
+                while i + 4 <= loca_data.len() {
+                    let offset = u32::from_be_bytes([
+                        loca_data[i],
+                        loca_data[i + 1],
+                        loca_data[i + 2],
+                        loca_data[i + 3],
+                    ]);
+                    loca_offsets.push(offset);
+                    i += 4;
+                }
+            }
+
+            debug!(glyph_count = loca_offsets.len() - 1, "loca 表解析完成");
+
+            // 使用懒加载器解析所有字形
+            let loader = GlyfLazyLoader::new(glyf_data, &loca_offsets);
+            let num_glyphs = (loca_offsets.len() - 1) as u16;
+
+            let mut all_glyphs = Vec::with_capacity(num_glyphs as usize);
+            for glyph_id in 0..num_glyphs {
+                match loader.load_glyph(glyph_id) {
+                    Ok(Some(record)) => all_glyphs.push(record),
+                    Ok(None) => {} // 空字形
+                    Err(e) => {
+                        warn!(glyph_id = glyph_id, error = ?e, "加载字形失败");
+                    }
+                }
+            }
+
+            debug!(loaded_glyphs = all_glyphs.len(), "字形加载完成");
+
+            // 执行 glyf/loca 转换
+            match transform_glyf_and_loca(&all_glyphs, &loca_offsets) {
+                Ok((transformed_glyf, transformed_loca)) => {
+                    let original_size = *glyf_length as f64;
+                    let transformed_size = transformed_glyf.len() as f64;
+                    let ratio = (1.0 - transformed_size / original_size) * 100.0;
+
+                    info!(
+                        original_glyf_size = *glyf_length,
+                        transformed_glyf_size = transformed_glyf.len(),
+                        compression_ratio = format!("{:.1}%", ratio),
+                        "✓ glyf 表转换成功"
+                    );
+
+                    transformed_tables.insert(Tag(*b"glyf"), transformed_glyf);
+                    transformed_tables.insert(Tag(*b"loca"), transformed_loca);
+                }
+                Err(e) => {
+                    warn!(error = ?e, "✗ glyf/loca 转换失败，将使用原始数据");
+                    // 转换失败时使用原始数据
+                }
+            }
+        }
+
+        // ⭐ 如果有表被转换，需要重新计算 total_sfnt_size
+        let mut final_total_sfnt_size = total_sfnt_size;
+        if !transformed_tables.is_empty() {
+            // 减去原始表的大小，加上转换后的大小
+            for (tag, _, orig_length) in &sorted_tables {
+                if let Some(transformed_data) = transformed_tables.get(tag) {
+                    let orig_padded = orig_length + (4 - (orig_length % 4)) % 4;
+                    let new_padded = transformed_data.len() as u32
+                        + (4 - (transformed_data.len() as u32 % 4)) % 4;
+                    final_total_sfnt_size = final_total_sfnt_size - orig_padded + new_padded;
+                }
+            }
+        }
+
+        // 将所有表数据按 WOFF2 规范顺序拼接成一个流，然后整体 Brotli 压缩
+        let quality = compression_level.min(11) as i32;
+        let lgwin = 22;
+        let mut uncompressed_table_stream = Vec::new();
+        for (tag, offset, length) in &sorted_tables {
+            // 如果该表已转换，使用转换后的数据
+            if let Some(transformed_data) = transformed_tables.get(tag) {
+                uncompressed_table_stream.extend_from_slice(transformed_data);
+            } else {
+                let table_data = &ttf_data[*offset as usize..(*offset + *length) as usize];
+                uncompressed_table_stream.extend_from_slice(table_data);
+            }
+        }
+
+        let mut compressed_table_stream = Vec::new();
+        BrotliCompress(
+            &mut &uncompressed_table_stream[..],
+            &mut compressed_table_stream,
+            &brotli::enc::BrotliEncoderParams {
+                quality,
+                lgwin,
+                mode: brotli::enc::backward_references::BrotliEncoderMode::BROTLI_MODE_FONT,
+                ..Default::default()
+            },
+        )
+        .map_err(|e| FontError::Generic(format!("WOFF2 stream compression failed: {:?}", e)))?;
+
+        let total_compressed_size = compressed_table_stream.len() as u32;
 
         // 构建 WOFF2 文件
         let mut woff2_writer = Writer::new();
 
-        // WOFF2 Header
+        // WOFF2 Header (48 bytes)
+        let header_offset = woff2_writer.data.len();
         woff2_writer.write_u32(0x774F4632)?; // signature 'wOF2'
         woff2_writer.write_u32(sfnt_version)?; // flavor
         woff2_writer.write_u32(0)?; // length (稍后回填)
         woff2_writer.write_u16(num_tables)?;
         woff2_writer.write_u16(0)?; // reserved
-        woff2_writer.write_u32(total_sfnt_size)?; // total_sfnt_size
+        woff2_writer.write_u32(final_total_sfnt_size)?; // total_sfnt_size
+        woff2_writer.write_u32(total_compressed_size)?; // total_compressed_size
+        woff2_writer.write_u16(1)?; // major_version
+        woff2_writer.write_u16(0)?; // minor_version
+        woff2_writer.write_u32(0)?; // meta_offset (no metadata)
+        woff2_writer.write_u32(0)?; // meta_length
+        woff2_writer.write_u32(0)?; // meta_orig_length
+        woff2_writer.write_u32(0)?; // priv_offset (no private data)
+        woff2_writer.write_u32(0)?; // priv_length
 
-        // 简化的 WOFF2 表目录（这里使用简单格式，实际 WOFF2 有更复杂的编码）
-        // 注意：完整的 WOFF2 实现需要更复杂的表转换和编码
-        // 这里提供一个基本实现
+        // 写入表目录（使用 Base128 编码）
+        for (tag, _offset, length) in &sorted_tables {
+            let tag_index = predefined_tags.iter().position(|t| t == tag);
+            let is_glyf_loca = tag.as_str() == "glyf" || tag.as_str() == "loca";
 
-        // 写入压缩数据
-        woff2_writer.data.extend_from_slice(&compressed_data);
+            // 确定原始长度和转换后的长度
+            let orig_length = *length;
+            let transform_length = if let Some(transformed_data) = transformed_tables.get(tag) {
+                transformed_data.len() as u32
+            } else {
+                orig_length
+            };
+
+            // 确定 table_type 和是否需要写入自定义标签
+            let (table_type, needs_custom_tag) = if let Some(idx) = tag_index {
+                (idx as u8, false)
+            } else {
+                (63, true)
+            };
+
+            // 确定 transform_version
+            // glyf/loca: 已转换=0, 未转换=3 (null transform)
+            // 其他表: 0
+            let transform_version = if is_glyf_loca && transformed_tables.contains_key(tag) {
+                0u8 // 已转换
+            } else if is_glyf_loca {
+                3u8 // null transform
+            } else {
+                0u8
+            };
+
+            // 计算并写入 flags: [transform_version(2 bits) | table_type(6 bits)]
+            let flags = (transform_version << 6) | table_type;
+            woff2_writer.write_u8(flags)?;
+
+            // 如果是自定义标签，写入 4 字节 tag
+            if needs_custom_tag {
+                tag.write_to(&mut woff2_writer)?;
+            }
+
+            // 写入 origLength (Base128 编码)
+            woff2_writer.write_base128(orig_length)?;
+
+            // 条件性写入 transformLength
+            // 根据 WOFF2 规范：glyf/loca 表且 transform_version != 3 时必须写入
+            if is_glyf_loca && transform_version != 3 {
+                woff2_writer.write_base128(transform_length)?;
+            }
+        }
+
+        // 写入压缩后的表数据流
+        woff2_writer
+            .data
+            .extend_from_slice(&compressed_table_stream);
 
         // 回填总长度
         let total_length = woff2_writer.data.len() as u32;
-        woff2_writer.data[8..12].copy_from_slice(&total_length.to_be_bytes());
+        woff2_writer.data[header_offset + 8..header_offset + 12]
+            .copy_from_slice(&total_length.to_be_bytes());
 
         debug!(
-            original_size = ttf_data.len(),
-            compressed_size = compressed_data.len(),
-            "WOFF2 转换完成"
+            total_sfnt_size = total_sfnt_size,
+            total_compressed_size = total_compressed_size,
+            woff2_size = total_length,
+            "WOFF2 文件生成完成"
         );
 
         Ok(woff2_writer.data)

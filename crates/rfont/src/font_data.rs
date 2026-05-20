@@ -73,6 +73,11 @@ impl FontData {
         Ok(table_map)
     }
 
+    /// 获取原始字体数据
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
+    }
+
     /// 获取表的原始字节（带懒加载缓存）
     ///
     /// 如果表数据已在缓存中，直接返回；否则从原始数据中提取。

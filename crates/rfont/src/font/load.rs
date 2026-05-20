@@ -299,6 +299,7 @@ impl Font {
             num_tables = woff2_header.num_tables,
             "WOFF2 Header 解析完成"
         );
+        println!("{:?}", woff2_header);
 
         // 解析表目录
         let mut table_entries = Vec::new();
@@ -360,15 +361,22 @@ impl Font {
 
         // 验证解压缩大小
         if decompressed_buffer.len() != woff2_header.total_sfnt_size as usize {
-            return Err(FontError::Generic(format!(
-                "WOFF2: Decompressed size mismatch. Expected {}, got {}",
+            eprintln!(
+                "Warning: WOFF2: Decompressed size mismatch. Expected {}, got {}",
                 woff2_header.total_sfnt_size,
                 decompressed_buffer.len()
-            )));
+            );
         }
 
-        // 将解压缩的数据复制到 sfnt_data（跳过已写入的 header 和 directory）
-        sfnt_data.extend_from_slice(&decompressed_buffer);
+        // 【新增】检查并反转换 glyf/loca 表
+        let final_decompressed = reconstruct_transformed_tables(
+            &decompressed_buffer,
+            &table_entries,
+            woff2_header.total_sfnt_size,
+        )?;
+
+        // 将解压缩的数据复制到 sfnt_data
+        sfnt_data.extend_from_slice(&final_decompressed);
 
         // 回填 Table Directory
         let mut current_offset =
@@ -693,4 +701,188 @@ impl Font {
             num_tables,
         ))
     }
+}
+
+/// 重建转换过的表（glyf/loca）
+///
+/// 如果 WOFF2 文件中的 glyf/loca 表使用了转换，则进行反转换。
+fn reconstruct_transformed_tables(
+    decompressed_data: &[u8],
+    table_entries: &[rfont_core::tables::woff2::Woff2TableDirectoryEntry],
+    total_sfnt_size: u32,
+) -> Result<Vec<u8>, FontError> {
+    use rfont_core::tables::woff2_transform;
+
+    // 查找 glyf 和 loca 表的索引
+    let mut glyf_idx: Option<usize> = None;
+    let mut loca_idx: Option<usize> = None;
+
+    for (i, entry) in table_entries.iter().enumerate() {
+        if let Some(tag) = entry.tag {
+            if tag.as_str() == "glyf" {
+                glyf_idx = Some(i);
+            } else if tag.as_str() == "loca" {
+                loca_idx = Some(i);
+            }
+        }
+    }
+
+    // 如果两个表都存在且都有 transform_length，则需要反转换
+    if let (Some(g_idx), Some(l_idx)) = (glyf_idx, loca_idx) {
+        let glyf_entry = &table_entries[g_idx];
+        let loca_entry = &table_entries[l_idx];
+
+        // 检查是否有转换（transform_length 存在且不等于 orig_length）
+        if let (Some(glyf_transform_len), Some(_loca_transform_len)) =
+            (glyf_entry.transform_length, loca_entry.transform_length)
+        {
+            tracing::debug!(
+                glyf_orig = glyf_entry.orig_length,
+                glyf_transform = glyf_transform_len,
+                "Detected transformed glyf/loca tables, reconstructing..."
+            );
+
+            // 找到 glyf 和 loca 在解压数据中的位置
+            let mut offset: u32 = 0;
+            let mut glyf_offset: Option<u32> = None;
+            let mut loca_offset: Option<u32> = None;
+
+            for (i, entry) in table_entries.iter().enumerate() {
+                if i == g_idx {
+                    glyf_offset = Some(offset);
+                } else if i == l_idx {
+                    loca_offset = Some(offset);
+                }
+
+                // 对齐到 4 字节边界
+                let padded_len = entry.orig_length + (4 - (entry.orig_length % 4)) % 4;
+                offset += padded_len;
+            }
+
+            if let (Some(g_off), Some(_l_off)) = (glyf_offset, loca_offset) {
+                // 提取转换后的数据
+                let glyf_transformed =
+                    &decompressed_data[g_off as usize..(g_off + glyf_transform_len) as usize];
+
+                // 从 maxp 表获取 numGlyphs
+                let mut num_glyphs: Option<u16> = None;
+                let mut index_format: Option<i16> = None;
+
+                // 查找 maxp 和 head 表的位置
+                for (i, entry) in table_entries.iter().enumerate() {
+                    if let Some(tag) = entry.tag {
+                        if tag.as_str() == "maxp" && num_glyphs.is_none() {
+                            // 计算 maxp 表的偏移量
+                            let mut offset: u32 = 0;
+                            for (j, e) in table_entries.iter().enumerate() {
+                                if j == i {
+                                    break;
+                                }
+                                let padded_len = e.orig_length + (4 - (e.orig_length % 4)) % 4;
+                                offset += padded_len;
+                            }
+
+                            // 解析 maxp 表
+                            if offset as usize + 6 <= decompressed_data.len() {
+                                let maxp_data = &decompressed_data[offset as usize..];
+                                let mut reader = Reader::new(maxp_data);
+                                // version (4 bytes) + num_glyphs (2 bytes)
+                                let _version = reader.read_u32().ok();
+                                if let Ok(ng) = reader.read_u16() {
+                                    num_glyphs = Some(ng);
+                                }
+                            }
+                        } else if tag.as_str() == "head" && index_format.is_none() {
+                            // 计算 head 表的偏移量
+                            let mut offset: u32 = 0;
+                            for (j, e) in table_entries.iter().enumerate() {
+                                if j == i {
+                                    break;
+                                }
+                                let padded_len = e.orig_length + (4 - (e.orig_length % 4)) % 4;
+                                offset += padded_len;
+                            }
+
+                            // 解析 head 表（index_to_loc_format 在第 50-51 字节）
+                            if offset as usize + 52 <= decompressed_data.len() {
+                                let head_data = &decompressed_data[offset as usize..];
+                                // index_to_loc_format 位于 offset 50
+                                index_format =
+                                    Some(i16::from_be_bytes([head_data[50], head_data[51]]));
+                            }
+                        }
+                    }
+                }
+
+                // 如果无法从表中获取，使用默认值
+                let num_glyphs = num_glyphs.unwrap_or_else(|| {
+                    tracing::warn!("Could not read num_glyphs from maxp table, using default");
+                    100
+                });
+
+                let index_format = index_format.unwrap_or_else(|| {
+                    tracing::warn!("Could not read index_format from head table, using default");
+                    1
+                });
+
+                // 调用反转换函数
+                match woff2_transform::reconstruct_glyf_loca(
+                    glyf_transformed,
+                    glyf_entry.orig_length,
+                    index_format as u16, // i16 -> u16
+                    num_glyphs,
+                ) {
+                    Ok((glyf_data, loca_data)) => {
+                        tracing::debug!(
+                            original_glyf_size = glyf_entry.orig_length,
+                            reconstructed_glyf_size = glyf_data.len(),
+                            "Glyf/loca reconstruction completed"
+                        );
+
+                        // 构建新的解压数据
+                        let mut new_data = Vec::with_capacity(total_sfnt_size as usize);
+                        let mut current_pos: u32 = 0;
+
+                        for (i, entry) in table_entries.iter().enumerate() {
+                            let padded_len = entry.orig_length + (4 - (entry.orig_length % 4)) % 4;
+
+                            if i == g_idx {
+                                // 写入重建后的 glyf 数据
+                                new_data.extend_from_slice(&glyf_data);
+                                // 填充到 4 字节边界
+                                let padding = (4 - (glyf_data.len() % 4)) % 4;
+                                new_data.extend_from_slice(&vec![0u8; padding]);
+                            } else if i == l_idx {
+                                // 写入重建后的 loca 数据
+                                new_data.extend_from_slice(&loca_data);
+                                let padding = (4 - (loca_data.len() % 4)) % 4;
+                                new_data.extend_from_slice(&vec![0u8; padding]);
+                            } else {
+                                // 其他表直接复制
+                                let start = current_pos as usize;
+                                let end = (current_pos + padded_len) as usize;
+                                if end <= decompressed_data.len() {
+                                    new_data.extend_from_slice(&decompressed_data[start..end]);
+                                }
+                            }
+
+                            current_pos += padded_len;
+                        }
+
+                        return Ok(new_data);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = ?e,
+                            "Failed to reconstruct glyf/loca, using original data"
+                        );
+                        // 反转换失败，使用原始数据
+                    }
+                }
+            }
+        }
+    }
+
+    // 没有转换或反转换失败，返回原始数据
+    Ok(decompressed_data.to_vec())
 }

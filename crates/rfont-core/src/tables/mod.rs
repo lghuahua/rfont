@@ -1,6 +1,7 @@
 pub mod cmap;
 pub mod glyf;
 pub mod glyf_lazy;
+pub mod glyf_transform;
 pub mod head;
 pub mod hhea;
 pub mod hmtx;
@@ -8,3 +9,4 @@ pub mod loca;
 pub mod maxp;
 pub mod woff;
 pub mod woff2;
+pub mod woff2_transform;

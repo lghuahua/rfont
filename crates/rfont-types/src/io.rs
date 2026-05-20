@@ -46,6 +46,17 @@ impl<'a> Reader<'a> {
         Ok(bytes)
     }
 
+    pub fn skip(&mut self, len: usize) -> Result<(), FontError> {
+        if self.offset + len > self.data.len() {
+            return Err(FontError::UnexpectedEndOfData {
+                offset: self.offset,
+                needed: len,
+            });
+        }
+        self.offset += len;
+        Ok(())
+    }
+
     pub fn read_u16(&mut self) -> Result<u16, FontError> {
         let bytes = self.read_bytes(2)?;
         Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
@@ -107,6 +118,46 @@ impl<'a> Reader<'a> {
             offset: 0,
         })
     }
+
+    /// 读取 Base128 编码的无符号整数
+    ///
+    /// Base128 是一种变长整数编码，每 7 位使用一个字节，最高位作为继续位。
+    /// - 如果最高位为 1，表示还有后续字节
+    /// - 如果最高位为 0，表示这是最后一个字节
+    ///
+    /// # 错误
+    /// - 如果数值超过 2^28-1，返回 `FontError::Generic`
+    ///
+    /// # 示例
+    /// ```
+    /// use rfont_types::{Reader, Writer};
+    /// let mut writer = Writer::new();
+    /// writer.write_base128(300).unwrap();
+    ///
+    /// let mut reader = Reader::new(&writer.data);
+    /// let value = reader.read_base128().unwrap();
+    /// assert_eq!(value, 300);
+    /// ```
+    pub fn read_base128(&mut self) -> Result<u32, FontError> {
+        let mut result: u32 = 0;
+
+        loop {
+            // 检查溢出（WOFF2 规范限制）
+            if result > 0x0FFFFFFF {
+                return Err(FontError::Generic("Base128 overflow".to_string()));
+            }
+
+            let byte = self.read_u8()?;
+            result = (result << 7) | ((byte & 0x7F) as u32);
+
+            // 如果最高位为 0，表示结束
+            if byte & 0x80 == 0 {
+                break;
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 pub struct Writer {
@@ -149,6 +200,51 @@ impl Writer {
 
     pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), FontError> {
         self.data.extend_from_slice(bytes);
+        Ok(())
+    }
+
+    /// 写入 Base128 编码的无符号整数
+    ///
+    /// Base128 是一种变长整数编码，每 7 位使用一个字节，最高位作为继续位。
+    /// - 值 0-127: 1 字节
+    /// - 值 128-16383: 2 字节
+    /// - 值 16384-2097151: 3 字节
+    /// - 以此类推，最多 5 字节（支持到 2^28-1）
+    ///
+    /// # 示例
+    /// ```
+    /// use rfont_types::Writer;
+    /// let mut writer = Writer::new();
+    /// writer.write_base128(127).unwrap();  // [0x7F]
+    /// writer.write_base128(128).unwrap();  // [0x81, 0x00]
+    /// writer.write_base128(300).unwrap();  // [0x82, 0x2C]
+    /// ```
+    pub fn write_base128(&mut self, value: u32) -> Result<(), FontError> {
+        if value == 0 {
+            return self.write_u8(0);
+        }
+
+        // 计算需要多少字节
+        let mut temp = value;
+        let mut num_bytes = 0;
+        while temp > 0 {
+            num_bytes += 1;
+            temp >>= 7;
+        }
+
+        // 从最高位开始写入
+        for i in (0..num_bytes).rev() {
+            let shift = i * 7;
+            let byte = ((value >> shift) & 0x7F) as u8;
+
+            // 如果不是最后一个字节，设置继续位（最高位=1）
+            if i > 0 {
+                self.write_u8(byte | 0x80)?;
+            } else {
+                self.write_u8(byte)?;
+            }
+        }
+
         Ok(())
     }
 
@@ -896,5 +992,81 @@ mod tests {
         // 尝试读取 3 个字节，但只有 2 个
         let result: Result<Vec<u8>, FontError> = reader.read_array(3);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_base128_write_single_byte() {
+        // 测试单字节 Base128 编码（0-127）
+        for value in [0, 1, 64, 127] {
+            let mut writer = Writer::new();
+            writer.write_base128(value).unwrap();
+            assert_eq!(writer.data.len(), 1);
+            assert_eq!(writer.data[0], value as u8);
+        }
+    }
+
+    #[test]
+    fn test_base128_write_multi_byte() {
+        // 值 128: [0x81, 0x00]
+        let mut writer = Writer::new();
+        writer.write_base128(128).unwrap();
+        assert_eq!(writer.data, vec![0x81, 0x00]);
+
+        // 值 300: [0x82, 0x2C]
+        let mut writer = Writer::new();
+        writer.write_base128(300).unwrap();
+        assert_eq!(writer.data, vec![0x82, 0x2C]);
+
+        // 值 16383: [0xFF, 0x7F]
+        let mut writer = Writer::new();
+        writer.write_base128(16383).unwrap();
+        assert_eq!(writer.data, vec![0xFF, 0x7F]);
+    }
+
+    #[test]
+    fn test_base128_read_single_byte() {
+        // 测试单字节 Base128 解码
+        for value in [0, 1, 64, 127] {
+            let data = vec![value as u8];
+            let mut reader = Reader::new(&data);
+            let result = reader.read_base128().unwrap();
+            assert_eq!(result, value as u32);
+        }
+    }
+
+    #[test]
+    fn test_base128_read_multi_byte() {
+        // 值 128: [0x81, 0x00]
+        let data = vec![0x81, 0x00];
+        let mut reader = Reader::new(&data);
+        assert_eq!(reader.read_base128().unwrap(), 128);
+
+        // 值 300: [0x82, 0x2C]
+        let data = vec![0x82, 0x2C];
+        let mut reader = Reader::new(&data);
+        assert_eq!(reader.read_base128().unwrap(), 300);
+    }
+
+    #[test]
+    fn test_base128_roundtrip() {
+        // 测试读写往返
+        let test_values = vec![
+            0, 1, 64, 127, // 单字节
+            128, 255, 256, 300, // 双字节
+            1000, 16383, 16384, // 双/三字节边界
+            100000, 1000000, // 大数值
+        ];
+
+        for value in test_values {
+            // 写入
+            let mut writer = Writer::new();
+            writer.write_base128(value).unwrap();
+
+            // 读取
+            let mut reader = Reader::new(&writer.data);
+            let read_value = reader.read_base128().unwrap();
+
+            assert_eq!(read_value, value, "Failed for value {}", value);
+        }
     }
 }

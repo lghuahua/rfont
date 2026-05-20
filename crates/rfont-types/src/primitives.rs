@@ -29,11 +29,28 @@ impl<'a> ReadBytes<'a> for TableRecord {
     }
 }
 
+impl WriteBytes for TableRecord {
+    fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
+        self.tag.write_to(writer)?;
+        writer.write_u32(self.checksum)?;
+        writer.write_u32(self.offset)?;
+        writer.write_u32(self.length)
+    }
+}
+
 #[derive(Debug, Clone, ReadBytes)]
 pub struct EncodingRecord {
     pub platform_id: u16,
     pub encoding_id: u16,
     pub offset: u32,
+}
+
+impl WriteBytes for EncodingRecord {
+    fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
+        writer.write_u16(self.platform_id)?;
+        writer.write_u16(self.encoding_id)?;
+        writer.write_u32(self.offset)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +135,12 @@ impl<'a> ReadBytes<'a> for Tag {
             reader.read_u8()?,
         ];
         Ok(Tag(bytes))
+    }
+}
+
+impl WriteBytes for Tag {
+    fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
+        writer.write_bytes(&self.0)
     }
 }
 
@@ -211,6 +234,48 @@ mod tests {
     }
 
     #[test]
+    fn test_table_record_write() {
+        use crate::io::Writer;
+
+        let mut writer = Writer::new();
+        let record = TableRecord {
+            tag: Tag(*b"cmap"),
+            checksum: 0x12345678,
+            offset: 100,
+            length: 200,
+        };
+        record.write_to(&mut writer).unwrap();
+
+        // 应该有 16 字节输出 (4 + 4 + 4 + 4)
+        assert_eq!(writer.data.len(), 16);
+    }
+
+    #[test]
+    fn test_table_record_roundtrip() {
+        use crate::io::Writer;
+
+        let original = TableRecord {
+            tag: Tag(*b"maxp"),
+            checksum: 0xDEADBEEF,
+            offset: 1024,
+            length: 512,
+        };
+
+        // 写入
+        let mut writer = Writer::new();
+        original.write_to(&mut writer).unwrap();
+
+        // 读取
+        let mut reader = Reader::new(&writer.data);
+        let read_record = TableRecord::read_from(&mut reader).unwrap();
+
+        assert_eq!(read_record.tag, original.tag);
+        assert_eq!(read_record.checksum, original.checksum);
+        assert_eq!(read_record.offset, original.offset);
+        assert_eq!(read_record.length, original.length);
+    }
+
+    #[test]
     fn test_longdatetime_read() {
         // 1970-01-01 00:00:00 相对于 1904-01-01 的秒数
         let seconds_since_1904 = 2082844800u64;
@@ -241,6 +306,35 @@ mod tests {
 
         let tag2 = Tag::from_bytes(b"glyf").unwrap();
         assert_eq!(tag2.as_str(), "glyf");
+    }
+
+    #[test]
+    fn test_tag_write() {
+        use crate::io::Writer;
+
+        let mut writer = Writer::new();
+        let tag = Tag(*b"head");
+        tag.write_to(&mut writer).unwrap();
+
+        assert_eq!(writer.data, vec![0x68, 0x65, 0x61, 0x64]); // 'h', 'e', 'a', 'd'
+    }
+
+    #[test]
+    fn test_tag_roundtrip() {
+        use crate::io::Writer;
+
+        let original = Tag(*b"glyf");
+
+        // 写入
+        let mut writer = Writer::new();
+        original.write_to(&mut writer).unwrap();
+
+        // 读取
+        let mut reader = Reader::new(&writer.data);
+        let read_tag = Tag::read_from(&mut reader).unwrap();
+
+        assert_eq!(original, read_tag);
+        assert_eq!(read_tag.as_str(), "glyf");
     }
 
     #[test]
@@ -401,6 +495,45 @@ mod tests {
         assert_eq!(record.platform_id, 3);
         assert_eq!(record.encoding_id, 1);
         assert_eq!(record.offset, 12);
+    }
+
+    #[test]
+    fn test_encoding_record_write() {
+        use crate::io::Writer;
+
+        let mut writer = Writer::new();
+        let record = EncodingRecord {
+            platform_id: 3,
+            encoding_id: 1,
+            offset: 12,
+        };
+        record.write_to(&mut writer).unwrap();
+
+        // 应该有 8 字节输出 (2 + 2 + 4)
+        assert_eq!(writer.data.len(), 8);
+    }
+
+    #[test]
+    fn test_encoding_record_roundtrip() {
+        use crate::io::Writer;
+
+        let original = EncodingRecord {
+            platform_id: 1, // Mac
+            encoding_id: 0, // Roman
+            offset: 100,
+        };
+
+        // 写入
+        let mut writer = Writer::new();
+        original.write_to(&mut writer).unwrap();
+
+        // 读取
+        let mut reader = Reader::new(&writer.data);
+        let read_record = EncodingRecord::read_from(&mut reader).unwrap();
+
+        assert_eq!(read_record.platform_id, original.platform_id);
+        assert_eq!(read_record.encoding_id, original.encoding_id);
+        assert_eq!(read_record.offset, original.offset);
     }
 
     #[test]
