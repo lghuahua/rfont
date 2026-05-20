@@ -1,9 +1,8 @@
 use crate::Font;
-use rfont_types::{Reader, Tag, WriteBytes};
+use rfont_types::{Reader, SFNT_CHECKSUM_MAGIC, Tag, WriteBytes};
+use rfont_core::calc_sfnt_checksum;
 use tracing::{debug, info, span, warn, Level};
 
-use crate::checksum::calc_sfnt_checksum;
-use crate::constants::SFNT_CHECKSUM_MAGIC;
 use crate::info::{FontInfo, TableInfo};
 use crate::subset::builder::FontSubsetBuilder;
 use crate::subset::options::SubsetOptions;
@@ -514,7 +513,7 @@ impl Font {
         glyf_data: &[u8],
         other_tables: &[(Tag, Vec<u8>)],
     ) -> Result<Vec<u8>, FontError> {
-        use crate::constants::{SFNT_VERSION_TTF, TABLE_DIR_ENTRY_SIZE};
+        use rfont_types::{SFNT_VERSION_TTF, TABLE_DIR_ENTRY_SIZE};
 
         let mut all_tables = vec![
             (Tag(*b"head"), head_data.to_vec()),

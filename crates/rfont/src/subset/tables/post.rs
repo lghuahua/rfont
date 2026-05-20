@@ -1,7 +1,5 @@
 use crate::Font;
-use rfont_types::FontError;
-
-use crate::constants::{POST_TABLE_MIN_SIZE, POST_V2_MIN_SIZE};
+use rfont_types::{FontError, POST_TABLE_MIN_SIZE, POST_V2_MIN_SIZE};
 
 /// Post 表结构信息
 #[derive(Debug, Clone)]

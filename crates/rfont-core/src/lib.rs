@@ -1,4 +1,7 @@
+pub mod checksum;
 pub mod tables;
+
+pub use checksum::calc_sfnt_checksum;
 
 pub use tables::cmap::Cmap;
 pub use tables::glyf::{GlyfRecord, GlyphData};

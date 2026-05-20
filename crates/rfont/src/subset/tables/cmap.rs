@@ -16,11 +16,9 @@ pub struct CmapGroup {
 }
 
 use crate::Font;
-use rfont_types::FontError;
+use rfont_types::{CMAP_HEADER_SIZE, ENCODING_RECORD_SIZE, FontError};
 use std::collections::{HashMap, HashSet};
 use tracing::debug;
-
-use crate::constants::{CMAP_HEADER_SIZE, ENCODING_RECORD_SIZE};
 
 /// 重建 cmap 表（智能选择最佳格式）
 pub fn rebuild_cmap(font: &Font, subset_glyphs: &[u16]) -> Result<Vec<u8>, FontError> {

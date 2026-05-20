@@ -7,7 +7,8 @@ use rfont_types::{FontError, ReadBytes, Reader, Tag};
 use std::io::Read;
 use tracing::{debug, info, span, Level};
 
-use crate::constants::TABLE_DIR_ENTRY_SIZE;
+use rfont_types::TABLE_DIR_ENTRY_SIZE;
+
 use crate::font_data::FontData;
 
 // 导出 WOFF2_KNOWN_TAGS 供 detect_format 使用

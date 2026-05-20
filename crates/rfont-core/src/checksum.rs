@@ -1,4 +1,4 @@
-/// 计算 SFNT 校验和（32位累加，数据按4字节对齐）
+/// 计算 SFNT 校验和（32 位累加，数据按 4 字节对齐）
 ///
 /// SFNT 校验和算法是 OpenType/TrueType 字体规范中使用的校验和计算方法。
 /// 它将数据按 4 字节分组，累加所有 32 位值，最后取低 32 位。
@@ -15,10 +15,11 @@
 ///
 /// # 示例
 /// ```
-/// // calc_sfnt_checksum 是内部函数，用于计算字体表校验和
-/// // 通常在 Font::load() 和子集化过程中自动使用
+/// use rfont_core::calc_sfnt_checksum;
+///
 /// let data = vec![0x00, 0x01, 0x00, 0x00];
-/// // 校验和计算由库内部处理
+/// let checksum = calc_sfnt_checksum(&data);
+/// assert_eq!(checksum, 0x00010000);
 /// ```
 pub fn calc_sfnt_checksum(data: &[u8]) -> u32 {
     let mut sum: u64 = 0;
@@ -31,7 +32,7 @@ pub fn calc_sfnt_checksum(data: &[u8]) -> u32 {
         i += 4;
     }
 
-    // 处理剩余的字节（填充到4字节）
+    // 处理剩余的字节（填充到 4 字节）
     if i < data.len() {
         let mut bytes = [0u8; 4];
         let remaining = &data[i..];

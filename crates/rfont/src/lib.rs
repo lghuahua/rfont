@@ -1,5 +1,3 @@
-mod checksum;
-mod constants;
 mod font;
 mod font_data;
 mod info;
