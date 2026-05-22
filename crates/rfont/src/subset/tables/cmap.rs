@@ -16,7 +16,7 @@ pub struct CmapGroup {
 }
 
 use crate::Font;
-use rfont_types::{CMAP_HEADER_SIZE, ENCODING_RECORD_SIZE, FontError};
+use rfont_types::{FontError, CMAP_HEADER_SIZE, ENCODING_RECORD_SIZE};
 use std::collections::{HashMap, HashSet};
 use tracing::debug;
 

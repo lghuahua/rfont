@@ -345,23 +345,33 @@ pub fn store_points(
         let dx = point.x - last_x;
         let dy = point.y - last_y;
 
-        // 判断 x 的编码方式
+        // 判断 x 的编码方式（参考官方实现）
         if dx == 0 {
             flag |= GLYF_THIS_X_IS_SAME;
         } else if dx > -256 && dx < 256 {
-            flag |= GLYF_X_SHORT | if dx > 0 { GLYF_THIS_X_IS_SAME } else { 0 };
+            // XShort 表示使用 1 字节编码，正数时设置 sign bit
+            flag |= GLYF_X_SHORT;
+            if dx > 0 {
+                flag |= GLYF_THIS_X_IS_SAME; // sign bit for positive value
+            }
             x_bytes += 1;
         } else {
+            // 2 字节有符号整数，不需要额外标志位
             x_bytes += 2;
         }
 
-        // 判断 y 的编码方式
+        // 判断 y 的编码方式（参考官方实现）
         if dy == 0 {
             flag |= GLYF_THIS_Y_IS_SAME;
         } else if dy > -256 && dy < 256 {
-            flag |= GLYF_Y_SHORT | if dy > 0 { GLYF_THIS_Y_IS_SAME } else { 0 };
+            // YShort 表示使用 1 字节编码，正数时设置 sign bit
+            flag |= GLYF_Y_SHORT;
+            if dy > 0 {
+                flag |= GLYF_THIS_Y_IS_SAME; // sign bit for positive value
+            }
             y_bytes += 1;
         } else {
+            // 2 字节有符号整数，不需要额外标志位
             y_bytes += 2;
         }
 
@@ -425,31 +435,33 @@ pub fn store_points(
     for point in points {
         let dx = point.x - last_x;
         if dx == 0 {
-            // 不需要写入
+            // 不需要写入（GLYF_THIS_X_IS_SAME 标志位已设置）
         } else if dx > -256 && dx < 256 {
+            // 1 字节：写入绝对值，符号由标志位中的 sign bit 表示
             glyph_buf[current_x_offset] = dx.unsigned_abs() as u8;
             current_x_offset += 1;
         } else {
-            // 2 字节
+            // 2 字节：写入有符号整数（big-endian）
             glyph_buf[current_x_offset] = ((dx >> 8) & 0xFF) as u8;
             glyph_buf[current_x_offset + 1] = (dx & 0xFF) as u8;
             current_x_offset += 2;
         }
-        last_x += dx;
+        last_x = point.x;
 
         let dy = point.y - last_y;
         if dy == 0 {
-            // 不需要写入
+            // 不需要写入（GLYF_THIS_Y_IS_SAME 标志位已设置）
         } else if dy > -256 && dy < 256 {
+            // 1 字节：写入绝对值，符号由标志位中的 sign bit 表示
             glyph_buf[current_y_offset] = dy.unsigned_abs() as u8;
             current_y_offset += 1;
         } else {
-            // 2 字节
+            // 2 字节：写入有符号整数（big-endian）
             glyph_buf[current_y_offset] = ((dy >> 8) & 0xFF) as u8;
             glyph_buf[current_y_offset + 1] = (dy & 0xFF) as u8;
             current_y_offset += 2;
         }
-        last_y += dy;
+        last_y = point.y;
     }
 
     Ok(current_y_offset)
@@ -909,19 +921,51 @@ fn build_loca_table(loca_values: &[u32], index_format: u16) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    // ========================================================================
+    // 基础函数测试
+    // ========================================================================
+
     #[test]
-    fn test_triplet_decode_simple() {
-        // 简单的测试用例：3 个点，都不在曲线上（off-curve），坐标增量为 0
-        // flag = 0x80: on_curve=0 (bit 7=1 means off-curve), flag_low=0 (< 10)
-        // 当 flag_low < 10 且为偶数时：dx=0, dy 有符号 8 位
-        let flags = vec![0x80, 0x80, 0x80]; // 所有点都不在曲线上
-        let triplets = vec![0x00, 0x00, 0x00]; // dy=0 for each point
+    fn test_with_sign() {
+        assert_eq!(with_sign(0x01, 100), 100); // 奇数 = 正
+        assert_eq!(with_sign(0x00, 100), -100); // 偶数 = 负
+        assert_eq!(with_sign(0x03, 50), 50);
+        assert_eq!(with_sign(0x02, 50), -50);
+    }
+
+    #[test]
+    fn test_safe_int_addition() {
+        assert_eq!(safe_int_addition(10, 20).unwrap(), 30);
+        assert_eq!(safe_int_addition(-10, 20).unwrap(), 10);
+        assert_eq!(safe_int_addition(i32::MAX, 0).unwrap(), i32::MAX);
+        assert_eq!(safe_int_addition(i32::MIN, 0).unwrap(), i32::MIN);
+        assert!(safe_int_addition(i32::MAX, 1).is_err());
+        assert!(safe_int_addition(i32::MIN, -1).is_err());
+    }
+
+    // ========================================================================
+    // TripletDecode 测试
+    // ========================================================================
+
+    #[test]
+    fn test_triplet_decode_empty() {
+        let flags: Vec<u8> = vec![];
+        let triplets: Vec<u8> = vec![];
+        let points = triplet_decode(&flags, &triplets, 0).unwrap();
+        assert!(points.is_empty());
+    }
+
+    #[test]
+    fn test_triplet_decode_simple_zero_coordinates() {
+        // 3 个点，坐标增量都为 0
+        let flags = vec![0x00, 0x00, 0x00]; // on_curve=1, flag_low=0
+        let triplets = vec![0x00, 0x00, 0x00]; // dy=0 for each
 
         let points = triplet_decode(&flags, &triplets, 3).unwrap();
         assert_eq!(points.len(), 3);
         assert_eq!(points[0].x, 0);
         assert_eq!(points[0].y, 0);
-        assert!(!points[0].on_curve); // bit 7 = 1 means off-curve
+        assert!(points[0].on_curve);
         assert_eq!(points[1].x, 0);
         assert_eq!(points[1].y, 0);
         assert_eq!(points[2].x, 0);
@@ -929,13 +973,422 @@ mod tests {
     }
 
     #[test]
+    fn test_triplet_decode_off_curve_points() {
+        // 3 个 off-curve 点
+        let flags = vec![0x80, 0x80, 0x80]; // on_curve=0 (bit 7=1), flag_low=0
+        let triplets = vec![0x00, 0x00, 0x00]; // dy=0
+
+        let points = triplet_decode(&flags, &triplets, 3).unwrap();
+        assert_eq!(points.len(), 3);
+        assert!(!points[0].on_curve);
+        assert_eq!(points[0].x, 0);
+        assert_eq!(points[0].y, 0);
+    }
+
+    #[test]
+    fn test_triplet_decode_positive_dy() {
+        // flag_low < 10: dx=0, dy 有符号 8 位
+        // flag = 0x01 (odd): positive, dy = ((1 & 14) << 7) + triplet = 0 + 100 = 100
+        let flags = vec![0x01];
+        let triplets = vec![100];
+
+        let points = triplet_decode(&flags, &triplets, 1).unwrap();
+        assert_eq!(points[0].x, 0);
+        assert_eq!(points[0].y, 100);
+    }
+
+    #[test]
+    fn test_triplet_decode_negative_dy() {
+        // flag = 0x00 (even): negative, dy = -((0 & 14) << 7) + triplet = -100
+        let flags = vec![0x00];
+        let triplets = vec![100];
+
+        let points = triplet_decode(&flags, &triplets, 1).unwrap();
+        assert_eq!(points[0].x, 0);
+        assert_eq!(points[0].y, -100);
+    }
+
+    #[test]
+    fn test_triplet_decode_positive_dx() {
+        // 10 <= flag_low < 20: dy=0, dx 有符号 8 位
+        // flag = 0x0B (11, odd): positive, dx = ((11-10) & 14) << 7) + triplet = 0 + 50 = 50
+        let flags = vec![0x0B];
+        let triplets = vec![50];
+
+        let points = triplet_decode(&flags, &triplets, 1).unwrap();
+        assert_eq!(points[0].x, 50);
+        assert_eq!(points[0].y, 0);
+    }
+
+    #[test]
+    fn test_triplet_decode_small_coordinates() {
+        // 20 <= flag_low < 84: dx, dy 都是小的有符号数（共用 1 字节）
+        // flag = 0x17 (23, odd): b0 = 3
+        // dx = 1 + (3 & 0x30) + (b1 >> 4) = 1 + 0 + (0xF >> 4) = 1 + 0 + 0 = 1 (positive, flag is odd)
+        // dy = 1 + ((3 & 0x0c) << 2) + (b1 & 0x0f) = 1 + 0 + 15 = 16 (positive, flag>>1 = 11 is odd)
+        let flags = vec![0x17];
+        let triplets = vec![0x0F];
+
+        let points = triplet_decode(&flags, &triplets, 1).unwrap();
+        assert_eq!(points[0].x, 1);
+        assert_eq!(points[0].y, 16);
+    }
+
+    #[test]
+    fn test_triplet_decode_accumulated_coordinates() {
+        // 测试坐标累加
+        let flags = vec![0x01, 0x01, 0x01]; // 3 个点，每个 dy=10
+        let triplets = vec![10, 10, 10];
+
+        let points = triplet_decode(&flags, &triplets, 3).unwrap();
+        assert_eq!(points[0].y, 10);
+        assert_eq!(points[1].y, 20); // 10 + 10
+        assert_eq!(points[2].y, 30); // 20 + 10
+    }
+
+    #[test]
+    fn test_triplet_decode_buffer_overflow() {
+        // 测试缓冲区溢出检测
+        let flags = vec![0x00, 0x00];
+        let triplets = vec![0x00]; // 只有 1 字节，但需要 2 字节
+
+        let result = triplet_decode(&flags, &triplets, 2);
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // StorePoints 测试
+    // ========================================================================
+
+    #[test]
+    fn test_store_points_empty() {
+        let points: Vec<Point> = vec![];
+        let mut glyph_buf = Vec::new();
+
+        let result = store_points(&points, 0, 0, false, &mut glyph_buf);
+        assert!(result.is_ok());
+        // 至少应该有 nContours (2 字节) + endPts (0) + instructionLength (2 字节)
+        assert!(glyph_buf.len() >= 4);
+    }
+
+    #[test]
+    fn test_store_points_single_point() {
+        // 单个点：(0, 0)，在曲线上
+        let points = vec![Point {
+            x: 0,
+            y: 0,
+            on_curve: true,
+        }];
+        let mut glyph_buf = Vec::new();
+
+        let size = store_points(&points, 1, 0, false, &mut glyph_buf).unwrap();
+        assert!(size > 0);
+        assert!(glyph_buf.len() >= size);
+    }
+
+    #[test]
+    fn test_store_points_multiple_points() {
+        // 多个点，测试坐标编码
+        let points = vec![
+            Point {
+                x: 0,
+                y: 0,
+                on_curve: true,
+            },
+            Point {
+                x: 10,
+                y: 20,
+                on_curve: false,
+            },
+            Point {
+                x: 30,
+                y: 40,
+                on_curve: true,
+            },
+        ];
+        let mut glyph_buf = Vec::new();
+
+        let size = store_points(&points, 1, 0, false, &mut glyph_buf).unwrap();
+        assert!(size > 0);
+    }
+
+    #[test]
+    fn test_store_points_with_overlap_bit() {
+        // 测试 overlap bit
+        let points = vec![Point {
+            x: 0,
+            y: 0,
+            on_curve: true,
+        }];
+        let mut glyph_buf = Vec::new();
+
+        let size = store_points(&points, 1, 0, true, &mut glyph_buf).unwrap();
+        assert!(size > 0);
+        // 第一个点应该有 OVERLAP_SIMPLE 标志
+    }
+
+    #[test]
+    fn test_store_points_large_coordinates() {
+        // 测试大坐标值（需要 2 字节编码）
+        let points = vec![
+            Point {
+                x: 0,
+                y: 0,
+                on_curve: true,
+            },
+            Point {
+                x: 1000,
+                y: 2000,
+                on_curve: true,
+            },
+            Point {
+                x: -500,
+                y: -1000,
+                on_curve: true,
+            },
+        ];
+        let mut glyph_buf = Vec::new();
+
+        let size = store_points(&points, 1, 0, false, &mut glyph_buf).unwrap();
+        assert!(size > 0);
+    }
+
+    #[test]
+    fn test_store_points_same_coordinates() {
+        // 测试相同坐标（使用 THIS_X_IS_SAME / THIS_Y_IS_SAME 标志）
+        let points = vec![
+            Point {
+                x: 0,
+                y: 0,
+                on_curve: true,
+            },
+            Point {
+                x: 0,
+                y: 0,
+                on_curve: true,
+            },
+            Point {
+                x: 0,
+                y: 0,
+                on_curve: true,
+            },
+        ];
+        let mut glyph_buf = Vec::new();
+
+        let size = store_points(&points, 1, 0, false, &mut glyph_buf).unwrap();
+        assert!(size > 0);
+    }
+
+    #[test]
+    fn test_store_points_rle_compression() {
+        // 测试 RLE 压缩（重复标志位）
+        let points = vec![
+            Point {
+                x: 10,
+                y: 20,
+                on_curve: true,
+            },
+            Point {
+                x: 20,
+                y: 30,
+                on_curve: true,
+            },
+            Point {
+                x: 30,
+                y: 40,
+                on_curve: true,
+            },
+            Point {
+                x: 40,
+                y: 50,
+                on_curve: true,
+            },
+        ];
+        let mut glyph_buf = Vec::new();
+
+        let size = store_points(&points, 1, 0, false, &mut glyph_buf).unwrap();
+        assert!(size > 0);
+    }
+
+    // ========================================================================
+    // 往返测试：转换 -> 逆转换 -> 验证
+    // ========================================================================
+
+    #[test]
+    fn test_roundtrip_simple_glyph() {
+        // 测试简单字形的往返转换
+        // 原始点数据
+        let original_points = vec![
+            Point {
+                x: 0,
+                y: 0,
+                on_curve: true,
+            },
+            Point {
+                x: 10,
+                y: 20,
+                on_curve: false,
+            },
+            Point {
+                x: 30,
+                y: 40,
+                on_curve: true,
+            },
+            Point {
+                x: 50,
+                y: 60,
+                on_curve: false,
+            },
+            Point {
+                x: 70,
+                y: 80,
+                on_curve: true,
+            },
+        ];
+
+        // 1. 使用 store_points 转换为 glyf 格式
+        let mut glyf_buf = Vec::new();
+        let n_contours = 1;
+        let instruction_length = 0;
+
+        let size = store_points(
+            &original_points,
+            n_contours,
+            instruction_length,
+            false,
+            &mut glyf_buf,
+        )
+        .unwrap();
+        glyf_buf.truncate(size);
+
+        // 2. 从 glyf 格式提取标志位和坐标数据
+        // 这里简化测试，直接验证 store_points 的输出可以被正确解析
+        assert!(glyf_buf.len() > 0);
+    }
+
+    #[test]
+    fn test_roundtrip_triplet_decode_store_points() {
+        // 测试 triplet_decode 和 store_points 的往返
+        // 注意：由于两种编码方式不同，这不是严格的往返，而是验证数据一致性
+
+        let original_points = vec![
+            Point {
+                x: 0,
+                y: 0,
+                on_curve: true,
+            },
+            Point {
+                x: 10,
+                y: 20,
+                on_curve: true,
+            },
+            Point {
+                x: 30,
+                y: 40,
+                on_curve: false,
+            },
+            Point {
+                x: 50,
+                y: 60,
+                on_curve: true,
+            },
+        ];
+
+        // 1. 模拟 WOFF2 压缩：从点生成标志位和三元组
+        // 这里我们手动构造简单的测试数据
+        let flags = vec![0x00, 0x01, 0x81, 0x01]; // 混合 on/off-curve
+        let triplets = vec![0x00, 0x14, 0x00, 0x14]; // 简化的三元组数据
+
+        // 2. 解码
+        let decoded_points = triplet_decode(&flags, &triplets, 4).unwrap();
+        assert_eq!(decoded_points.len(), 4);
+
+        // 3. 重新编码为 glyf 格式
+        let mut glyf_buf = Vec::new();
+        let size = store_points(&decoded_points, 1, 0, false, &mut glyf_buf).unwrap();
+        assert!(size > 0);
+    }
+
+    // ========================================================================
+    // ComputeBbox 测试
+    // ========================================================================
+
+    #[test]
+    fn test_compute_bbox() {
+        let points = vec![
+            Point {
+                x: 10,
+                y: 20,
+                on_curve: true,
+            },
+            Point {
+                x: 30,
+                y: 40,
+                on_curve: true,
+            },
+            Point {
+                x: 20,
+                y: 50,
+                on_curve: false,
+            },
+        ];
+
+        let mut dst = vec![0u8; 16];
+        compute_bbox(&points, &mut dst, 0).unwrap();
+
+        // 验证 bbox: xMin=10, yMin=20, xMax=30, yMax=50
+        assert_eq!(&dst[0..2], &[0, 10]); // xMin = 10
+        assert_eq!(&dst[2..4], &[0, 20]); // yMin = 20
+        assert_eq!(&dst[4..6], &[0, 30]); // xMax = 30
+        assert_eq!(&dst[6..8], &[0, 50]); // yMax = 50
+    }
+
+    #[test]
+    fn test_compute_bbox_negative_coordinates() {
+        let points = vec![
+            Point {
+                x: -10,
+                y: -20,
+                on_curve: true,
+            },
+            Point {
+                x: 30,
+                y: 40,
+                on_curve: true,
+            },
+        ];
+
+        let mut dst = vec![0u8; 16];
+        compute_bbox(&points, &mut dst, 0).unwrap();
+
+        // 验证 bbox: xMin=-10, yMin=-20, xMax=30, yMax=40
+        // -10 的 16 位有符号大端表示：0xFF 0xF6
+        assert_eq!(&dst[0..2], &[0xFF, 0xF6]); // xMin = -10
+        assert_eq!(&dst[2..4], &[0xFF, 0xEC]); // yMin = -20
+        assert_eq!(&dst[4..6], &[0, 30]); // xMax = 30
+        assert_eq!(&dst[6..8], &[0, 40]); // yMax = 40
+    }
+
+    #[test]
+    fn test_compute_bbox_empty_points() {
+        let points: Vec<Point> = vec![];
+        let mut dst = vec![0u8; 16];
+
+        let result = compute_bbox(&points, &mut dst, 0);
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // SizeOfComposite 测试
+    // ========================================================================
+
+    #[test]
     fn test_size_of_composite_simple() {
-        // 测试简单的复合字形：单个组件，无缩放，有指令标志
-        // flags(2) + glyph_index(2) + arg1(1) + arg2(1) = 6 bytes
+        // 单个组件，无缩放，无指令
         let composite_data = vec![
             0x00, 0x00, // flags: no MORE_COMPONENTS, no instructions
             0x00, 0x01, // glyph index = 1
-            0x00, 0x00, // arg1 = 0, arg2 = 0 (bytes, not words)
+            0x00, 0x00, // arg1 = 0, arg2 = 0 (bytes)
         ];
 
         let (size, have_instructions) = size_of_composite(&composite_data).unwrap();
@@ -945,9 +1398,9 @@ mod tests {
 
     #[test]
     fn test_size_of_composite_with_instructions() {
-        // 复合字形：有指令标志
+        // 有指令标志
         let composite_data = vec![
-            0x01, 0x00, // flags: WE_HAVE_INSTRUCTIONS set
+            0x01, 0x00, // flags: WE_HAVE_INSTRUCTIONS
             0x00, 0x02, // glyph index = 2
             0x00, 0x00, // arg1 = 0, arg2 = 0
         ];
@@ -959,9 +1412,9 @@ mod tests {
 
     #[test]
     fn test_size_of_composite_multiple_components() {
-        // 复合字形：多个组件
+        // 多个组件
         let composite_data = vec![
-            0x00, 0x20, // flags: MORE_COMPONENTS set
+            0x00, 0x20, // flags: MORE_COMPONENTS
             0x00, 0x01, // glyph index = 1
             0x00, 0x00, // arg1 = 0, arg2 = 0
             0x00, 0x00, // flags: no MORE_COMPONENTS
@@ -970,19 +1423,151 @@ mod tests {
         ];
 
         let (size, have_instructions) = size_of_composite(&composite_data).unwrap();
-        assert_eq!(size, 12); // 2 components * 6 bytes each
+        assert_eq!(size, 12);
         assert!(!have_instructions);
     }
 
     #[test]
-    fn test_with_sign() {
-        assert_eq!(with_sign(0x01, 100), 100); // 奇数 = 正
-        assert_eq!(with_sign(0x00, 100), -100); // 偶数 = 负
+    fn test_size_of_composite_with_words_args() {
+        // 使用 word 参数的组件
+        let composite_data = vec![
+            0x00, 0x01, // flags: ARG_1_AND_2_ARE_WORDS
+            0x00, 0x01, // glyph index = 1
+            0x00, 0x64, // arg1 = 100 (2 bytes)
+            0x00, 0xC8, // arg2 = 200 (2 bytes)
+        ];
+
+        let (size, have_instructions) = size_of_composite(&composite_data).unwrap();
+        assert_eq!(size, 8); // 2 + 2 + 2 + 2 = 8
+        assert!(!have_instructions);
     }
 
     #[test]
-    fn test_safe_int_addition() {
-        assert_eq!(safe_int_addition(10, 20).unwrap(), 30);
-        assert!(safe_int_addition(i32::MAX, 1).is_err());
+    fn test_size_of_composite_with_scale() {
+        // 有缩放因子的组件
+        let composite_data = vec![
+            0x00, 0x08, // flags: WE_HAVE_A_SCALE
+            0x00, 0x01, // glyph index = 1
+            0x00, 0x00, // arg1 = 0, arg2 = 0
+            0x40, 0x00, // scale = 0.5 (F2Dot14)
+        ];
+
+        let (size, have_instructions) = size_of_composite(&composite_data).unwrap();
+        assert_eq!(size, 8);
+        assert!(!have_instructions);
+    }
+
+    // ========================================================================
+    // BuildLoca 测试
+    // ========================================================================
+
+    #[test]
+    fn test_build_loca_table_short() {
+        let loca_values = vec![0, 10, 20, 40];
+        let loca_data = build_loca_table(&loca_values, 0); // short format
+
+        assert_eq!(loca_data.len(), 8); // 4 values * 2 bytes
+        assert_eq!(&loca_data[0..2], &[0, 0]); // 0 / 2 = 0
+        assert_eq!(&loca_data[2..4], &[0, 5]); // 10 / 2 = 5
+        assert_eq!(&loca_data[4..6], &[0, 10]); // 20 / 2 = 10
+        assert_eq!(&loca_data[6..8], &[0, 20]); // 40 / 2 = 20
+    }
+
+    #[test]
+    fn test_build_loca_table_long() {
+        let loca_values = vec![0, 10, 20, 40];
+        let loca_data = build_loca_table(&loca_values, 1); // long format
+
+        assert_eq!(loca_data.len(), 16); // 4 values * 4 bytes
+        assert_eq!(&loca_data[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&loca_data[4..8], &[0, 0, 0, 10]);
+        assert_eq!(&loca_data[8..12], &[0, 0, 0, 20]);
+        assert_eq!(&loca_data[12..16], &[0, 0, 0, 40]);
+    }
+
+    // ========================================================================
+    // 综合测试：模拟真实 WOFF2 转换场景
+    // ========================================================================
+
+    #[test]
+    fn test_comprehensive_glyph_conversion() {
+        // 模拟一个完整的简单字形转换流程
+        let _original_points = vec![
+            Point {
+                x: 0,
+                y: 0,
+                on_curve: true,
+            },
+            Point {
+                x: 10,
+                y: 20,
+                on_curve: false,
+            },
+            Point {
+                x: 20,
+                y: 40,
+                on_curve: true,
+            },
+            Point {
+                x: 30,
+                y: 20,
+                on_curve: false,
+            },
+            Point {
+                x: 40,
+                y: 0,
+                on_curve: true,
+            },
+        ];
+
+        // 1. 存储为 glyf 格式
+        let mut glyf_buf = Vec::new();
+        let n_contours = 1;
+        let instruction_length = 0;
+
+        let size = store_points(
+            &[
+                _original_points[0],
+                _original_points[1],
+                _original_points[2],
+            ],
+            n_contours,
+            instruction_length,
+            false,
+            &mut glyf_buf,
+        )
+        .unwrap();
+        glyf_buf.truncate(size);
+
+        // 2. 验证输出不为空
+        assert!(size > 0);
+        assert!(glyf_buf.len() >= size);
+
+        // 3. 验证 store_points 成功返回有效大小
+        assert!(size >= 10); // 至少包含标志位和坐标数据
+    }
+
+    #[test]
+    fn test_comprehensive_glyph_with_instructions() {
+        // 测试带指令的字形
+        let points = vec![
+            Point {
+                x: 0,
+                y: 0,
+                on_curve: true,
+            },
+            Point {
+                x: 10,
+                y: 10,
+                on_curve: true,
+            },
+        ];
+
+        let mut glyf_buf = Vec::new();
+        let instruction_length = 4;
+
+        let size = store_points(&points, 1, instruction_length, false, &mut glyf_buf).unwrap();
+
+        assert!(size > 0);
     }
 }

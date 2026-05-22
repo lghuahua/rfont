@@ -1,6 +1,6 @@
 use crate::Font;
-use rfont_types::{Reader, SFNT_CHECKSUM_MAGIC, Tag, WriteBytes};
 use rfont_core::calc_sfnt_checksum;
+use rfont_types::{Reader, Tag, WriteBytes, SFNT_CHECKSUM_MAGIC};
 use tracing::{debug, info, span, warn, Level};
 
 use crate::info::{FontInfo, TableInfo};

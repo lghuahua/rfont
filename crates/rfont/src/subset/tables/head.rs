@@ -1,5 +1,5 @@
 use crate::Font;
-use rfont_types::{FontError, HEAD_TABLE_SIZE, LONGDATETIME_EPOCH_YEAR, Tag};
+use rfont_types::{FontError, Tag, HEAD_TABLE_SIZE, LONGDATETIME_EPOCH_YEAR};
 
 /// 更新 head 表（包含校验和调整和时间戳）
 pub fn update_head(font: &Font, checksum_adjustment: u32) -> Result<Vec<u8>, FontError> {
