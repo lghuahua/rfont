@@ -129,8 +129,8 @@ impl Woff2TableDirectoryEntry {
 
 /// WOFF2 预定义标签列表（按规范顺序）
 pub const WOFF2_KNOWN_TAGS: [Tag; 63] = [
-    Tag(*b"gasp"),
     Tag(*b"cmap"),
+    Tag(*b"head"),
     Tag(*b"hhea"),
     Tag(*b"hmtx"),
     Tag(*b"maxp"),
@@ -143,30 +143,35 @@ pub const WOFF2_KNOWN_TAGS: [Tag; 63] = [
     Tag(*b"loca"),
     Tag(*b"prep"),
     Tag(*b"CFF "),
-    Tag(*b"VDMX"),
+    Tag(*b"VORG"),
+    Tag(*b"EBDT"),
+    Tag(*b"EBLC"),
+    Tag(*b"gasp"),
     Tag(*b"hdmx"),
     Tag(*b"kern"),
     Tag(*b"LTSH"),
     Tag(*b"PCLT"),
-    Tag(*b"DSIG"),
-    Tag(*b"EBDT"),
-    Tag(*b"EBLC"),
-    Tag(*b"EBSC"),
+    Tag(*b"VDMX"),
+    Tag(*b"vhea"),
+    Tag(*b"vmtx"),
     Tag(*b"BASE"),
     Tag(*b"GDEF"),
     Tag(*b"GPOS"),
     Tag(*b"GSUB"),
+    Tag(*b"EBSC"),
     Tag(*b"JSTF"),
     Tag(*b"MATH"),
+    Tag(*b"CBDT"),
     Tag(*b"CBLC"),
     Tag(*b"COLR"),
     Tag(*b"CPAL"),
     Tag(*b"SVG "),
     Tag(*b"sbix"),
     Tag(*b"acnt"),
-    Tag(*b"ankr"),
-    Tag(*b"bhed"),
+    Tag(*b"avar"),
+    Tag(*b"bdat"),
     Tag(*b"bloc"),
+    Tag(*b"bsln"),
     Tag(*b"cvar"),
     Tag(*b"fdsc"),
     Tag(*b"feat"),
@@ -182,16 +187,11 @@ pub const WOFF2_KNOWN_TAGS: [Tag; 63] = [
     Tag(*b"prop"),
     Tag(*b"trak"),
     Tag(*b"Zapf"),
-    Tag(*b"SILF"),
-    Tag(*b"SILL"),
     Tag(*b"Silf"),
-    Tag(*b"Fea "),
     Tag(*b"Glat"),
-    Tag(*b"Jstf"),
-    Tag(*b"Ltag"),
-    Tag(*b"Prop"),
+    Tag(*b"Gloc"),
+    Tag(*b"Feat"),
     Tag(*b"Sill"),
-    Tag(*b"bsln"),
 ];
 
 // 测试辅助函数
@@ -331,7 +331,7 @@ mod tests {
         assert_eq!(WOFF2_KNOWN_TAGS.len(), 63);
 
         // 验证一些常见标签
-        assert_eq!(WOFF2_KNOWN_TAGS[1].as_str(), "cmap");
+        assert_eq!(WOFF2_KNOWN_TAGS[1].as_str(), "head");
         assert_eq!(WOFF2_KNOWN_TAGS[10].as_str(), "glyf");
         assert_eq!(WOFF2_KNOWN_TAGS[11].as_str(), "loca");
         assert_eq!(WOFF2_KNOWN_TAGS[2].as_str(), "hhea");
