@@ -371,15 +371,57 @@ pub fn transform_glyf_and_loca(
 ) -> Result<(Vec<u8>, Vec<u8>), FontError> {
     let n_glyphs = glyphs.len() as u16;
 
+    tracing::debug!(n_glyphs = n_glyphs, "开始 glyf/loca 转换");
+
     // 创建编码器并编码所有字形
     let mut encoder = GlyfEncoder::new(n_glyphs);
+
+    tracing::debug!("开始编码字形");
     encoder.encode_glyphs(glyphs)?;
+    tracing::debug!("字形编码完成");
 
     // 获取编码后的数据
     let encoded = encoder.get_encoded_data();
 
+    tracing::debug!(
+        n_contour_stream_size = encoded.n_contour_stream.len(),
+        n_points_stream_size = encoded.n_points_stream.len(),
+        flag_stream_size = encoded.flag_byte_stream.len(),
+        glyph_stream_size = encoded.glyph_stream.len(),
+        composite_stream_size = encoded.composite_stream.len(),
+        bbox_stream_size = encoded.bbox_stream.len(),
+        instruction_stream_size = encoded.instruction_stream.len(),
+        "各流大小统计"
+    );
+
     // 生成转换后的 glyf 数据
     let transformed_glyf = encoded.to_bytes();
+
+    // 计算原始大小
+    let original_size: usize = glyphs
+        .iter()
+        .map(|g| match &g.data {
+            GlyphData::Empty => 0,
+            GlyphData::Simple(s) => {
+                10 + // header
+            s.end_pts_of_contours.len() * 2 +
+            s.instructions.len() +
+            s.flags.len() +
+            s.x_coordinates.len() * 2 +
+            s.y_coordinates.len() * 2
+            }
+            GlyphData::Composite(c) => {
+                10 + // header
+            c.components.len() * 10 // 简化估计
+            }
+        })
+        .sum();
+
+    tracing::debug!(
+        original_size = original_size,
+        transformed_size = transformed_glyf.len(),
+        "glyf 转换完成"
+    );
 
     // 生成转换后的 loca 数据（在 WOFF2 中，loca 被省略，因为可以从其他信息推导）
     // 这里返回一个空的 loca，实际使用时需要根据具体规范调整

@@ -1,7 +1,7 @@
 use crate::Font;
 use rfont_core::calc_sfnt_checksum;
 use rfont_types::{Reader, Tag, WriteBytes, SFNT_CHECKSUM_MAGIC};
-use tracing::{debug, info, span, warn, Level};
+use tracing::{debug, error, info, span, warn, Level};
 
 use crate::info::{FontInfo, TableInfo};
 use crate::subset::builder::FontSubsetBuilder;
@@ -1021,6 +1021,12 @@ impl Font {
         use brotli::BrotliCompress;
         use rfont_types::{Reader, Writer};
 
+        debug!("=== 开始 WOFF2 转换 ===");
+        debug!(
+            ttf_size = ttf_data.len(),
+            compression_level = compression_level
+        );
+
         // 解析 TTF 数据结构
         let mut reader = Reader::new(ttf_data);
         let sfnt_version = reader.read_u32()?;
@@ -1047,6 +1053,8 @@ impl Font {
         // 按照 WOFF2 规范的顺序对表进行排序
         let predefined_tags = rfont_core::tables::woff2::WOFF2_KNOWN_TAGS;
         let mut sorted_tables: Vec<(Tag, u32, u32)> = table_records.clone();
+
+        debug!(num_tables = num_tables, "解析表目录完成");
         sorted_tables.sort_by(|a, b| {
             let a_idx = predefined_tags.iter().position(|t| t == &a.0);
             let b_idx = predefined_tags.iter().position(|t| t == &b.0);
@@ -1057,6 +1065,11 @@ impl Font {
                 (None, None) => a.0.as_str().cmp(b.0.as_str()),
             }
         });
+
+        debug!("表排序完成:");
+        for (tag, offset, length) in &sorted_tables {
+            debug!(table = ?tag, offset = offset, size = length, table_name = tag.as_str());
+        }
 
         // 计算总 SFNT 大小（包含填充）
         let mut total_sfnt_size = 12u32 + (num_tables as u32) * 16;
@@ -1153,8 +1166,10 @@ impl Font {
             debug!(loaded_glyphs = all_glyphs.len(), "字形加载完成");
 
             // 执行 glyf/loca 转换
+            debug!("开始 glyf/loca 转换，字形数量 = {}", all_glyphs.len());
             match transform_glyf_and_loca(&all_glyphs, &loca_offsets) {
                 Ok((transformed_glyf, transformed_loca)) => {
+                    debug!("glyf/loca 转换成功");
                     let original_size = *glyf_length as f64;
                     let transformed_size = transformed_glyf.len() as f64;
                     let ratio = (1.0 - transformed_size / original_size) * 100.0;
@@ -1162,48 +1177,49 @@ impl Font {
                     info!(
                         original_glyf_size = *glyf_length,
                         transformed_glyf_size = transformed_glyf.len(),
+                        original_loca_size = *loca_length,
+                        transformed_loca_size = transformed_loca.len(),
                         compression_ratio = format!("{:.1}%", ratio),
-                        "✓ glyf 表转换成功"
+                        "glyf 表转换成功"
                     );
 
                     transformed_tables.insert(Tag(*b"glyf"), transformed_glyf);
                     transformed_tables.insert(Tag(*b"loca"), transformed_loca);
                 }
                 Err(e) => {
-                    warn!(error = ?e, "✗ glyf/loca 转换失败，将使用原始数据");
+                    error!(error = ?e, "glyf/loca 转换失败，将使用原始数据");
                     // 转换失败时使用原始数据
                 }
             }
         }
 
-        // ⭐ 如果有表被转换，需要重新计算 total_sfnt_size
-        let mut final_total_sfnt_size = total_sfnt_size;
-        if !transformed_tables.is_empty() {
-            // 减去原始表的大小，加上转换后的大小
-            for (tag, _, orig_length) in &sorted_tables {
-                if let Some(transformed_data) = transformed_tables.get(tag) {
-                    let orig_padded = orig_length + (4 - (orig_length % 4)) % 4;
-                    let new_padded = transformed_data.len() as u32
-                        + (4 - (transformed_data.len() as u32 % 4)) % 4;
-                    final_total_sfnt_size = final_total_sfnt_size - orig_padded + new_padded;
-                }
-            }
-        }
+        // ⭐ 先拼接表数据流，然后使用实际大小作为 total_sfnt_size
+        // 注意：total_sfnt_size 应该是解压后的完整 SFNT 大小（包括 SFNT 头、表目录和所有表数据）
 
-        // 将所有表数据按 WOFF2 规范顺序拼接成一个流，然后整体 Brotli 压缩
-        let quality = compression_level.min(11) as i32;
-        let lgwin = 22;
+        // 将所有表数据按 WOFF2 规范顺序拼接成一个流
         let mut uncompressed_table_stream = Vec::new();
         for (tag, offset, length) in &sorted_tables {
             // 如果该表已转换，使用转换后的数据
             if let Some(transformed_data) = transformed_tables.get(tag) {
                 uncompressed_table_stream.extend_from_slice(transformed_data);
             } else {
-                let table_data = &ttf_data[*offset as usize..(*offset + *length) as usize];
+                let table_data = &ttf_data[*offset as usize..(*offset as usize + *length as usize)];
                 uncompressed_table_stream.extend_from_slice(table_data);
             }
         }
 
+        // ⭐ 计算 total_sfnt_size = SFNT 头 (12) + 表目录 (16×num_tables) + 所有表数据（填充后）
+        let final_total_sfnt_size =
+            12u32 + (num_tables as u32) * 16 + uncompressed_table_stream.len() as u32;
+        info!(
+            total_sfnt_size = final_total_sfnt_size,
+            stream_size = uncompressed_table_stream.len(),
+            "表数据流拼接完成"
+        );
+
+        // Brotli 压缩表数据流
+        let quality = compression_level.min(11) as i32;
+        let lgwin = 22;
         let mut compressed_table_stream = Vec::new();
         BrotliCompress(
             &mut &uncompressed_table_stream[..],
@@ -1218,6 +1234,7 @@ impl Font {
         .map_err(|e| FontError::Generic(format!("WOFF2 stream compression failed: {:?}", e)))?;
 
         let total_compressed_size = compressed_table_stream.len() as u32;
+        info!(compressed_size = total_compressed_size, "Brotli 压缩完成");
 
         // 构建 WOFF2 文件
         let mut woff2_writer = Writer::new();
@@ -1300,7 +1317,7 @@ impl Font {
             .copy_from_slice(&total_length.to_be_bytes());
 
         debug!(
-            total_sfnt_size = total_sfnt_size,
+            total_sfnt_size = final_total_sfnt_size,
             total_compressed_size = total_compressed_size,
             woff2_size = total_length,
             "WOFF2 文件生成完成"

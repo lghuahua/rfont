@@ -288,6 +288,39 @@ pub fn compute_bbox(points: &[Point], dst: &mut [u8], offset: usize) -> Result<(
     Ok(())
 }
 
+/// 计算三元组解码消耗的字节数
+///
+/// 根据标志位缓冲区计算实际需要读取的三元组数据字节数
+fn calculate_triplet_bytes_consumed(flags_buf: &[u8], n_points: usize) -> Result<usize, FontError> {
+    if flags_buf.len() < n_points {
+        return Err(FontError::Generic(format!(
+            "Flags buffer too small: need {}, got {}",
+            n_points,
+            flags_buf.len()
+        )));
+    }
+
+    let mut total_bytes = 0;
+    for i in 0..n_points {
+        let flag = flags_buf[i];
+        let flag_low = flag & 0x7f;
+
+        // 根据 flag 值确定数据字节数（与 triplet_decode 保持一致）
+        let n_data_bytes = if flag_low < 84 {
+            1
+        } else if flag_low < 120 {
+            2
+        } else if flag_low < 124 {
+            3
+        } else {
+            4
+        };
+        total_bytes += n_data_bytes;
+    }
+
+    Ok(total_bytes)
+}
+
 // ============================================================================
 // StorePoints: 将点数组转换为标准 glyf 格式
 // ============================================================================
@@ -345,33 +378,35 @@ pub fn store_points(
         let dx = point.x - last_x;
         let dy = point.y - last_y;
 
-        // 判断 x 的编码方式（参考官方实现）
+        // 判断 x 的编码方式（参考 woff2 官方实现）
+        // 官方实现逻辑：
+        // - dx == 0: 设置 xSame 位，不写入字节
+        // - dx 在 [-255, 255] 范围内：设置 xShort 位，写入 1 字节（绝对值），符号位由 xShort 的 sign bit 表示
+        // - 其他：写入 2 字节有符号整数
         if dx == 0 {
             flag |= GLYF_THIS_X_IS_SAME;
         } else if dx > -256 && dx < 256 {
-            // XShort 表示使用 1 字节编码，正数时设置 sign bit
+            // XShort: 1 字节编码
             flag |= GLYF_X_SHORT;
-            if dx > 0 {
-                flag |= GLYF_THIS_X_IS_SAME; // sign bit for positive value
-            }
+            // 注意：sign bit 已经包含在 GLYF_X_SHORT 标志中（bit 1）
+            // 当 dx > 0 时，sign bit = 1；当 dx < 0 时，sign bit = 0
+            // 但 GLYF_THIS_X_IS_SAME 不应该在这里设置
             x_bytes += 1;
         } else {
-            // 2 字节有符号整数，不需要额外标志位
+            // 2 字节有符号整数
             x_bytes += 2;
         }
 
-        // 判断 y 的编码方式（参考官方实现）
+        // 判断 y 的编码方式（参考 woff2 官方实现）
         if dy == 0 {
             flag |= GLYF_THIS_Y_IS_SAME;
         } else if dy > -256 && dy < 256 {
-            // YShort 表示使用 1 字节编码，正数时设置 sign bit
+            // YShort: 1 字节编码
             flag |= GLYF_Y_SHORT;
-            if dy > 0 {
-                flag |= GLYF_THIS_Y_IS_SAME; // sign bit for positive value
-            }
+            // 注意：sign bit 已经包含在 GLYF_Y_SHORT 标志中（bit 2）
             y_bytes += 1;
         } else {
-            // 2 字节有符号整数，不需要额外标志位
+            // 2 字节有符号整数
             y_bytes += 2;
         }
 
@@ -478,8 +513,6 @@ pub fn store_points(
 /// # 参数
 /// - `transformed_data`: 转换后的 glyf 表数据
 /// - `orig_length`: glyf 表的原始长度（未转换）
-/// - `index_format`: loca 表的索引格式（0=short, 1=long）
-/// - `num_glyphs`: 字形数量
 ///
 /// # 返回值
 /// - `Ok((glyf_data, loca_data))`: 重建后的 glyf 和 loca 表数据
@@ -487,8 +520,6 @@ pub fn store_points(
 pub fn reconstruct_glyf_loca(
     transformed_data: &[u8],
     orig_length: u32,
-    index_format: u16,
-    num_glyphs: u16,
 ) -> Result<(Vec<u8>, Vec<u8>), FontError> {
     let mut reader = Reader::new(transformed_data);
 
@@ -497,23 +528,15 @@ pub fn reconstruct_glyf_loca(
     let flags = reader.read_u16()?;
     let has_overlap_bitmap = (flags & 0x01) != 0;
 
-    // 验证 num_glyphs 和 index_format
-    let parsed_num_glyphs = reader.read_u16()?;
-    let parsed_index_format = reader.read_u16()?;
-
-    if parsed_num_glyphs != num_glyphs {
+    let num_glyphs = reader.read_u16()?;
+    if num_glyphs == 0 {
         return Err(FontError::Generic(format!(
-            "Glyph count mismatch: expected {}, got {}",
-            num_glyphs, parsed_num_glyphs
+            "Glyph count mismatch:  got {}",
+            num_glyphs
         )));
     }
-
-    if parsed_index_format != index_format {
-        return Err(FontError::Generic(format!(
-            "Index format mismatch: expected {}, got {}",
-            index_format, parsed_index_format
-        )));
-    }
+    // loca 索引格式：0=16 位，1=32 位
+    let index_format = reader.read_u16()?;
 
     // 读取 7 个子流的大小
     let mut substream_sizes = [0u32; NUM_SUBSTREAMS];
@@ -679,9 +702,14 @@ fn reconstruct_simple_glyph(
         total_n_points,
     )?;
 
-    // 计算消耗的字节数（简化：假设全部消耗）
-    // TODO: 正确计算 triplet_decode 消耗的字节数
-    let triplet_bytes_consumed = remaining.min(points.len() * 4); // 最坏情况 4 字节/点
+    // 计算实际消耗的字节数
+    let triplet_bytes_consumed = calculate_triplet_bytes_consumed(flags_buf, total_n_points)?;
+    if triplet_bytes_consumed > remaining {
+        return Err(FontError::Generic(format!(
+            "Triplet data insufficient: needed {}, available {}",
+            triplet_bytes_consumed, remaining
+        )));
+    }
     glyph_reader.skip(triplet_bytes_consumed)?;
 
     // 读取指令长度
@@ -1271,7 +1299,7 @@ mod tests {
         // 测试 triplet_decode 和 store_points 的往返
         // 注意：由于两种编码方式不同，这不是严格的往返，而是验证数据一致性
 
-        let original_points = vec![
+        let _original_points = vec![
             Point {
                 x: 0,
                 y: 0,

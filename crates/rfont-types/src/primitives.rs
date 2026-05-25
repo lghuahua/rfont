@@ -12,16 +12,22 @@ pub struct TableRecord {
     pub length: u32,
 }
 
+impl TableRecord {
+    pub fn to_be_bytes(&self) -> [u8; 16] {
+        let mut bytes = [0u8; 16];
+        bytes[0..4].copy_from_slice(&self.tag.0);
+        bytes[4..8].copy_from_slice(&self.checksum.to_be_bytes());
+        bytes[8..12].copy_from_slice(&self.offset.to_be_bytes());
+        bytes[12..16].copy_from_slice(&self.length.to_be_bytes());
+        bytes
+    }
+}
+
 impl<'a> ReadBytes<'a> for TableRecord {
     fn read_from(reader: &mut Reader<'a>) -> Result<Self, FontError> {
-        let tag_bytes = [
-            reader.read_u8()?,
-            reader.read_u8()?,
-            reader.read_u8()?,
-            reader.read_u8()?,
-        ];
+        let tag = Tag::read_from(reader)?;
         Ok(TableRecord {
-            tag: Tag(tag_bytes),
+            tag,
             checksum: reader.read_u32()?,
             offset: reader.read_u32()?,
             length: reader.read_u32()?,

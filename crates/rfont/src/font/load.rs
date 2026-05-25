@@ -2,8 +2,8 @@ use brotli::Decompressor;
 use flate2::read::ZlibDecoder;
 use rfont_core::tables::woff::{WoffHeader, WoffTableDirectoryEntry};
 use rfont_core::tables::woff2::{Woff2Header, Woff2TableDirectoryEntry, WOFF2_KNOWN_TAGS};
-use rfont_core::{Cmap, Head, Hhea, Hmtx, Loca, Maxp};
-use rfont_types::{FontError, ReadBytes, Reader, Tag};
+use rfont_core::{calc_sfnt_checksum, Cmap, Head, Hhea, Hmtx, Loca, Maxp};
+use rfont_types::{FontError, ReadBytes, Reader, TableRecord, Tag, WriteBytes, Writer};
 use std::io::Read;
 use tracing::{debug, info, span, Level};
 
@@ -294,7 +294,7 @@ impl Font {
         let mut reader = Reader::new(data);
 
         // 解析 WOFF2 Header
-        let woff2_header = Woff2Header::read_from(&mut reader)?;
+        let mut woff2_header = Woff2Header::read_from(&mut reader)?;
         debug!(
             flavor = format!("0x{:08X}", woff2_header.flavor),
             num_tables = woff2_header.num_tables,
@@ -304,109 +304,34 @@ impl Font {
 
         // 解析表目录
         let mut table_entries = Vec::new();
+        let mut transform_size = 0;
         for _ in 0..woff2_header.num_tables {
-            table_entries.push(Woff2TableDirectoryEntry::read_from(
-                &mut reader,
-                &WOFF2_KNOWN_TAGS,
-            )?);
+            let entry = Woff2TableDirectoryEntry::read_from(&mut reader, &WOFF2_KNOWN_TAGS)?;
+            debug!(tag = ?entry.tag, orig_length = entry.orig_length, transform_length = entry.transform_length);
+
+            transform_size += entry.transform_length.map_or(entry.orig_length, |x| x);
+            table_entries.push(entry);
+            // table_entries.push(Woff2TableDirectoryEntry::read_from(
+            //     &mut reader,
+            //     &WOFF2_KNOWN_TAGS,
+            // )?);
         }
 
         debug!(table_count = table_entries.len(), "WOFF2 表目录解析完成");
-
         // 解压缩并重组为 SFNT 数据
-        let mut sfnt_data = Vec::with_capacity(woff2_header.total_sfnt_size as usize);
+        let mut sfnt_writer = Writer::new();
+        woff2_header.total_sfnt_size = transform_size;
 
         // 写入 Offset Table
-        sfnt_data.extend_from_slice(&woff2_header.flavor.to_be_bytes());
-        sfnt_data.extend_from_slice(&woff2_header.num_tables.to_be_bytes());
+        // sfnt_data.extend_from_slice();
+        write_ttf_data(&mut sfnt_writer, &mut reader, &woff2_header, &table_entries)?;
 
-        // 计算 searchRange, entrySelector, rangeShift
-        let num_tables = woff2_header.num_tables as u32;
-        let max_pow2: u32 = if num_tables > 0 {
-            1 << (31 - num_tables.leading_zeros())
-        } else {
-            1
-        };
-        let search_range = max_pow2 * 16;
-        let entry_selector = max_pow2.trailing_zeros() as u16;
-        let range_shift = (num_tables * 16).saturating_sub(search_range) as u16;
+        let sfnt_data = sfnt_writer.data;
 
-        sfnt_data.extend_from_slice(&(search_range as u16).to_be_bytes());
-        sfnt_data.extend_from_slice(&entry_selector.to_be_bytes());
-        sfnt_data.extend_from_slice(&range_shift.to_be_bytes());
-
-        // 先写入 Table Directory（占位，稍后回填偏移量）
-        let table_dir_start = sfnt_data.len();
-        for _ in &table_entries {
-            sfnt_data.extend_from_slice(&[0u8; TABLE_DIR_ENTRY_SIZE]); // 每个表目录项 16 字节
-        }
-
-        // 读取并解压缩所有表数据
-        let compressed_data_offset = reader.offset;
-        let compressed_data = &data[compressed_data_offset..];
-
-        // 使用 Brotli 解压缩整个数据块
-        let mut decompressor = Decompressor::new(compressed_data, 4096);
-        let mut decompressed_buffer = Vec::with_capacity(woff2_header.total_sfnt_size as usize);
-        decompressor
-            .read_to_end(&mut decompressed_buffer)
-            .map_err(|e| {
-                FontError::Generic(format!("WOFF2: Failed to decompress with Brotli: {}", e))
-            })?;
-
-        debug!(
-            decompressed_size = decompressed_buffer.len(),
-            expected_size = woff2_header.total_sfnt_size,
-            "Brotli 解压缩完成"
-        );
-
-        // 验证解压缩大小
-        if decompressed_buffer.len() != woff2_header.total_sfnt_size as usize {
-            eprintln!(
-                "Warning: WOFF2: Decompressed size mismatch. Expected {}, got {}",
-                woff2_header.total_sfnt_size,
-                decompressed_buffer.len()
-            );
-        }
-
-        // 【新增】检查并反转换 glyf/loca 表
-        let final_decompressed = reconstruct_transformed_tables(
-            &decompressed_buffer,
-            &table_entries,
-            woff2_header.total_sfnt_size,
-        )?;
-
-        // 将解压缩的数据复制到 sfnt_data
-        sfnt_data.extend_from_slice(&final_decompressed);
-
-        // 回填 Table Directory
-        let mut current_offset =
-            (table_dir_start + table_entries.len() * TABLE_DIR_ENTRY_SIZE) as u32;
-        for (i, entry) in table_entries.iter().enumerate() {
-            let dir_offset = table_dir_start + i * TABLE_DIR_ENTRY_SIZE;
-
-            if let Some(tag) = entry.tag {
-                sfnt_data[dir_offset..dir_offset + 4].copy_from_slice(&tag.0);
-            } else {
-                // 如果没有标签，使用默认值
-                sfnt_data[dir_offset..dir_offset + 4].copy_from_slice(b"????");
-            }
-
-            sfnt_data[dir_offset + 4..dir_offset + 8].copy_from_slice(&0u32.to_be_bytes()); // checksum
-            sfnt_data[dir_offset + 8..dir_offset + 12]
-                .copy_from_slice(&current_offset.to_be_bytes());
-            sfnt_data[dir_offset + 12..dir_offset + 16]
-                .copy_from_slice(&entry.orig_length.to_be_bytes());
-
-            // 更新下一个表的偏移量（对齐到 4 字节边界）
-            let padding = (4 - (entry.orig_length % 4)) % 4;
-            current_offset += entry.orig_length + padding;
-        }
-
-        debug!(
-            offset = table_dir_start,
-            entries = table_entries.len(),
-            "WOFF2 Table directory written"
+        tracing::debug!(
+            final_size = sfnt_data.len(),
+            // expected = woff2_header.total_sfnt_size as usize,
+            "WOFF2 重组完成"
         );
 
         // 使用重组后的 SFNT 数据创建 Font
@@ -704,186 +629,170 @@ impl Font {
     }
 }
 
-/// 重建转换过的表（glyf/loca）
-///
-/// 如果 WOFF2 文件中的 glyf/loca 表使用了转换，则进行反转换。
+fn write_ttf_data(
+    writer: &mut Writer,
+    reader: &mut Reader,
+    hdr: &Woff2Header,
+    table_entries: &[Woff2TableDirectoryEntry],
+) -> Result<(), FontError> {
+    write_ttf_header(writer, hdr)?;
+
+    // 解压
+    let decompressed_data = woff2_uncomprss(reader, hdr)?;
+    let mut table_reader = Reader::new(&decompressed_data);
+    reconstruct_transformed_tables(&mut table_reader, writer, &table_entries)?;
+    Ok(())
+}
+
 fn reconstruct_transformed_tables(
-    decompressed_data: &[u8],
-    table_entries: &[rfont_core::tables::woff2::Woff2TableDirectoryEntry],
-    total_sfnt_size: u32,
-) -> Result<Vec<u8>, FontError> {
+    reader: &mut Reader,
+    writer: &mut Writer,
+    table_entries: &[Woff2TableDirectoryEntry],
+) -> Result<(), FontError> {
     use rfont_core::tables::woff2_transform;
+    tracing::debug!(entries_len = table_entries.len(), "reconstruct transformed tables");
 
-    // 查找 glyf 和 loca 表的索引
-    let mut glyf_idx: Option<usize> = None;
-    let mut loca_idx: Option<usize> = None;
+    let mut table_records = Vec::<TableRecord>::with_capacity(table_entries.len());
+    let mut table_data = Vec::new();
 
-    for (i, entry) in table_entries.iter().enumerate() {
-        if let Some(tag) = entry.tag {
-            if tag.as_str() == "glyf" {
-                glyf_idx = Some(i);
-            } else if tag.as_str() == "loca" {
-                loca_idx = Some(i);
-            }
-        }
-    }
+    let mut offset = 0;
+    let mut loca_checksum: u32 = 0;
+    let mut font_checksum: u64 = 0;
+    for entry in table_entries {
+        tracing::debug!(tag = entry.tag.as_str(), length = entry.orig_length, offset = offset, "reconstruct");
+        let mut checksum: u32 = 0;
+        offset += entry.orig_length;
 
-    // 如果两个表都存在且都有 transform_length，则需要反转换
-    if let (Some(g_idx), Some(l_idx)) = (glyf_idx, loca_idx) {
-        let glyf_entry = &table_entries[g_idx];
-        let loca_entry = &table_entries[l_idx];
-
-        // 检查是否有转换（transform_length 存在且不等于 orig_length）
-        if let (Some(glyf_transform_len), Some(_loca_transform_len)) =
-            (glyf_entry.transform_length, loca_entry.transform_length)
-        {
-            tracing::debug!(
-                glyf_orig = glyf_entry.orig_length,
-                glyf_transform = glyf_transform_len,
-                "Detected transformed glyf/loca tables, reconstructing..."
-            );
-
-            // 找到 glyf 和 loca 在解压数据中的位置
-            let mut offset: u32 = 0;
-            let mut glyf_offset: Option<u32> = None;
-            let mut loca_offset: Option<u32> = None;
-
-            for (i, entry) in table_entries.iter().enumerate() {
-                if i == g_idx {
-                    glyf_offset = Some(offset);
-                } else if i == l_idx {
-                    loca_offset = Some(offset);
-                }
-
-                // 对齐到 4 字节边界
-                let padded_len = entry.orig_length + (4 - (entry.orig_length % 4)) % 4;
-                offset += padded_len;
-            }
-
-            if let (Some(g_off), Some(_l_off)) = (glyf_offset, loca_offset) {
-                // 提取转换后的数据
-                let glyf_transformed =
-                    &decompressed_data[g_off as usize..(g_off + glyf_transform_len) as usize];
-
-                // 从 maxp 表获取 numGlyphs
-                let mut num_glyphs: Option<u16> = None;
-                let mut index_format: Option<i16> = None;
-
-                // 查找 maxp 和 head 表的位置
-                for (i, entry) in table_entries.iter().enumerate() {
-                    if let Some(tag) = entry.tag {
-                        if tag.as_str() == "maxp" && num_glyphs.is_none() {
-                            // 计算 maxp 表的偏移量
-                            let mut offset: u32 = 0;
-                            for (j, e) in table_entries.iter().enumerate() {
-                                if j == i {
-                                    break;
-                                }
-                                let padded_len = e.orig_length + (4 - (e.orig_length % 4)) % 4;
-                                offset += padded_len;
-                            }
-
-                            // 解析 maxp 表
-                            if offset as usize + 6 <= decompressed_data.len() {
-                                let maxp_data = &decompressed_data[offset as usize..];
-                                let mut reader = Reader::new(maxp_data);
-                                // version (4 bytes) + num_glyphs (2 bytes)
-                                let _version = reader.read_u32().ok();
-                                if let Ok(ng) = reader.read_u16() {
-                                    num_glyphs = Some(ng);
-                                }
-                            }
-                        } else if tag.as_str() == "head" && index_format.is_none() {
-                            // 计算 head 表的偏移量
-                            let mut offset: u32 = 0;
-                            for (j, e) in table_entries.iter().enumerate() {
-                                if j == i {
-                                    break;
-                                }
-                                let padded_len = e.orig_length + (4 - (e.orig_length % 4)) % 4;
-                                offset += padded_len;
-                            }
-
-                            // 解析 head 表（index_to_loc_format 在第 50-51 字节）
-                            if offset as usize + 52 <= decompressed_data.len() {
-                                let head_data = &decompressed_data[offset as usize..];
-                                // index_to_loc_format 位于 offset 50
-                                index_format =
-                                    Some(i16::from_be_bytes([head_data[50], head_data[51]]));
-                            }
-                        }
-                    }
-                }
-
-                // 如果无法从表中获取，使用默认值
-                let num_glyphs = num_glyphs.unwrap_or_else(|| {
-                    tracing::warn!("Could not read num_glyphs from maxp table, using default");
-                    100
-                });
-
-                let index_format = index_format.unwrap_or_else(|| {
-                    tracing::warn!("Could not read index_format from head table, using default");
-                    1
-                });
-
-                // 调用反转换函数
-                match woff2_transform::reconstruct_glyf_loca(
-                    glyf_transformed,
-                    glyf_entry.orig_length,
-                    index_format as u16, // i16 -> u16
-                    num_glyphs,
-                ) {
+        if let Some(transform_length) = entry.transform_length {
+            if entry.tag.as_str() == "glyf" {
+                let transform_data = reader.read_bytes(transform_length as usize)?;
+                match woff2_transform::reconstruct_glyf_loca(transform_data, entry.orig_length) {
                     Ok((glyf_data, loca_data)) => {
-                        tracing::debug!(
-                            original_glyf_size = glyf_entry.orig_length,
-                            reconstructed_glyf_size = glyf_data.len(),
-                            "Glyf/loca reconstruction completed"
-                        );
-
-                        // 构建新的解压数据
-                        let mut new_data = Vec::with_capacity(total_sfnt_size as usize);
-                        let mut current_pos: u32 = 0;
-
-                        for (i, entry) in table_entries.iter().enumerate() {
-                            let padded_len = entry.orig_length + (4 - (entry.orig_length % 4)) % 4;
-
-                            if i == g_idx {
-                                // 写入重建后的 glyf 数据
-                                new_data.extend_from_slice(&glyf_data);
-                                // 填充到 4 字节边界
-                                let padding = (4 - (glyf_data.len() % 4)) % 4;
-                                new_data.extend_from_slice(&vec![0u8; padding]);
-                            } else if i == l_idx {
-                                // 写入重建后的 loca 数据
-                                new_data.extend_from_slice(&loca_data);
-                                let padding = (4 - (loca_data.len() % 4)) % 4;
-                                new_data.extend_from_slice(&vec![0u8; padding]);
-                            } else {
-                                // 其他表直接复制
-                                let start = current_pos as usize;
-                                let end = (current_pos + padded_len) as usize;
-                                if end <= decompressed_data.len() {
-                                    new_data.extend_from_slice(&decompressed_data[start..end]);
-                                }
-                            }
-
-                            current_pos += padded_len;
-                        }
-
-                        return Ok(new_data);
+                        table_data.extend_from_slice(&glyf_data);
+                        checksum = calc_sfnt_checksum(&glyf_data);
+                        table_data.extend_from_slice(&loca_data);
+                        loca_checksum = calc_sfnt_checksum(&loca_data);
                     }
                     Err(e) => {
-                        tracing::warn!(
+                        tracing::error!(
                             error = ?e,
-                            "Failed to reconstruct glyf/loca, using original data"
+                            "Failed to reconstruct glyf/loca"
                         );
-                        // 反转换失败，使用原始数据
+                        return Err(e);
                     }
                 }
+            } else if entry.tag.as_str() == "loca" {
+                checksum = loca_checksum;
+                tracing::debug!(tag = entry.tag.as_str(), "loca reconstruct");
+            } else {
+                tracing::warn!(tag = entry.tag.as_str(), "Unknow transform");
             }
+        } else {
+            let data = reader.read_bytes(entry.orig_length as usize)?;
+            let data_vec = if entry.tag.as_str() == "head" {
+                // 设置 checkSumAdjustment 为 0
+                if data.len() >= 12 {
+                    let mut vec = data.to_vec();
+                    vec[8..12].copy_from_slice(&[0u8; 4]);
+                    vec
+                } else {
+                    tracing::warn!(
+                        tag = entry.tag.as_str(),
+                        length = data.len(),
+                        "head table length is too short"
+                    );
+                    return Err(FontError::Generic(
+                        "head 表数据太短，无法设置 checkSumAdjustment".to_string(),
+                    ));
+                }
+            } else {
+                data.to_vec()
+            };
+            table_data.extend_from_slice(&data_vec);
+            checksum = calc_sfnt_checksum(&table_data);
         }
+        font_checksum += checksum as u64;
+        let table_record = TableRecord {
+            tag: entry.tag,
+            checksum,
+            offset,
+            length: entry.orig_length,
+        };
+        println!("table_record: {:?}", table_record);
+        table_record.write_to(writer)?;
+        font_checksum += calc_sfnt_checksum(&table_record.to_be_bytes()) as u64;
+        table_records.push(table_record);
     }
+    // 更新 head 表的校验和
+    let font_checksum_u32 = (font_checksum & 0xFFFFFFFF) as u32;
+    let checksum_adjustment = 0xB1B0AFBA - font_checksum_u32;
+    let head_offset = table_records
+        .iter()
+        .find(|r| r.tag.as_str() == "head")
+        .unwrap()
+        .offset as usize;
+    table_data[head_offset + 8..head_offset + 12]
+        .copy_from_slice(&checksum_adjustment.to_be_bytes());
+    writer.write_bytes(&table_data)?;
 
-    // 没有转换或反转换失败，返回原始数据
-    Ok(decompressed_data.to_vec())
+    Ok(())
+}
+
+fn woff2_uncomprss(reader: &mut Reader, hdr: &Woff2Header) -> Result<Vec<u8>, FontError> {
+    // 读取并解压缩所有表数据
+    let compressed_data = reader.read_bytes(hdr.total_compressed_size as usize)?;
+
+    // 使用 Brotli 解压缩整个数据块
+    let mut decompressor = Decompressor::new(compressed_data, 4096);
+    let mut decompressed_buffer = Vec::with_capacity(hdr.total_sfnt_size as usize);
+    decompressor
+        .read_to_end(&mut decompressed_buffer)
+        .map_err(|e| {
+            FontError::Generic(format!("WOFF2: Failed to decompress with Brotli: {}", e))
+        })?;
+
+    debug!(
+        decompressed_size = decompressed_buffer.len(),
+        expected_size = hdr.total_sfnt_size,
+        "Brotli 解压缩完成"
+    );
+
+    // 验证解压缩大小
+    let actual_decompressed_size = decompressed_buffer.len() as u32;
+    if actual_decompressed_size != hdr.total_sfnt_size {
+        tracing::warn!(
+            "WOFF2: Table data size mismatch. Expected table data {}, got {}",
+            hdr.total_sfnt_size,
+            actual_decompressed_size
+        );
+    } else {
+        tracing::debug!(
+            "WOFF2: Table data size verified. Table data: {}, Total SFNT: {}",
+            actual_decompressed_size,
+            hdr.total_sfnt_size
+        );
+    };
+    Ok(decompressed_buffer)
+}
+
+fn write_ttf_header(writer: &mut Writer, hdr: &Woff2Header) -> Result<(), FontError> {
+    writer.write_u32(hdr.flavor)?; // sfnt version
+    writer.write_u16(hdr.num_tables)?; // num_tables
+
+    // 计算 searchRange, entrySelector, rangeShift
+    let num_tables = hdr.num_tables as u32;
+    let max_pow2: u32 = if num_tables > 0 {
+        1 << (31 - num_tables.leading_zeros())
+    } else {
+        1
+    };
+    let search_range = max_pow2 * 16;
+    let entry_selector = max_pow2.trailing_zeros() as u16;
+    let range_shift = (num_tables * 16).saturating_sub(search_range) as u16;
+
+    writer.write_u16(search_range as u16)?;
+    writer.write_u16(entry_selector)?;
+    writer.write_u16(range_shift)?;
+
+    Ok(())
 }

@@ -10,6 +10,7 @@ publish = false  # 不发布到 crates.io，作为内部依赖
 
 [dependencies]
 rfont-types = { path = "../rfont-types" }
+tracing = "0.1"
 font_macros = { path = "../../font_macros" }
 chrono = { workspace = true }
 encoding_rs = { workspace = true }

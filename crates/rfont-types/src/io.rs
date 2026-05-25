@@ -175,6 +175,12 @@ impl Writer {
         Self { data: Vec::new() }
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            data: Vec::with_capacity(capacity),
+        }
+    }
+
     pub fn write_u8(&mut self, v: u8) -> Result<(), FontError> {
         self.data.push(v);
         Ok(())
