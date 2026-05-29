@@ -4,7 +4,7 @@
 ///
 /// 参考: https://github.com/google/woff2/blob/master/src/transform.cc
 use crate::tables::glyf::{CompositeGlyph, GlyfRecord, GlyphData, SimpleGlyph};
-use rfont_types::FontError;
+use rfont_types::{FontError, Writer};
 
 // ==================== 常量定义 ====================
 
@@ -15,12 +15,12 @@ use rfont_types::FontError;
 /// 将 glyf 表转换为多个独立的流，以提高 Brotli 压缩率。
 pub struct GlyfEncoder {
     n_glyphs: u16,
-
+    index_format: u8,
     // 7个主要流
     n_contour_stream: Vec<u8>,   // 轮廓数量流
-    n_points_stream: Vec<u8>,    // 点数流
+    n_points_stream: Writer,    // 点数流
     flag_byte_stream: Vec<u8>,   // 标志位流
-    glyph_stream: Vec<u8>,       // 字形数据流（坐标三元组）
+    glyph_stream: Writer,       // 字形数据流（坐标三元组）
     composite_stream: Vec<u8>,   // 复合字形流
     bbox_bitmap: Vec<u8>,        // BBox 位图
     bbox_stream: Vec<u8>,        // BBox 数据流
@@ -32,15 +32,16 @@ pub struct GlyfEncoder {
 
 impl GlyfEncoder {
     /// 创建新的编码器
-    pub fn new(n_glyphs: u16) -> Self {
+    pub fn new(n_glyphs: u16, index_format: u8) -> Self {
         let bbox_bitmap_size = (n_glyphs as usize).div_ceil(8);
 
         Self {
             n_glyphs,
+            index_format,
             n_contour_stream: Vec::new(),
-            n_points_stream: Vec::new(),
+            n_points_stream: Writer::new(),
             flag_byte_stream: Vec::new(),
-            glyph_stream: Vec::new(),
+            glyph_stream: Writer::new(),
             composite_stream: Vec::new(),
             bbox_bitmap: vec![0u8; bbox_bitmap_size],
             bbox_stream: Vec::new(),
@@ -97,7 +98,8 @@ impl GlyfEncoder {
             } else {
                 end_pt - prev_end
             };
-            Self::write_255_ushort(&mut self.n_points_stream, num_points as usize);
+            // Self::write_255_ushort(&mut self.n_points_stream, num_points as usize);
+            self.n_points_stream.write_255_ushort(num_points)?;
             prev_end = end_pt;
         }
 
@@ -116,15 +118,15 @@ impl GlyfEncoder {
             let dx = x as i32 - last_x;
             let dy = y as i32 - last_y;
 
-            self.write_triplet(on_curve, dx, dy);
+            self.write_triplet(on_curve, dx, dy)?;
 
             last_x = x as i32;
             last_y = y as i32;
         }
 
         // 写入指令
-        if !glyph.instructions.is_empty() {
-            self.write_instructions(&glyph.instructions);
+        if glyph.num_contours > 0 {
+            self.write_instructions(&glyph.instructions)?;
         }
 
         Ok(())
@@ -149,7 +151,7 @@ impl GlyfEncoder {
     }
 
     /// 写入三元组编码（核心优化算法）
-    fn write_triplet(&mut self, on_curve: bool, dx: i32, dy: i32) {
+    fn write_triplet(&mut self, on_curve: bool, dx: i32, dy: i32) -> Result<(), FontError> {
         let abs_x = dx.abs();
         let abs_y = dy.abs();
         let on_curve_bit: u8 = if on_curve { 0 } else { 128 };
@@ -161,12 +163,12 @@ impl GlyfEncoder {
             // 情况1: X=0, Y小值 → 2字节
             self.flag_byte_stream
                 .push(on_curve_bit + ((abs_y & 0xf00) >> 7) as u8 + y_sign_bit);
-            self.glyph_stream.push((abs_y & 0xff) as u8);
+            self.glyph_stream.write_u8((abs_y & 0xff) as u8)?;
         } else if dy == 0 && abs_x < 1280 {
             // 情况2: Y=0, X小值 → 2字节
             self.flag_byte_stream
                 .push(on_curve_bit + 10 + ((abs_x & 0xf00) >> 7) as u8 + x_sign_bit);
-            self.glyph_stream.push((abs_x & 0xff) as u8);
+            self.glyph_stream.write_u8((abs_x & 0xff) as u8)?;
         } else if abs_x < 65 && abs_y < 65 {
             // 情况3: X,Y都很小 → 2字节
             self.flag_byte_stream.push(
@@ -177,7 +179,7 @@ impl GlyfEncoder {
                     + xy_sign_bits,
             );
             self.glyph_stream
-                .push((((abs_x - 1) & 0xf) << 4 | ((abs_y - 1) & 0xf)) as u8);
+                .write_u8((((abs_x - 1) & 0xf) << 4 | ((abs_y - 1) & 0xf)) as u8)?;
         } else if abs_x < 769 && abs_y < 769 {
             // 情况4: X,Y中等 → 3字节
             self.flag_byte_stream.push(
@@ -187,25 +189,26 @@ impl GlyfEncoder {
                     + (((abs_y - 1) & 0x300) >> 6) as u8
                     + xy_sign_bits,
             );
-            self.glyph_stream.push(((abs_x - 1) & 0xff) as u8);
-            self.glyph_stream.push(((abs_y - 1) & 0xff) as u8);
+            self.glyph_stream.write_u8(((abs_x - 1) & 0xff) as u8)?;
+            self.glyph_stream.write_u8(((abs_y - 1) & 0xff) as u8)?;
         } else if abs_x < 4096 && abs_y < 4096 {
             // 情况5: X,Y较大 → 4字节
             self.flag_byte_stream
                 .push(on_curve_bit + 120 + xy_sign_bits);
-            self.glyph_stream.push((abs_x >> 4) as u8);
+            self.glyph_stream.write_u8((abs_x >> 4) as u8)?;
             self.glyph_stream
-                .push(((abs_x & 0xf) << 4 | (abs_y >> 8)) as u8);
-            self.glyph_stream.push((abs_y & 0xff) as u8);
+                .write_u8(((abs_x & 0xf) << 4 | (abs_y >> 8)) as u8)?;
+            self.glyph_stream.write_u8((abs_y & 0xff) as u8)?;
         } else {
             // 情况6: X,Y很大 → 5字节
             self.flag_byte_stream
                 .push(on_curve_bit + 124 + xy_sign_bits);
-            self.glyph_stream.push((abs_x >> 8) as u8);
-            self.glyph_stream.push((abs_x & 0xff) as u8);
-            self.glyph_stream.push((abs_y >> 8) as u8);
-            self.glyph_stream.push((abs_y & 0xff) as u8);
+            self.glyph_stream.write_u8((abs_x >> 8) as u8)?;
+            self.glyph_stream.write_u8((abs_x & 0xff) as u8)?;
+            self.glyph_stream.write_u8((abs_y >> 8) as u8)?;
+            self.glyph_stream.write_u8((abs_y & 0xff) as u8)?;
         }
+        Ok(())
     }
 
     /// 写入 BBox
@@ -225,11 +228,13 @@ impl GlyfEncoder {
     }
 
     /// 写入指令
-    fn write_instructions(&mut self, instructions: &[u8]) {
+    fn write_instructions(&mut self, instructions: &[u8]) -> Result<(), FontError> {
         // 先写入长度（使用 255UShort 编码）
-        Self::write_255_ushort(&mut self.instruction_stream, instructions.len());
+        // Self::write_255_ushort(&mut self.instruction_stream, instructions.len());
+        self.glyph_stream.write_255_ushort(instructions.len() as u16)?;
         // 再写入指令数据
         self.instruction_stream.extend_from_slice(instructions);
+        Ok(())
     }
 
     /// 写入复合字形数据
@@ -283,26 +288,13 @@ impl GlyfEncoder {
         stream.push((unsigned & 0xFF) as u8);
     }
 
-    /// 辅助函数：写入 255UShort 编码
-    /// 如果值 < 255，直接写入1字节；否则写入 0xFF + 2字节
-    #[inline]
-    fn write_255_ushort(stream: &mut Vec<u8>, value: usize) {
-        if value < 255 {
-            stream.push(value as u8);
-        } else {
-            stream.push(0xFF);
-            stream.push((value >> 8) as u8);
-            stream.push((value & 0xFF) as u8);
-        }
-    }
-
     /// 获取编码后的结果
     pub fn get_encoded_data(self) -> EncodedGlyfData {
         EncodedGlyfData {
             n_contour_stream: self.n_contour_stream,
-            n_points_stream: self.n_points_stream,
+            n_points_stream: self.n_points_stream.data,
             flag_byte_stream: self.flag_byte_stream,
-            glyph_stream: self.glyph_stream,
+            glyph_stream: self.glyph_stream.data,
             composite_stream: self.composite_stream,
             bbox_bitmap: self.bbox_bitmap,
             bbox_stream: self.bbox_stream,
@@ -310,6 +302,59 @@ impl GlyfEncoder {
             overlap_bitmap: self.overlap_bitmap,
         }
     }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let n_contour_stream_size =  self.n_contour_stream.len() as u32;
+        let n_points_stream_size = self.n_points_stream.len() as u32;
+        let flag_byte_stream_size = self.flag_byte_stream.len() as u32;
+        let glyph_stream_size = self.glyph_stream.len() as u32;
+        let composite_stream_size = self.composite_stream.len()  as u32;
+        let bbox_bitmap_size = self.bbox_bitmap.len()  as u32;
+        let bbox_stream_size = self.bbox_stream.len()  as u32;
+        let instruction_stream_size = self.instruction_stream.len()  as u32;
+        let overlap_bitmap_size = self.overlap_bitmap.len() as u32;
+
+        tracing::debug!(
+            n_contour_stream_size = n_contour_stream_size,
+            n_points_stream_size = n_points_stream_size,
+            flag_byte_stream_size = flag_byte_stream_size,
+            glyph_stream_size = glyph_stream_size,
+            composite_stream_size = composite_stream_size,
+            bbox_bitmap_size = bbox_bitmap_size,
+            bbox_stream_size = bbox_stream_size,
+            instruction_stream_size = instruction_stream_size,
+            "各流大小统计"
+        );
+
+        let stream_size = n_contour_stream_size + n_points_stream_size + flag_byte_stream_size + glyph_stream_size + composite_stream_size + bbox_bitmap_size + bbox_stream_size + instruction_stream_size + overlap_bitmap_size;
+
+        let mut result = Vec::with_capacity(stream_size as usize + 36);
+        let option_flages: u16 = if self.overlap_bitmap.is_empty() { 0 } else { 1 };
+        result.extend_from_slice(&0u16.to_be_bytes()); // version
+        result.extend_from_slice(&option_flages.to_be_bytes()); // optionFlags
+        result.extend_from_slice(&self.n_glyphs.to_be_bytes());
+        result.extend_from_slice(&(self.index_format as u16).to_be_bytes());
+        // 写入stream 长度
+        result.extend_from_slice(&n_contour_stream_size.to_be_bytes());
+        result.extend_from_slice(&n_points_stream_size.to_be_bytes());
+        result.extend_from_slice(&flag_byte_stream_size.to_be_bytes());
+        result.extend_from_slice(&glyph_stream_size.to_be_bytes());
+        result.extend_from_slice(&composite_stream_size.to_be_bytes());
+        result.extend_from_slice(&(bbox_stream_size + bbox_bitmap_size).to_be_bytes());
+        result.extend_from_slice(&instruction_stream_size.to_be_bytes());
+        // 写入stream 数据
+        result.extend_from_slice(&self.n_contour_stream);
+        result.extend_from_slice(&self.n_points_stream.data);
+        result.extend_from_slice(&self.flag_byte_stream);
+        result.extend_from_slice(&self.glyph_stream.data);
+        result.extend_from_slice(&self.composite_stream);
+        result.extend_from_slice(&self.bbox_bitmap);
+        result.extend_from_slice(&self.bbox_stream);
+        result.extend_from_slice(&self.instruction_stream);
+        result
+    }
+
+
 }
 
 /// 编码后的 glyf 数据
@@ -367,35 +412,21 @@ impl EncodedGlyfData {
 /// 这是主要的入口函数，接收 glyf 记录和 loca 偏移量，返回转换后的数据
 pub fn transform_glyf_and_loca(
     glyphs: &[GlyfRecord],
-    _loca_offsets: &[u32],
+    index_format: u8,
 ) -> Result<(Vec<u8>, Vec<u8>), FontError> {
     let n_glyphs = glyphs.len() as u16;
 
     tracing::debug!(n_glyphs = n_glyphs, "开始 glyf/loca 转换");
 
     // 创建编码器并编码所有字形
-    let mut encoder = GlyfEncoder::new(n_glyphs);
+    let mut encoder = GlyfEncoder::new(n_glyphs, index_format);
 
     tracing::debug!("开始编码字形");
     encoder.encode_glyphs(glyphs)?;
     tracing::debug!("字形编码完成");
 
-    // 获取编码后的数据
-    let encoded = encoder.get_encoded_data();
-
-    tracing::debug!(
-        n_contour_stream_size = encoded.n_contour_stream.len(),
-        n_points_stream_size = encoded.n_points_stream.len(),
-        flag_stream_size = encoded.flag_byte_stream.len(),
-        glyph_stream_size = encoded.glyph_stream.len(),
-        composite_stream_size = encoded.composite_stream.len(),
-        bbox_stream_size = encoded.bbox_stream.len(),
-        instruction_stream_size = encoded.instruction_stream.len(),
-        "各流大小统计"
-    );
-
     // 生成转换后的 glyf 数据
-    let transformed_glyf = encoded.to_bytes();
+    let transformed_glyf = encoder.to_bytes();
 
     // 计算原始大小
     let original_size: usize = glyphs
@@ -437,8 +468,8 @@ mod tests {
     #[test]
     fn test_triplet_encoding_zero_x() {
         // 测试 X=0, Y小值的情况
-        let mut encoder = GlyfEncoder::new(1);
-        encoder.write_triplet(true, 0, 100);
+        let mut encoder = GlyfEncoder::new(1, 0);
+        encoder.write_triplet(true, 0, 100).unwrap();
 
         assert_eq!(encoder.flag_byte_stream.len(), 1);
         assert_eq!(encoder.glyph_stream.len(), 1);
@@ -447,27 +478,11 @@ mod tests {
     #[test]
     fn test_triplet_encoding_small_values() {
         // 测试 X,Y都很小的情况
-        let mut encoder = GlyfEncoder::new(1);
-        encoder.write_triplet(true, 10, 20);
+        let mut encoder = GlyfEncoder::new(1, 0);
+        encoder.write_triplet(true, 10, 20).unwrap();
 
         assert_eq!(encoder.flag_byte_stream.len(), 1);
         assert_eq!(encoder.glyph_stream.len(), 1);
-    }
-
-    #[test]
-    fn test_255_ushort_encoding() {
-        let mut stream = Vec::new();
-
-        // 小值：< 255
-        GlyfEncoder::write_255_ushort(&mut stream, 100);
-        assert_eq!(stream.len(), 1);
-        assert_eq!(stream[0], 100);
-
-        // 大值：>= 255
-        stream.clear();
-        GlyfEncoder::write_255_ushort(&mut stream, 300);
-        assert_eq!(stream.len(), 3);
-        assert_eq!(stream[0], 0xFF);
     }
 
     #[test]
@@ -477,7 +492,7 @@ mod tests {
             data: GlyphData::Empty,
         }];
 
-        let (glyf_data, _loca_data) = transform_glyf_and_loca(&glyphs, &[0, 0]).unwrap();
+        let (glyf_data, _loca_data) = transform_glyf_and_loca(&glyphs, 0).unwrap();
 
         // 空字形应该产生一些输出（n_contour = 0）
         assert!(!glyf_data.is_empty());

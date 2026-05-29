@@ -1071,12 +1071,6 @@ impl Font {
             debug!(table = ?tag, offset = offset, size = length, table_name = tag.as_str());
         }
 
-        // 计算总 SFNT 大小（包含填充）
-        let mut total_sfnt_size = 12u32 + (num_tables as u32) * 16;
-        for (_, _, length) in &sorted_tables {
-            total_sfnt_size += length + (4 - (length % 4)) % 4;
-        }
-
         // ⭐ 关键改进：对 glyf/loca 表执行转换以提高压缩率
         let mut transformed_tables: std::collections::HashMap<Tag, Vec<u8>> =
             std::collections::HashMap::new();
@@ -1167,7 +1161,7 @@ impl Font {
 
             // 执行 glyf/loca 转换
             debug!("开始 glyf/loca 转换，字形数量 = {}", all_glyphs.len());
-            match transform_glyf_and_loca(&all_glyphs, &loca_offsets) {
+            match transform_glyf_and_loca(&all_glyphs, index_to_loc_format)  {
                 Ok((transformed_glyf, transformed_loca)) => {
                     debug!("glyf/loca 转换成功");
                     let original_size = *glyf_length as f64;

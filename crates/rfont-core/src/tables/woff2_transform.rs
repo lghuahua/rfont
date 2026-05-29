@@ -1,15 +1,17 @@
+use font_macros::ReadBytes;
 /// WOFF2 glyf/loca 表反转换模块
 ///
 /// 参考 Google woff2 项目的实现：
 /// - TripletDecode: 三元组解码算法
 /// - ReconstructGlyf: glyf 表重建
 /// - StorePoints: 点数组转换为标准 glyf 格式
-use rfont_types::{FontError, Reader};
+use rfont_types::{FontError, ReadBytes, Reader, U255};
 
 // ============================================================================
 // 常量定义
 // ============================================================================
 
+const FLAG_OVERLAP_COMPOUND: u16 = 1 << 0;
 /// 简单字形标志位
 const GLYF_ON_CURVE: u8 = 1 << 0;
 const GLYF_X_SHORT: u8 = 1 << 1;
@@ -50,25 +52,152 @@ pub struct Point {
 }
 
 /// glyf 表头信息
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ReadBytes)]
 pub struct GlyfHeader {
-    pub version: u16,
+    pub reserved: u16,
     pub flags: u16,
     pub num_glyphs: u16,
     pub index_format: u16, // 0 = short (2 bytes), 1 = long (4 bytes)
-    pub has_overlap_bitmap: bool,
 }
 
-/// 子流数据
-#[derive(Debug, Clone)]
-pub struct SubStreams {
-    pub n_contour_stream: Vec<u8>,
-    pub n_points_stream: Vec<u8>,
-    pub flag_stream: Vec<u8>,
-    pub glyph_stream: Vec<u8>,
-    pub composite_stream: Vec<u8>,
-    pub bbox_stream: Vec<u8>,
-    pub instruction_stream: Vec<u8>,
+
+pub struct GlyfDecoder {
+
+}
+
+impl GlyfDecoder {
+    pub fn decode( data: &[u8]) -> Result<(Vec<u8>, Vec<u8>), FontError> {
+        let mut reader = Reader::new(data);
+        let header = GlyfHeader::read_from(&mut reader)?;
+
+        println!("Glyf header: {:?}", header);
+
+        if header.reserved != 0 {
+            return Err(FontError::Generic("Reserved field must be zero".to_string()));
+        }
+
+        if header.num_glyphs == 0 {
+            return Err(FontError::Generic("Number of glyphs must be greater than zero".to_string()));
+        }
+
+        let has_overlap_bitmap = header.flags & FLAG_OVERLAP_COMPOUND != 0;
+
+        // 读取 7 个子流的大小
+        let mut substream_sizes = [0u32; NUM_SUBSTREAMS];
+        for size in &mut substream_sizes {
+            *size = reader.read_u32()?;
+        }
+
+        // 提取子流数据
+        let n_contour_stream = reader.read_bytes(substream_sizes[0] as usize )?;
+        let n_points_stream = reader.read_bytes(substream_sizes[1] as usize )?;
+        let flag_stream = reader.read_bytes(substream_sizes[2] as usize )?;
+        let glyph_stream = reader.read_bytes(substream_sizes[3] as usize )?;
+            
+        let composite_stream = reader.read_bytes(substream_sizes[4] as usize )?;
+        let bbox_stream = reader.read_bytes(substream_sizes[5] as usize )?;
+        let instruction_stream = reader.read_bytes(substream_sizes[6] as usize )?;
+
+        // if has_overlap_bitmap {
+        //     let overlap_bitmap = reader.read_bytes( ((header.num_glyphs + 7) >> 3) as usize )?;
+        // }
+
+        let overlap_bitmap = if has_overlap_bitmap {
+            Some(reader.read_bytes( ((header.num_glyphs + 7) >> 3) as usize )?)
+        } else {
+            None
+        };
+
+
+        // let expected_loca_dst_length = if header.index_format == 0 { 2 } else { 4 };
+
+        let mut glyf_data = Vec::new();
+        // let loca_values: Vec<u32> = Vec::new();
+
+        let mut loca_values = Vec::new();
+        let mut n_contour_reader = Reader::new(n_contour_stream);
+        let mut composite_reader = Reader::new(composite_stream);
+        let mut glyph_reader = Reader::new(glyph_stream);
+        let mut instruction_reader= Reader::new(instruction_stream);
+        let mut n_points_reader = Reader::new(n_points_stream);
+        let mut bbox_reader= Reader::new(bbox_stream);
+        let mut flag_reader= Reader::new(flag_stream);
+        
+        let bbox_bitmap_length = (header.num_glyphs as usize).div_ceil(8);
+        let bbox_bitmap = bbox_reader.read_bytes(bbox_bitmap_length)?;
+        println!("glyph_stream {:?}", glyph_stream);
+        tracing::debug!(
+            glyph_reader = glyph_reader.len(),
+            "各流大小统计 {:?}", substream_sizes
+        );
+    
+
+    // 逐字形处理
+    for glyph_idx in 0..header.num_glyphs {
+        let glyph_start = glyf_data.len();
+        // loca_writer.write_bytes(bytes)
+        loca_values.push(glyph_start as u32);
+
+        // 读取轮廓数
+        let n_contours = n_contour_reader.read_u16()?;
+
+        // 检查是否有 bbox
+        let byte_idx = glyph_idx as usize / 8;
+        let bit_idx = glyph_idx as usize % 8;
+        let have_bbox = if byte_idx < bbox_bitmap.len() {
+            (bbox_bitmap[byte_idx] >> (7 - bit_idx)) & 1 != 0
+        } else {
+            false
+        };
+
+        println!("glyph_idx: {}, glyf_data: {:?}", glyph_idx,  glyf_data);
+
+        if n_contours == 0xFFFF {
+            // === 复合字形 ===
+            reconstruct_composite_glyph(
+                &mut composite_reader,
+                &mut glyph_reader,
+                &mut instruction_reader,
+                have_bbox,
+                &mut bbox_reader,
+                &mut glyf_data,
+            )?;
+        } else if n_contours > 0 {
+            // === 简单字形 ===
+            reconstruct_simple_glyph(
+                n_contours,
+                &mut n_points_reader,
+                &mut flag_reader,
+                &mut glyph_reader,
+                &mut instruction_reader,
+                have_bbox,
+                &mut bbox_reader,
+                has_overlap_bitmap,
+                overlap_bitmap,
+                glyph_idx,
+                &mut glyf_data,
+            )?;
+        } else {
+            // n_contours == 0: 空字形
+            if have_bbox {
+                return Err(FontError::Generic(
+                    "Empty glyph should not have bbox".to_string(),
+                ));
+            }
+            // 空字形不写入任何数据
+        }
+    }
+
+    
+
+    // 添加最后一个 loca 值（指向 glyf 表的末尾）
+    loca_values.push(glyf_data.len() as u32);
+
+    // 构建 loca 表
+    let loca_data = build_loca_table(&loca_values, header.index_format);
+
+    Ok((glyf_data, loca_data))
+}
 }
 
 // ============================================================================
@@ -88,18 +217,6 @@ fn with_sign(flag: u8, baseval: i32) -> i32 {
 fn safe_int_addition(a: i32, b: i32) -> Result<i32, FontError> {
     a.checked_add(b)
         .ok_or_else(|| FontError::Generic("Integer overflow in coordinate calculation".to_string()))
-}
-
-/// 读取 255 编码的无符号短整数
-fn read_255ushort(reader: &mut Reader) -> Result<u16, FontError> {
-    let byte1 = reader.read_u8()?;
-    if byte1 < 255 {
-        Ok(byte1 as u16)
-    } else {
-        let byte2 = reader.read_u8()?;
-        let byte3 = reader.read_u8()?;
-        Ok(255 + ((byte2 as u16) << 8) + byte3 as u16)
-    }
 }
 
 // ============================================================================
@@ -127,65 +244,60 @@ fn read_255ushort(reader: &mut Reader) -> Result<u16, FontError> {
 /// 4. 累加 dx, dy 得到绝对坐标
 pub fn triplet_decode(
     flags_buf: &[u8],
-    triplet_buf: &[u8],
+    triplet_reader: &mut Reader,
     n_points: usize,
 ) -> Result<Vec<Point>, FontError> {
-    if n_points > triplet_buf.len() {
+    // 首先检查 flags_buf 长度是否足够
+    if triplet_reader.len() < n_points {
         return Err(FontError::Generic(format!(
-            "TripletDecode: n_points ({}) exceeds buffer size ({})",
+            "TripletDecode: flags buffer too small: need {}, got {}",
             n_points,
-            triplet_buf.len()
+            triplet_reader.len()
         )));
     }
+
+    // // 计算实际需要的数据字节数
+    // let required_bytes = calculate_triplet_bytes_consumed(flags_buf, n_points)?;
+    
+    // // 检查 triplet_buf 长度是否足够
+    // if triplet_buf.len() < required_bytes {
+    //     return Err(FontError::Generic(format!(
+    //         "TripletDecode: triplet buffer too small: need {}, got {}",
+    //         required_bytes,
+    //         triplet_buf.len()
+    //     )));
+    // }
 
     let mut points = Vec::with_capacity(n_points);
     let mut x: i32 = 0;
     let mut y: i32 = 0;
-    let mut triplet_index: usize = 0;
+    // let mut triplet_index: usize = 0;
 
     for i in 0..n_points {
         let flag = flags_buf[i];
         let on_curve = (flag >> 7) == 0;
         let flag_low = flag & 0x7f;
 
-        // 根据 flag 值确定数据字节数
-        let n_data_bytes = if flag_low < 84 {
-            1
-        } else if flag_low < 120 {
-            2
-        } else if flag_low < 124 {
-            3
-        } else {
-            4
-        };
-
-        // 边界检查
-        if triplet_index + n_data_bytes > triplet_buf.len() {
-            return Err(FontError::Generic(format!(
-                "TripletDecode: buffer overflow at point {}",
-                i
-            )));
-        }
 
         // 解码 dx, dy
         let (dx, dy) = if flag_low < 10 {
             // dx = 0, dy 有符号 8 位
             let dy_val = with_sign(
                 flag_low,
-                ((flag_low & 14) << 7) as i32 + triplet_buf[triplet_index] as i32,
+                ((flag_low & 14) << 7) as i32 + triplet_reader.read_u8()? as i32,
             );
             (0, dy_val)
         } else if flag_low < 20 {
             // dy = 0, dx 有符号 8 位
             let dx_val = with_sign(
                 flag_low,
-                (((flag_low - 10) & 14) << 7) as i32 + triplet_buf[triplet_index] as i32,
+                (((flag_low - 10) & 14) << 7) as i32 + triplet_reader.read_u8()? as i32,
             );
             (dx_val, 0)
         } else if flag_low < 84 {
             // dx, dy 都是小的有符号数（共用 1 字节）
             let b0 = flag_low - 20;
-            let b1 = triplet_buf[triplet_index];
+            let b1 = triplet_reader.read_u8()?;
             let dx_val = with_sign(flag_low, (1 + (b0 & 0x30) + (b1 >> 4)) as i32);
             let dy_val = with_sign(flag_low >> 1, (1 + ((b0 & 0x0c) << 2) + (b1 & 0x0f)) as i32);
             (dx_val, dy_val)
@@ -194,40 +306,39 @@ pub fn triplet_decode(
             let b0 = flag_low - 84;
             let dx_val = with_sign(
                 flag_low,
-                1 + (((b0 as i32) / 12) << 8) + triplet_buf[triplet_index] as i32,
+                1 + (((b0 as i32) / 12) << 8) + triplet_reader.read_u8()? as i32,
             );
             let dy_val = with_sign(
                 flag_low >> 1,
-                1 + ((((b0 as i32) % 12) >> 2) << 8) + triplet_buf[triplet_index + 1] as i32,
+                1 + ((((b0 as i32) % 12) >> 2) << 8) + triplet_reader.read_u8()? as i32,
             );
             (dx_val, dy_val)
         } else if flag_low < 124 {
             // dx 8 位, dy 12 位（共用 3 字节）
-            let b2 = triplet_buf[triplet_index + 1];
+            let b1 = triplet_reader.read_u8()?;
+            let b2 = triplet_reader.read_u8()?;
             let dx_val = with_sign(
                 flag_low,
-                ((triplet_buf[triplet_index] as i32) << 4) + ((b2 >> 4) as i32),
+                ((b1 as i32) << 4) + ((b2 >> 4) as i32),
             );
             let dy_val = with_sign(
                 flag_low >> 1,
-                (((b2 & 0x0f) as i32) << 8) + triplet_buf[triplet_index + 2] as i32,
+                (((b2 & 0x0f) as i32) << 8) + triplet_reader.read_u8()? as i32,
             );
             (dx_val, dy_val)
         } else {
             // dx, dy 都是有符号 16 位（共用 4 字节）
             let dx_val = with_sign(
                 flag_low,
-                ((triplet_buf[triplet_index] as i32) << 8) + triplet_buf[triplet_index + 1] as i32,
+                ((triplet_reader.read_u8()? as i32) << 8) + triplet_reader.read_u8()? as i32,
             );
             let dy_val = with_sign(
                 flag_low >> 1,
-                ((triplet_buf[triplet_index + 2] as i32) << 8)
-                    + triplet_buf[triplet_index + 3] as i32,
+                ((triplet_reader.read_u8()? as i32) << 8)
+                    + triplet_reader.read_u8()? as i32,
             );
             (dx_val, dy_val)
         };
-
-        triplet_index += n_data_bytes;
 
         // 累加得到绝对坐标
         x = safe_int_addition(x, dx)?;
@@ -544,6 +655,13 @@ pub fn reconstruct_glyf_loca(
         *size = reader.read_u32()?;
     }
 
+    tracing::debug!(
+        "num_glyphs: {}, index_format: {}, substream_sizes: {:?}",
+        num_glyphs,
+        index_format,
+        substream_sizes
+    );
+
     // 计算子流的起始偏移
     let data_start = reader.offset;
     let mut substream_offsets = [0usize; NUM_SUBSTREAMS];
@@ -668,7 +786,7 @@ fn reconstruct_simple_glyph(
     n_points_reader: &mut Reader,
     flag_reader: &mut Reader,
     glyph_reader: &mut Reader,
-    _instruction_reader: &mut Reader,
+    instruction_reader: &mut Reader,
     have_bbox: bool,
     bbox_reader: &mut Reader,
     has_overlap_bitmap: bool,
@@ -676,55 +794,54 @@ fn reconstruct_simple_glyph(
     glyph_idx: u16,
     glyf_data: &mut Vec<u8>,
 ) -> Result<(), FontError> {
+    tracing::debug!("Reconstructing simple glyph: {}", glyph_idx);
     // 读取每个轮廓的点数
     let mut n_points_vec = Vec::new();
     let mut total_n_points: usize = 0;
 
     for _ in 0..n_contours {
-        let n_points_contour = read_255ushort(n_points_reader)? as usize;
+        // let n_points_contour = read_255ushort(n_points_reader)? as usize;
+        let n_points_contour = U255::read_from(n_points_reader)?.value() as usize;
         n_points_vec.push(n_points_contour);
         total_n_points += n_points_contour;
     }
 
     // 读取标志位
-    let flags_start = flag_reader.offset;
-    let flags_buf = &flag_reader.data[flags_start..flags_start + total_n_points];
-    flag_reader.skip(total_n_points)?;
+    let flags_buf = flag_reader.read_bytes(total_n_points)?;
 
     // 读取三元组数据
-    let triplet_start = glyph_reader.offset;
-    let remaining = glyph_reader.data.len() - triplet_start;
-
+    // let triplet_start = glyph_reader.offset;
+    // let remaining = glyph_reader.len() - triplet_start;
+    println!("glyph_reader len: {:?} offset: {} total_n_points: {}", glyph_reader.len(), glyph_reader.offset, total_n_points);
     // 解码点坐标
     let points = triplet_decode(
         flags_buf,
-        &glyph_reader.data[triplet_start..],
+        glyph_reader,
         total_n_points,
     )?;
-
-    // 计算实际消耗的字节数
+    
+    // // 计算实际消耗的字节数
     let triplet_bytes_consumed = calculate_triplet_bytes_consumed(flags_buf, total_n_points)?;
-    if triplet_bytes_consumed > remaining {
-        return Err(FontError::Generic(format!(
-            "Triplet data insufficient: needed {}, available {}",
-            triplet_bytes_consumed, remaining
-        )));
-    }
-    glyph_reader.skip(triplet_bytes_consumed)?;
+    println!("Triplet bytes consumed: {} glyph_reader offset: {:?}", triplet_bytes_consumed, glyph_reader.offset);
+    // if triplet_bytes_consumed > remaining {
+    //     return Err(FontError::Generic(format!(
+    //         "Triplet data insufficient: needed {}, available {}",
+    //         triplet_bytes_consumed, remaining
+    //     )));
+    // }
+    // glyph_reader.skip(triplet_bytes_consumed)?;
 
     // 读取指令长度
-    let instruction_length = read_255ushort(glyph_reader)?;
-
+    let instruction_length_value = U255::read_from(glyph_reader)?.value() as usize;
+    
     // 读取指令数据
-    let instructions = if instruction_length > 0 {
-        let instr_start = glyph_reader.offset;
-        let instr_data =
-            glyph_reader.data[instr_start..instr_start + instruction_length as usize].to_vec();
-        glyph_reader.skip(instruction_length as usize)?;
-        instr_data
+    // 读取指令数据
+    let instructions = if instruction_length_value > 0 {
+        instruction_reader.read_bytes(instruction_length_value)?.to_vec()
     } else {
         Vec::new()
     };
+
 
     // 构建字形缓冲区
     let mut glyph_buf = Vec::new();
@@ -752,8 +869,9 @@ fn reconstruct_simple_glyph(
     }
 
     // 写入指令长度和指令数据
-    glyph_buf.extend_from_slice(&instruction_length.to_be_bytes());
+    glyph_buf.extend_from_slice(&(instruction_length_value as u16).to_be_bytes());
     glyph_buf.extend_from_slice(&instructions);
+    println!("instruction_length_value: {}, instructions: {:?}", instruction_length_value, instructions);
 
     // 存储点
     let has_overlap_bit = has_overlap_bitmap
@@ -766,7 +884,7 @@ fn reconstruct_simple_glyph(
     let final_size = store_points(
         &points,
         n_contours,
-        instruction_length,
+        instruction_length_value as u16,
         has_overlap_bit,
         &mut glyph_buf,
     )?;
@@ -847,6 +965,7 @@ fn reconstruct_composite_glyph(
     bbox_reader: &mut Reader,
     glyf_data: &mut Vec<u8>,
 ) -> Result<(), FontError> {
+    tracing::debug!("Reconstructing composite glyph");
     if !have_bbox {
         return Err(FontError::Generic(
             "Composite glyph must have bbox".to_string(),
@@ -860,33 +979,17 @@ fn reconstruct_composite_glyph(
     // 2. 读取指令大小（如果有）
     let mut instruction_size: u16 = 0;
     if have_instructions {
-        instruction_size = read_255ushort(glyph_reader)?;
+        instruction_size = U255::read_from(glyph_reader)?.value();
     }
 
-    // 3. 计算总大小并分配缓冲区
-    // glyf 结构: nContours(2) + bbox(8) + components(composite_size) + instructionsLen(2) + instructions
-    let total_size = 2
-        + 8
-        + composite_size
-        + if have_instructions {
-            2 + instruction_size as usize
-        } else {
-            0
-        };
-    let start_pos = glyf_data.len();
-    glyf_data.resize(start_pos + total_size, 0);
-
-    let mut pos = start_pos;
+    // 复合字形不需要预先计算大小，直接写入数据
 
     // 4. 写入 nContours = 0xFFFF（表示复合字形）
-    glyf_data[pos] = 0xFF;
-    glyf_data[pos + 1] = 0xFF;
-    pos += 2;
+    glyf_data.extend_from_slice(&0xFFFFu16.to_be_bytes());
 
     // 5. 写入 bbox
     let bbox_data = bbox_reader.read_bytes(8)?;
-    glyf_data[pos..pos + 8].copy_from_slice(bbox_data);
-    pos += 8;
+    glyf_data.extend_from_slice(bbox_data);
 
     // 6. 复制复合字形组件数据
     let component_start = composite_reader.offset;
@@ -898,16 +1001,12 @@ fn reconstruct_composite_glyph(
         ));
     }
 
-    glyf_data[pos..pos + composite_size]
-        .copy_from_slice(&composite_reader.data[component_start..component_end]);
+    glyf_data.extend_from_slice(&composite_reader.data[component_start..component_end]);
     composite_reader.skip(composite_size)?;
-    pos += composite_size;
 
     // 7. 写入指令（如果有）
     if have_instructions {
-        glyf_data[pos] = ((instruction_size >> 8) & 0xFF) as u8;
-        glyf_data[pos + 1] = (instruction_size & 0xFF) as u8;
-        pos += 2;
+        glyf_data.extend_from_slice(&instruction_size.to_be_bytes());
 
         // 读取指令数据
         let instr_start = instruction_reader.offset;
@@ -919,8 +1018,7 @@ fn reconstruct_composite_glyph(
             ));
         }
 
-        glyf_data[pos..pos + instruction_size as usize]
-            .copy_from_slice(&instruction_reader.data[instr_start..instr_end]);
+        glyf_data.extend_from_slice(&instruction_reader.data[instr_start..instr_end]);
         instruction_reader.skip(instruction_size as usize)?;
     }
 
@@ -978,8 +1076,8 @@ mod tests {
     #[test]
     fn test_triplet_decode_empty() {
         let flags: Vec<u8> = vec![];
-        let triplets: Vec<u8> = vec![];
-        let points = triplet_decode(&flags, &triplets, 0).unwrap();
+        let mut triplets = Reader::new(&[]);
+        let points = triplet_decode(&flags, &mut triplets, 0).unwrap();
         assert!(points.is_empty());
     }
 
@@ -987,9 +1085,9 @@ mod tests {
     fn test_triplet_decode_simple_zero_coordinates() {
         // 3 个点，坐标增量都为 0
         let flags = vec![0x00, 0x00, 0x00]; // on_curve=1, flag_low=0
-        let triplets = vec![0x00, 0x00, 0x00]; // dy=0 for each
+        let mut triplets = Reader::new(&[0x00, 0x00, 0x00]); // dy=0 for each
 
-        let points = triplet_decode(&flags, &triplets, 3).unwrap();
+        let points = triplet_decode(&flags, &mut triplets, 3).unwrap();
         assert_eq!(points.len(), 3);
         assert_eq!(points[0].x, 0);
         assert_eq!(points[0].y, 0);
@@ -1004,9 +1102,9 @@ mod tests {
     fn test_triplet_decode_off_curve_points() {
         // 3 个 off-curve 点
         let flags = vec![0x80, 0x80, 0x80]; // on_curve=0 (bit 7=1), flag_low=0
-        let triplets = vec![0x00, 0x00, 0x00]; // dy=0
+        let mut triplets = Reader::new(&[0x00, 0x00, 0x00]); // dy=0
 
-        let points = triplet_decode(&flags, &triplets, 3).unwrap();
+        let points = triplet_decode(&flags, &mut triplets, 3).unwrap();
         assert_eq!(points.len(), 3);
         assert!(!points[0].on_curve);
         assert_eq!(points[0].x, 0);
@@ -1018,9 +1116,9 @@ mod tests {
         // flag_low < 10: dx=0, dy 有符号 8 位
         // flag = 0x01 (odd): positive, dy = ((1 & 14) << 7) + triplet = 0 + 100 = 100
         let flags = vec![0x01];
-        let triplets = vec![100];
+        let mut triplets = Reader::new(&[100]);
 
-        let points = triplet_decode(&flags, &triplets, 1).unwrap();
+        let points = triplet_decode(&flags, &mut triplets, 1).unwrap();
         assert_eq!(points[0].x, 0);
         assert_eq!(points[0].y, 100);
     }
@@ -1029,9 +1127,9 @@ mod tests {
     fn test_triplet_decode_negative_dy() {
         // flag = 0x00 (even): negative, dy = -((0 & 14) << 7) + triplet = -100
         let flags = vec![0x00];
-        let triplets = vec![100];
+        let mut triplets = Reader::new(&[100]);
 
-        let points = triplet_decode(&flags, &triplets, 1).unwrap();
+        let points = triplet_decode(&flags, &mut triplets, 1).unwrap();
         assert_eq!(points[0].x, 0);
         assert_eq!(points[0].y, -100);
     }
@@ -1041,9 +1139,9 @@ mod tests {
         // 10 <= flag_low < 20: dy=0, dx 有符号 8 位
         // flag = 0x0B (11, odd): positive, dx = ((11-10) & 14) << 7) + triplet = 0 + 50 = 50
         let flags = vec![0x0B];
-        let triplets = vec![50];
+        let mut triplets = Reader::new(&[50]);
 
-        let points = triplet_decode(&flags, &triplets, 1).unwrap();
+        let points = triplet_decode(&flags, &mut triplets, 1).unwrap();
         assert_eq!(points[0].x, 50);
         assert_eq!(points[0].y, 0);
     }
@@ -1055,9 +1153,9 @@ mod tests {
         // dx = 1 + (3 & 0x30) + (b1 >> 4) = 1 + 0 + (0xF >> 4) = 1 + 0 + 0 = 1 (positive, flag is odd)
         // dy = 1 + ((3 & 0x0c) << 2) + (b1 & 0x0f) = 1 + 0 + 15 = 16 (positive, flag>>1 = 11 is odd)
         let flags = vec![0x17];
-        let triplets = vec![0x0F];
+        let mut triplets = Reader::new(&[0x0f]);
 
-        let points = triplet_decode(&flags, &triplets, 1).unwrap();
+        let points = triplet_decode(&flags, &mut triplets, 1).unwrap();
         assert_eq!(points[0].x, 1);
         assert_eq!(points[0].y, 16);
     }
@@ -1066,9 +1164,9 @@ mod tests {
     fn test_triplet_decode_accumulated_coordinates() {
         // 测试坐标累加
         let flags = vec![0x01, 0x01, 0x01]; // 3 个点，每个 dy=10
-        let triplets = vec![10, 10, 10];
+        let mut triplets = Reader::new(&[10, 10, 10]);
 
-        let points = triplet_decode(&flags, &triplets, 3).unwrap();
+        let points = triplet_decode(&flags, &mut triplets, 3).unwrap();
         assert_eq!(points[0].y, 10);
         assert_eq!(points[1].y, 20); // 10 + 10
         assert_eq!(points[2].y, 30); // 20 + 10
@@ -1078,9 +1176,9 @@ mod tests {
     fn test_triplet_decode_buffer_overflow() {
         // 测试缓冲区溢出检测
         let flags = vec![0x00, 0x00];
-        let triplets = vec![0x00]; // 只有 1 字节，但需要 2 字节
+        let mut triplets = Reader::new(&[0x00]); // 只有 1 字节，但需要 2 字节
 
-        let result = triplet_decode(&flags, &triplets, 2);
+        let result = triplet_decode(&flags, &mut triplets, 2);
         assert!(result.is_err());
     }
 
@@ -1325,10 +1423,10 @@ mod tests {
         // 1. 模拟 WOFF2 压缩：从点生成标志位和三元组
         // 这里我们手动构造简单的测试数据
         let flags = vec![0x00, 0x01, 0x81, 0x01]; // 混合 on/off-curve
-        let triplets = vec![0x00, 0x14, 0x00, 0x14]; // 简化的三元组数据
+        let mut triplets = Reader::new(&[0x00, 0x14, 0x00, 0x14]); // 简化的三元组数据
 
         // 2. 解码
-        let decoded_points = triplet_decode(&flags, &triplets, 4).unwrap();
+        let decoded_points = triplet_decode(&flags, &mut triplets, 4).unwrap();
         assert_eq!(decoded_points.len(), 4);
 
         // 3. 重新编码为 glyf 格式

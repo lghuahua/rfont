@@ -2,7 +2,8 @@ use brotli::Decompressor;
 use flate2::read::ZlibDecoder;
 use rfont_core::tables::woff::{WoffHeader, WoffTableDirectoryEntry};
 use rfont_core::tables::woff2::{Woff2Header, Woff2TableDirectoryEntry, WOFF2_KNOWN_TAGS};
-use rfont_core::{calc_sfnt_checksum, Cmap, Head, Hhea, Hmtx, Loca, Maxp};
+use rfont_core::tables::woff2_transform::GlyfDecoder;
+use rfont_core::{Cmap, Head, Hhea, Hmtx, Loca, Maxp, calc_sfnt_checksum, pad4};
 use rfont_types::{FontError, ReadBytes, Reader, TableRecord, Tag, WriteBytes, Writer};
 use std::io::Read;
 use tracing::{debug, info, span, Level};
@@ -649,29 +650,36 @@ fn reconstruct_transformed_tables(
     writer: &mut Writer,
     table_entries: &[Woff2TableDirectoryEntry],
 ) -> Result<(), FontError> {
-    use rfont_core::tables::woff2_transform;
+    use rfont_types::{TABLE_DIR_ENTRY_SIZE};
     tracing::debug!(entries_len = table_entries.len(), "reconstruct transformed tables");
 
     let mut table_records = Vec::<TableRecord>::with_capacity(table_entries.len());
     let mut table_data = Vec::new();
 
+    let start_offset = (12 + table_entries.len() * TABLE_DIR_ENTRY_SIZE) as u32;
     let mut offset = 0;
-    let mut loca_checksum: u32 = 0;
     let mut font_checksum: u64 = 0;
+    let mut loca_data_ = Vec::new();
+
     for entry in table_entries {
-        tracing::debug!(tag = entry.tag.as_str(), length = entry.orig_length, offset = offset, "reconstruct");
+        tracing::debug!(tag = entry.tag.as_str(), length = entry.orig_length, offset = offset, start_offset = start_offset, "reconstruct");
         let mut checksum: u32 = 0;
-        offset += entry.orig_length;
+        offset = start_offset + table_data.len() as u32; 
 
         if let Some(transform_length) = entry.transform_length {
             if entry.tag.as_str() == "glyf" {
                 let transform_data = reader.read_bytes(transform_length as usize)?;
-                match woff2_transform::reconstruct_glyf_loca(transform_data, entry.orig_length) {
+
+                match GlyfDecoder::decode(transform_data) {
                     Ok((glyf_data, loca_data)) => {
-                        table_data.extend_from_slice(&glyf_data);
                         checksum = calc_sfnt_checksum(&glyf_data);
-                        table_data.extend_from_slice(&loca_data);
-                        loca_checksum = calc_sfnt_checksum(&loca_data);
+                        table_data.extend_from_slice(&glyf_data);
+                        // pad4(&mut table_data);
+                        loca_data_ = loca_data;
+                        // table_data.extend_from_slice(&loca_data);
+                        // pad4(&mut table_data);
+                        // loca_offset = start_offset + table_data.len() as u32;
+                        // loca_checksum = calc_sfnt_checksum(&loca_data);
                     }
                     Err(e) => {
                         tracing::error!(
@@ -682,8 +690,12 @@ fn reconstruct_transformed_tables(
                     }
                 }
             } else if entry.tag.as_str() == "loca" {
-                checksum = loca_checksum;
+                checksum = calc_sfnt_checksum(&loca_data_);
+                table_data.extend_from_slice(&loca_data_);
+                // offset = loca_offset;
                 tracing::debug!(tag = entry.tag.as_str(), "loca reconstruct");
+            // } else if entry.tag.as_str() == "hmtx" {
+            //     tracing::debug!(tag = entry.tag.as_str(), "hmtx reconstruct");
             } else {
                 tracing::warn!(tag = entry.tag.as_str(), "Unknow transform");
             }
@@ -709,7 +721,7 @@ fn reconstruct_transformed_tables(
                 data.to_vec()
             };
             table_data.extend_from_slice(&data_vec);
-            checksum = calc_sfnt_checksum(&table_data);
+            checksum = calc_sfnt_checksum(&data_vec);
         }
         font_checksum += checksum as u64;
         let table_record = TableRecord {
@@ -722,10 +734,12 @@ fn reconstruct_transformed_tables(
         table_record.write_to(writer)?;
         font_checksum += calc_sfnt_checksum(&table_record.to_be_bytes()) as u64;
         table_records.push(table_record);
+
+        pad4(&mut table_data);
     }
     // 更新 head 表的校验和
     let font_checksum_u32 = (font_checksum & 0xFFFFFFFF) as u32;
-    let checksum_adjustment = 0xB1B0AFBA - font_checksum_u32;
+    let checksum_adjustment = 0xB1B0AFBA_u32.wrapping_sub(font_checksum_u32);
     let head_offset = table_records
         .iter()
         .find(|r| r.tag.as_str() == "head")

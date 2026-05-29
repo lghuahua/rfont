@@ -22,7 +22,8 @@ use tracing::debug;
 
 /// 重建 cmap 表（智能选择最佳格式）
 pub fn rebuild_cmap(font: &Font, subset_glyphs: &[u16]) -> Result<Vec<u8>, FontError> {
-    let subset_set: HashSet<u16> = subset_glyphs.iter().copied().collect();
+    let subset_set: HashSet<u16> = subset_glyphs.iter().filter(|&&gid| gid != 0).copied().collect();
+
 
     // 创建原始 glyph ID 到新 glyph ID 的映射
     // subset_glyphs 是按顺序排列的，索引就是新的 glyph ID
@@ -50,6 +51,8 @@ pub fn rebuild_cmap(font: &Font, subset_glyphs: &[u16]) -> Result<Vec<u8>, FontE
     if new_unicode_map.is_empty() {
         return Err(FontError::Generic("No glyphs in cmap".to_string()));
     }
+
+    debug!("new_unicode_map: {:?}", new_unicode_map);
 
     // 检查是否有非 BMP 字符（> 0xFFFF）
     let has_non_bmp = new_unicode_map.iter().any(|&(unicode, _)| unicode > 0xFFFF);
