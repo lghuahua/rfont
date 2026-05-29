@@ -1,4 +1,4 @@
-use crate::error::FontError;
+use crate::{U255, error::FontError};
 
 /// Trait for reading bytes from a stream.
 pub trait ReadBytes<'a> {
@@ -20,6 +20,10 @@ pub struct Reader<'a> {
 impl<'a> Reader<'a> {
     pub fn new(data: &'a [u8]) -> Self {
         Self { data, offset: 0 }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
     }
 
     pub fn read_u8(&mut self) -> Result<u8, FontError> {
@@ -175,6 +179,10 @@ impl Writer {
         Self { data: Vec::new() }
     }
 
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             data: Vec::with_capacity(capacity),
@@ -258,6 +266,11 @@ impl Writer {
         while !self.data.len().is_multiple_of(4) {
             self.data.push(0);
         }
+    }
+
+    pub fn write_255_ushort(&mut self, value: u16) -> Result<(), FontError> {
+        let v = U255::new(value);
+        v.write_to(self)
     }
 
     /// 计算 OpenType 规范的 32 位校验和
