@@ -66,13 +66,7 @@ pub fn run(input: &Path, output: Option<&Path>, format: &str, compression: u8) -
             .context("转换为 WOFF 失败")?
     } else if format == "woff2" {
         // TTF → WOFF2：使用所有字形 ID
-        let all_glyph_ids: Vec<u16> = (0..font.get_font_info().glyph_count as u16).collect();
-        font.subset_builder()
-            .glyph_ids(all_glyph_ids)
-            .output_format("woff2")
-            .compression_level(compression)
-            .build()
-            .context("转换为 WOFF2 失败")?
+        font.convert_to_woff2(font.font_data.as_bytes(), compression)?
     } else {
         // WOFF/WOFF2 → TTF（或其他情况）
         let all_glyph_ids: Vec<u16> = (0..font.get_font_info().glyph_count as u16).collect();
