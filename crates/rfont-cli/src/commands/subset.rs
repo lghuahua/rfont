@@ -99,7 +99,14 @@ pub fn run(
 
     if format == "woff" {
         debug!(compression_level = compression, "启用 WOFF 压缩");
-        builder = builder.output_format("woff").compression_level(compression);
+        builder = builder
+            .output_format("woff")
+            .compression_level(compression);
+    } else if format == "woff2" {
+        debug!(compression_level = compression, "启用 WOFF2 压缩");
+        builder = builder
+            .output_format("woff2")
+            .compression_level(compression);
     }
 
     progress.inc(50);
