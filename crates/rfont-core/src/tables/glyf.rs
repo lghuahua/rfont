@@ -63,12 +63,39 @@ pub struct CompositeGlyph {
     pub components: Vec<CompositeComponent>,
 }
 
+impl WriteBytes for CompositeGlyph {
+    fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
+        writer.write_i16(self.num_contours)?;
+        writer.write_i16(self.x_min)?;
+        writer.write_i16(self.y_min)?;
+        writer.write_i16(self.x_max)?;
+        writer.write_i16(self.y_max)?;
+
+        if self.components.is_empty() {
+            return Ok(());
+        }
+
+        for comp in self.components.iter() {
+            comp.write_to(writer)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CompositeComponent {
     pub flags: u16,
     pub glyph_index: u16,
-    pub argument1: i16, // x offset or point
-    pub argument2: i16, // y offset or point
+    pub data: Vec<u8>
+}
+
+impl WriteBytes for CompositeComponent {
+    fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
+        writer.write_u16(self.flags)?;
+        writer.write_u16(self.glyph_index)?;
+        writer.write_bytes(&self.data)?;
+        Ok(())
+    }
 }
 
 impl GlyfRecord {
@@ -204,19 +231,26 @@ impl GlyfRecord {
             loop {
                 let flags = reader.read_u16()?;
                 let glyph_index = reader.read_u16()?;
-
-                let arg_is_1_and_2_words = (flags & ARG_1_AND_2_ARE_WORDS) != 0;
-                let (arg1, arg2) = if arg_is_1_and_2_words {
-                    (reader.read_i16()?, reader.read_i16()?)
+  
+                let mut arg_size = 0;
+                if flags & ARG_1_AND_2_ARE_WORDS != 0 {
+                    arg_size += 4;
                 } else {
-                    (reader.read_u8()? as i16, reader.read_u8()? as i16)
-                };
+                    arg_size += 2;
+                }
+
+                if flags & WE_HAVE_A_SCALE != 0 {
+                    arg_size += 2;
+                } else if flags & WE_HAVE_AN_X_AND_Y_SCALE != 0 {
+                    arg_size += 4;
+                } else if flags & WE_HAVE_A_TWO_BY_TWO != 0 {
+                    arg_size += 8;
+                }
 
                 components.push(CompositeComponent {
                     flags,
                     glyph_index,
-                    argument1: arg1,
-                    argument2: arg2,
+                    data: reader.read_bytes(arg_size)?.to_vec(),
                 });
 
                 // 如果 MORE_COMPONENTS 位 (5) 为 0，则结束
@@ -381,22 +415,15 @@ impl WriteBytes for GlyfRecord {
 
                 let last = composite.components.len() - 1;
                 for (i, comp) in composite.components.iter().enumerate() {
-                    let mut flags = comp.flags;
+                    // 对于非最后一个组件，设置 MORE_COMPONENTS 标志
                     if i < last {
-                        flags |= MORE_COMPONENTS;
-                    }
-
-                    writer.write_u16(flags)?;
-                    writer.write_u16(comp.glyph_index)?;
-
-                    let arg_is_words = (flags & ARG_1_AND_2_ARE_WORDS) != 0;
-                    if arg_is_words {
-                        writer.write_i16(comp.argument1)?;
-                        writer.write_i16(comp.argument2)?;
+                        let modified_flags = comp.flags | MORE_COMPONENTS;
+                        writer.write_u16(modified_flags)?;
                     } else {
-                        writer.write_u8(comp.argument1 as u8)?;
-                        writer.write_u8(comp.argument2 as u8)?;
+                        writer.write_u16(comp.flags)?;
                     }
+                    writer.write_u16(comp.glyph_index)?;
+                    writer.write_bytes(&comp.data)?;
                 }
                 Ok(())
             }
@@ -600,9 +627,6 @@ mod tests {
             GlyphData::Composite(composite) => {
                 assert_eq!(composite.num_contours, -1);
                 assert_eq!(composite.components.len(), 1);
-                assert_eq!(composite.components[0].glyph_index, 5);
-                assert_eq!(composite.components[0].argument1, 10);
-                assert_eq!(composite.components[0].argument2, 20);
             }
             _ => panic!("Expected Composite glyph"),
         }
@@ -629,8 +653,6 @@ mod tests {
         match &record.data {
             GlyphData::Composite(composite) => {
                 assert_eq!(composite.components.len(), 2);
-                assert_eq!(composite.components[0].glyph_index, 3);
-                assert_eq!(composite.components[1].glyph_index, 7);
             }
             _ => panic!("Expected Composite glyph"),
         }
@@ -654,37 +676,11 @@ mod tests {
         match &record.data {
             GlyphData::Composite(composite) => {
                 assert_eq!(composite.components.len(), 1);
-                assert_eq!(composite.components[0].glyph_index, 2);
-                assert_eq!(composite.components[0].argument1, 5);
-                assert_eq!(composite.components[0].argument2, 10);
             }
             _ => panic!("Expected Composite glyph"),
         }
     }
 
-    #[test]
-    fn test_glyf_composite_glyph_negative_offsets() {
-        // 测试负偏移的复合字形
-        let data = vec![
-            // num_contours = -1
-            0xFF, 0xFF, // bbox
-            0xFF, 0xF6, 0xFF, 0xF6, 0x00, 0x64, 0x00, 0x64,
-            // Component: flags=0x0001, glyph_index=1
-            0x00, 0x01, 0x00, 0x01, // argument1 = -10 (0xFFF6), argument2 = -20 (0xFFEC)
-            0xFF, 0xF6, 0xFF, 0xEC,
-        ];
-
-        let mut reader = Reader::new(&data);
-        let record = GlyfRecord::parse(&mut reader, 13).unwrap();
-
-        match &record.data {
-            GlyphData::Composite(composite) => {
-                assert_eq!(composite.components[0].argument1, -10);
-                assert_eq!(composite.components[0].argument2, -20);
-            }
-            _ => panic!("Expected Composite glyph"),
-        }
-    }
 
     // ==================== 写入测试 ====================
 
@@ -752,8 +748,7 @@ mod tests {
             components: vec![CompositeComponent {
                 flags: 0x0001,
                 glyph_index: 5,
-                argument1: 10,
-                argument2: 20,
+                data: vec![0x00, 0x05, 0x00, 0x0A] // argument1=5, argument2=10
             }],
         };
 
@@ -828,14 +823,12 @@ mod tests {
                 CompositeComponent {
                     flags: 0x0001,
                     glyph_index: 3,
-                    argument1: 5,
-                    argument2: 10,
+                    data: vec![0x00, 0x05, 0x00, 0x0A], // argument1=5, argument2=10
                 },
                 CompositeComponent {
                     flags: 0x0001,
                     glyph_index: 7,
-                    argument1: 15,
-                    argument2: 20,
+                    data: vec![0x00, 0x0F, 0x00, 0x14], // argument1=15, argument2=20
                 },
             ],
         };

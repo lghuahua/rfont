@@ -4,7 +4,7 @@
 ///
 /// 参考: https://github.com/google/woff2/blob/master/src/transform.cc
 use crate::tables::glyf::{CompositeGlyph, GlyfRecord, GlyphData, SimpleGlyph};
-use rfont_types::{FontError, Writer};
+use rfont_types::{FontError, WriteBytes, Writer};
 
 // ==================== 常量定义 ====================
 
@@ -17,13 +17,13 @@ pub struct GlyfEncoder {
     n_glyphs: u16,
     index_format: u8,
     // 7个主要流
-    n_contour_stream: Vec<u8>,   // 轮廓数量流
+    n_contour_stream: Writer,   // 轮廓数量流
     n_points_stream: Writer,    // 点数流
-    flag_byte_stream: Vec<u8>,   // 标志位流
+    flag_byte_stream: Writer,   // 标志位流
     glyph_stream: Writer,       // 字形数据流（坐标三元组）
-    composite_stream: Vec<u8>,   // 复合字形流
+    composite_stream: Writer,   // 复合字形流
     bbox_bitmap: Vec<u8>,        // BBox 位图
-    bbox_stream: Vec<u8>,        // BBox 数据流
+    bbox_stream: Writer,        // BBox 数据流
     instruction_stream: Vec<u8>, // 指令流
 
     // 重叠位图（可选）
@@ -38,13 +38,13 @@ impl GlyfEncoder {
         Self {
             n_glyphs,
             index_format,
-            n_contour_stream: Vec::new(),
+            n_contour_stream: Writer::new(),
             n_points_stream: Writer::new(),
-            flag_byte_stream: Vec::new(),
+            flag_byte_stream: Writer::new(),
             glyph_stream: Writer::new(),
-            composite_stream: Vec::new(),
+            composite_stream: Writer::new(),
             bbox_bitmap: vec![0u8; bbox_bitmap_size],
-            bbox_stream: Vec::new(),
+            bbox_stream: Writer::new(),
             instruction_stream: Vec::new(),
             overlap_bitmap: Vec::new(),
         }
@@ -56,7 +56,7 @@ impl GlyfEncoder {
             match &record.data {
                 GlyphData::Empty => {
                     // 空字形：写入 n_contour = 0
-                    Self::write_ushort(&mut self.n_contour_stream, 0);
+                    self.n_contour_stream.write_u16(0)?;
                 }
                 GlyphData::Simple(simple) => {
                     self.write_simple_glyph(record.glyph_id, simple)?;
@@ -82,11 +82,11 @@ impl GlyfEncoder {
         }
 
         let num_contours = glyph.num_contours as u16;
-        Self::write_ushort(&mut self.n_contour_stream, num_contours);
+        self.n_contour_stream.write_u16(num_contours)?;
 
         // 条件写入 BBox
         if self.should_write_bbox(glyph) {
-            self.write_bbox(glyph_id, glyph.x_min, glyph.y_min, glyph.x_max, glyph.y_max);
+            self.write_bbox(glyph_id, glyph.x_min, glyph.y_min, glyph.x_max, glyph.y_max)?;
         }
 
         // 写入每个轮廓的点数
@@ -139,13 +139,14 @@ impl GlyfEncoder {
         glyph: &CompositeGlyph,
     ) -> Result<(), FontError> {
         // 复合字形标记为 -1
-        Self::write_ushort(&mut self.n_contour_stream, 0xFFFF);
+        // Self::write_ushort(&mut self.n_contour_stream, 0xFFFF);
+        self.n_contour_stream.write_u16(0xFFFF)?;
 
         // 写入 BBox
-        self.write_bbox(glyph_id, glyph.x_min, glyph.y_min, glyph.x_max, glyph.y_max);
+        self.write_bbox(glyph_id, glyph.x_min, glyph.y_min, glyph.x_max, glyph.y_max)?;
 
         // 写入复合组件数据（需要重新构建原始字节）
-        self.write_composite_data(glyph)?;
+        glyph.write_to(&mut self.composite_stream)?;
 
         Ok(())
     }
@@ -162,39 +163,39 @@ impl GlyfEncoder {
         if dx == 0 && abs_y < 1280 {
             // 情况1: X=0, Y小值 → 2字节
             self.flag_byte_stream
-                .push(on_curve_bit + ((abs_y & 0xf00) >> 7) as u8 + y_sign_bit);
+                .write_u8(on_curve_bit + ((abs_y & 0xf00) >> 7) as u8 + y_sign_bit)?;
             self.glyph_stream.write_u8((abs_y & 0xff) as u8)?;
         } else if dy == 0 && abs_x < 1280 {
             // 情况2: Y=0, X小值 → 2字节
             self.flag_byte_stream
-                .push(on_curve_bit + 10 + ((abs_x & 0xf00) >> 7) as u8 + x_sign_bit);
+                .write_u8(on_curve_bit + 10 + ((abs_x & 0xf00) >> 7) as u8 + x_sign_bit)?;
             self.glyph_stream.write_u8((abs_x & 0xff) as u8)?;
         } else if abs_x < 65 && abs_y < 65 {
             // 情况3: X,Y都很小 → 2字节
-            self.flag_byte_stream.push(
+            self.flag_byte_stream.write_u8(
                 on_curve_bit
                     + 20
                     + ((abs_x - 1) & 0x30) as u8
                     + (((abs_y - 1) & 0x30) >> 2) as u8
                     + xy_sign_bits,
-            );
+            )?;
             self.glyph_stream
                 .write_u8((((abs_x - 1) & 0xf) << 4 | ((abs_y - 1) & 0xf)) as u8)?;
         } else if abs_x < 769 && abs_y < 769 {
             // 情况4: X,Y中等 → 3字节
-            self.flag_byte_stream.push(
+            self.flag_byte_stream.write_u8(
                 on_curve_bit
                     + 84
                     + (12 * (((abs_x - 1) & 0x300) >> 8)) as u8
                     + (((abs_y - 1) & 0x300) >> 6) as u8
                     + xy_sign_bits,
-            );
+            )?;
             self.glyph_stream.write_u8(((abs_x - 1) & 0xff) as u8)?;
             self.glyph_stream.write_u8(((abs_y - 1) & 0xff) as u8)?;
         } else if abs_x < 4096 && abs_y < 4096 {
             // 情况5: X,Y较大 → 4字节
             self.flag_byte_stream
-                .push(on_curve_bit + 120 + xy_sign_bits);
+                .write_u8(on_curve_bit + 120 + xy_sign_bits)?;
             self.glyph_stream.write_u8((abs_x >> 4) as u8)?;
             self.glyph_stream
                 .write_u8(((abs_x & 0xf) << 4 | (abs_y >> 8)) as u8)?;
@@ -202,7 +203,7 @@ impl GlyfEncoder {
         } else {
             // 情况6: X,Y很大 → 5字节
             self.flag_byte_stream
-                .push(on_curve_bit + 124 + xy_sign_bits);
+                .write_u8(on_curve_bit + 124 + xy_sign_bits)?;
             self.glyph_stream.write_u8((abs_x >> 8) as u8)?;
             self.glyph_stream.write_u8((abs_x & 0xff) as u8)?;
             self.glyph_stream.write_u8((abs_y >> 8) as u8)?;
@@ -212,7 +213,7 @@ impl GlyfEncoder {
     }
 
     /// 写入 BBox
-    fn write_bbox(&mut self, glyph_id: u16, x_min: i16, y_min: i16, x_max: i16, y_max: i16) {
+    fn write_bbox(&mut self, glyph_id: u16, x_min: i16, y_min: i16, x_max: i16, y_max: i16) -> Result<(), FontError> {
         // 设置位图中的对应位
         let byte_idx = (glyph_id >> 3) as usize;
         let bit_idx = glyph_id & 7;
@@ -221,10 +222,11 @@ impl GlyfEncoder {
         }
 
         // 写入 BBox 数据
-        Self::write_ushort(&mut self.bbox_stream, x_min as u16);
-        Self::write_ushort(&mut self.bbox_stream, y_min as u16);
-        Self::write_ushort(&mut self.bbox_stream, x_max as u16);
-        Self::write_ushort(&mut self.bbox_stream, y_max as u16);
+        self.bbox_stream.write_u16(x_min as u16)?;
+        self.bbox_stream.write_u16(y_min as u16)?;
+        self.bbox_stream.write_u16(x_max as u16)?;
+        self.bbox_stream.write_u16(y_max as u16)?;
+        Ok(())
     }
 
     /// 写入指令
@@ -234,28 +236,6 @@ impl GlyfEncoder {
         self.glyph_stream.write_255_ushort(instructions.len() as u16)?;
         // 再写入指令数据
         self.instruction_stream.extend_from_slice(instructions);
-        Ok(())
-    }
-
-    /// 写入复合字形数据
-    fn write_composite_data(&mut self, glyph: &CompositeGlyph) -> Result<(), FontError> {
-        // 将组件重新编码为原始字节格式
-        for component in &glyph.components {
-            // 写入 flags
-            Self::write_ushort(&mut self.composite_stream, component.flags);
-            // 写入 glyph_index
-            Self::write_ushort(&mut self.composite_stream, component.glyph_index);
-            // 写入参数
-            if component.flags & 0x0001 != 0 {
-                // ARG_1_AND_2_ARE_WORDS: 双字节
-                Self::write_short(&mut self.composite_stream, component.argument1);
-                Self::write_short(&mut self.composite_stream, component.argument2);
-            } else {
-                // 单字节
-                self.composite_stream.push(component.argument1 as u8);
-                self.composite_stream.push(component.argument2 as u8);
-            }
-        }
         Ok(())
     }
 
@@ -270,36 +250,6 @@ impl GlyfEncoder {
         if self.overlap_bitmap.is_empty() {
             let size = (self.n_glyphs as usize).div_ceil(8);
             self.overlap_bitmap.resize(size, 0);
-        }
-    }
-
-    /// 辅助函数：写入 UShort (2字节)
-    #[inline]
-    fn write_ushort(stream: &mut Vec<u8>, value: u16) {
-        stream.push((value >> 8) as u8);
-        stream.push((value & 0xFF) as u8);
-    }
-
-    /// 辅助函数：写入 Short (2字节有符号)
-    #[inline]
-    fn write_short(stream: &mut Vec<u8>, value: i16) {
-        let unsigned = value as u16;
-        stream.push((unsigned >> 8) as u8);
-        stream.push((unsigned & 0xFF) as u8);
-    }
-
-    /// 获取编码后的结果
-    pub fn get_encoded_data(self) -> EncodedGlyfData {
-        EncodedGlyfData {
-            n_contour_stream: self.n_contour_stream,
-            n_points_stream: self.n_points_stream.data,
-            flag_byte_stream: self.flag_byte_stream,
-            glyph_stream: self.glyph_stream.data,
-            composite_stream: self.composite_stream,
-            bbox_bitmap: self.bbox_bitmap,
-            bbox_stream: self.bbox_stream,
-            instruction_stream: self.instruction_stream,
-            overlap_bitmap: self.overlap_bitmap,
         }
     }
 
@@ -343,68 +293,18 @@ impl GlyfEncoder {
         result.extend_from_slice(&(bbox_stream_size + bbox_bitmap_size).to_be_bytes());
         result.extend_from_slice(&instruction_stream_size.to_be_bytes());
         // 写入stream 数据
-        result.extend_from_slice(&self.n_contour_stream);
+        result.extend_from_slice(&self.n_contour_stream.data);
         result.extend_from_slice(&self.n_points_stream.data);
-        result.extend_from_slice(&self.flag_byte_stream);
+        result.extend_from_slice(&self.flag_byte_stream.data);
         result.extend_from_slice(&self.glyph_stream.data);
-        result.extend_from_slice(&self.composite_stream);
+        result.extend_from_slice(&self.composite_stream.data);
         result.extend_from_slice(&self.bbox_bitmap);
-        result.extend_from_slice(&self.bbox_stream);
+        result.extend_from_slice(&self.bbox_stream.data);
         result.extend_from_slice(&self.instruction_stream);
         result
     }
 
 
-}
-
-/// 编码后的 glyf 数据
-pub struct EncodedGlyfData {
-    pub n_contour_stream: Vec<u8>,
-    pub n_points_stream: Vec<u8>,
-    pub flag_byte_stream: Vec<u8>,
-    pub glyph_stream: Vec<u8>,
-    pub composite_stream: Vec<u8>,
-    pub bbox_bitmap: Vec<u8>,
-    pub bbox_stream: Vec<u8>,
-    pub instruction_stream: Vec<u8>,
-    pub overlap_bitmap: Vec<u8>,
-}
-
-impl EncodedGlyfData {
-    /// 将所有流合并为一个字节数组
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut result = Vec::new();
-
-        // 按照 woff2 规范的顺序合并流
-        result.extend_from_slice(&self.n_contour_stream);
-        result.extend_from_slice(&self.n_points_stream);
-        result.extend_from_slice(&self.flag_byte_stream);
-        result.extend_from_slice(&self.glyph_stream);
-        result.extend_from_slice(&self.composite_stream);
-        result.extend_from_slice(&self.bbox_bitmap);
-        result.extend_from_slice(&self.bbox_stream);
-        result.extend_from_slice(&self.instruction_stream);
-
-        // 如果有重叠位图，也加入
-        if !self.overlap_bitmap.is_empty() {
-            result.extend_from_slice(&self.overlap_bitmap);
-        }
-
-        result
-    }
-
-    /// 获取总大小
-    pub fn total_size(&self) -> usize {
-        self.n_contour_stream.len()
-            + self.n_points_stream.len()
-            + self.flag_byte_stream.len()
-            + self.glyph_stream.len()
-            + self.composite_stream.len()
-            + self.bbox_bitmap.len()
-            + self.bbox_stream.len()
-            + self.instruction_stream.len()
-            + self.overlap_bitmap.len()
-    }
 }
 
 /// 转换 glyf 和 loca 表
