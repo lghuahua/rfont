@@ -7,7 +7,7 @@ pub fn extract_glyf_and_loca(
     subset_glyphs: &[u16],
 ) -> Result<(Vec<u8>, Vec<u8>), FontError> {
     let num_glyphs = subset_glyphs.len();
-    let index_to_loc_format = font.head.index_to_loc_format;
+    // let index_to_loc_format = font.head.index_to_loc_format;
 
     // 构建新的 loca 偏移表
     let mut new_loca_offsets = Vec::with_capacity(num_glyphs + 1);
@@ -47,7 +47,7 @@ pub fn extract_glyf_and_loca(
     new_loca_offsets.push(current_offset);
 
     // 编码 loca 表
-    let loca_data = if index_to_loc_format == 0 {
+    let loca_data = if new_glyf_data.len() < 65536 {
         // short format (offset / 2)
         let mut data = Vec::with_capacity(new_loca_offsets.len() * 2);
         for &offset in &new_loca_offsets {

@@ -2,7 +2,7 @@ use crate::Font;
 use rfont_types::{FontError, Tag, HEAD_TABLE_SIZE, LONGDATETIME_EPOCH_YEAR};
 
 /// 更新 head 表（包含校验和调整和时间戳）
-pub fn update_head(font: &Font, checksum_adjustment: u32) -> Result<Vec<u8>, FontError> {
+pub fn update_head(font: &Font, checksum_adjustment: u32, index_to_loc_format: u16, transform: bool ) -> Result<Vec<u8>, FontError> {
     let mut head_data = font
         .font_data
         .get_table_bytes(Tag(*b"head"))
@@ -17,6 +17,10 @@ pub fn update_head(font: &Font, checksum_adjustment: u32) -> Result<Vec<u8>, Fon
 
     // 更新 checkSumAdjustment（偏移量 8-11）
     head_data[8..12].copy_from_slice(&checksum_adjustment.to_be_bytes());
+    if transform {
+        // 添加 transform 信息
+        head_data[16] = head_data[16] | 0x08;
+    }
 
     // 更新 modified 时间戳（偏移量 24-31）
     use chrono::NaiveDateTime;
@@ -34,6 +38,8 @@ pub fn update_head(font: &Font, checksum_adjustment: u32) -> Result<Vec<u8>, Fon
 
     head_data[24..28].copy_from_slice(&high.to_be_bytes());
     head_data[28..32].copy_from_slice(&low.to_be_bytes());
+
+    head_data[50..52].copy_from_slice(&index_to_loc_format.to_be_bytes());
 
     Ok(head_data)
 }

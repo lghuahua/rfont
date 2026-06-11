@@ -390,7 +390,8 @@ impl Font {
         let new_maxp_data = maxp::update_maxp(self, subset_glyphs_vec.len() as u16)?;
 
         // 6. 更新 head（校验和、修改时间等）- 暂时传入 0，稍后在 assemble_ttf 中更新
-        let new_head_data = head::update_head(self, 0)?;
+        let index_to_loc_format: u16 = if new_glyf_data.len() < 65536 { 0 } else { 1 };
+        let new_head_data = head::update_head(self, 0, index_to_loc_format, true)?;
 
         // 7. 复制其他不变的表（name, os2, post 等）
         let num_glyphs_subset = subset_glyphs_vec.len() as u16;

@@ -762,7 +762,17 @@ fn woff2_uncomprss(reader: &mut Reader, hdr: &Woff2Header) -> Result<Vec<u8>, Fo
 
 
         // 按标签排序（TTF 规范要求）
-        all_tables.sort_by_key(|(tag, _)| tag.0);
+        // all_tables.sort_by_key(|(tag, _)| tag.0);
+        all_tables.sort_by(|a, b| {
+            let a_idx = WOFF2_KNOWN_TAGS.iter().position(|t| t == &a.0);
+            let b_idx = WOFF2_KNOWN_TAGS.iter().position(|t| t == &b.0);
+            match (a_idx, b_idx) {
+                (Some(ai), Some(bi)) => ai.cmp(&bi),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.0.as_str().cmp(b.0.as_str()),
+            }
+        });
 
         let num_tables = all_tables.len() as u16;
 
