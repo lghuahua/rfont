@@ -804,11 +804,11 @@ fn woff2_uncomprss(reader: &mut Reader, hdr: &Woff2Header) -> Result<Vec<u8>, Fo
             let checksum = calc_sfnt_checksum(data);
             font_checksum += checksum as u64;
             let offset = start_offset + table_data.len() as u32;
-            table_data.extend_from_slice(data);
 
-            if tag.as_str() == "head" { 
-                head_offset = offset as usize;
+            if tag.as_str() == "head" {
+                head_offset = table_data.len();
             }
+            table_data.extend_from_slice(data);
 
             let table_record = TableRecord { tag: *tag, checksum, offset, length: data.len() as u32};
             table_record.write_to(&mut font_writer)?;
