@@ -90,17 +90,16 @@ impl GlyfEncoder {
         }
 
         // 写入每个轮廓的点数
-        let end_pts = glyph.end_pts_of_contours.iter();
         let mut prev_end = 0u16;
-        for &end_pt in end_pts.clone() {
-            let num_points = if prev_end == 0 {
+        for (i, end_pt) in glyph.end_pts_of_contours.iter().enumerate() {
+            let num_points = if i == 0 {
                 end_pt + 1
             } else {
                 end_pt - prev_end
             };
             // Self::write_255_ushort(&mut self.n_points_stream, num_points as usize);
             self.n_points_stream.write_255_ushort(num_points)?;
-            prev_end = end_pt;
+            prev_end = *end_pt;
         }
 
         // 使用三元组编码坐标
@@ -239,11 +238,44 @@ impl GlyfEncoder {
         Ok(())
     }
 
-    /// 判断是否应该写入 BBox
-    fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
-        // 简化策略：如果 bbox 非零则写入
-        glyph.x_min != 0 || glyph.y_min != 0 || glyph.x_max != 0 || glyph.y_max != 0
+/// 判断是否应该写入简单字形的 BBox
+///
+/// 参考 Google woff2 项目的 ShouldWriteSimpleGlyphBbox 实现：
+/// 1. 空字形：只有当 bbox 非零时才写入
+/// 2. 非空字形：遍历所有点计算实际 bbox，与预存值比较
+///    - 如果一致：不写入（解码器可从坐标推导）
+///    - 如果不一致：写入（保证数据正确性）
+fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
+    println!("should_write_bbox {}, {}, {}, {}", glyph.x_min, glyph.y_min, glyph.x_max, glyph.y_max);
+    // 1. 空字形处理
+    if glyph.num_contours <= 0 || glyph.end_pts_of_contours.is_empty() {
+        return glyph.x_min != 0 || glyph.y_min != 0 || 
+               glyph.x_max != 0 || glyph.y_max != 0;
     }
+    
+    // 2. 遍历所有点，计算实际 bbox
+    let mut computed_x_min = i32::MAX;
+    let mut computed_y_min = i32::MAX;
+    let mut computed_x_max = i32::MIN;
+    let mut computed_y_max = i32::MIN;
+    
+    for (&x, &y) in glyph.x_coordinates.iter().zip(glyph.y_coordinates.iter()) {
+        let x = x as i32;
+        let y = y as i32;
+        computed_x_min = computed_x_min.min(x);
+        computed_y_min = computed_y_min.min(y);
+        computed_x_max = computed_x_max.max(x);
+        computed_y_max = computed_y_max.max(y);
+    }
+
+    println!("should_write_bbox computed_x_min: {}, computed_y_min: {}, computed_x_max: {}, computed_y_max: {}", computed_x_min, computed_y_min, computed_x_max, computed_y_max);
+    
+    // 3. 比较预存 bbox 和计算 bbox
+    glyph.x_min as i32 != computed_x_min ||
+    glyph.y_min as i32 != computed_y_min ||
+    glyph.x_max as i32 != computed_x_max ||
+    glyph.y_max as i32 != computed_y_max
+}
 
     /// 确保重叠位图已初始化
     fn ensure_overlap_bitmap(&mut self) {
@@ -275,6 +307,8 @@ impl GlyfEncoder {
             instruction_stream_size = instruction_stream_size,
             "各流大小统计"
         );
+
+        println!("转换后 glyph_stream: {:?}", self.glyph_stream.data);
 
         let stream_size = n_contour_stream_size + n_points_stream_size + flag_byte_stream_size + glyph_stream_size + composite_stream_size + bbox_bitmap_size + bbox_stream_size + instruction_stream_size + overlap_bitmap_size;
 
@@ -363,7 +397,11 @@ pub fn transform_glyf_and_loca(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use rfont_types::Reader;
+
+use crate::tables::woff2_transform::GlyfDecoder;
+
+use super::*;
 
     #[test]
     fn test_triplet_encoding_zero_x() {
@@ -396,5 +434,33 @@ mod tests {
 
         // 空字形应该产生一些输出（n_contour = 0）
         assert!(!glyf_data.is_empty());
+    }
+
+    #[test]
+    fn test_encode_simple_glyph() {
+        let glyphs = vec![GlyfRecord {
+            glyph_id: 0,
+            data: GlyphData::Simple(SimpleGlyph {
+                num_contours: 1, x_min: 55, y_min: -50, x_max: 185, y_max: 600,
+                end_pts_of_contours: vec![11],
+                instructions: vec![],
+                flags: vec![54, 54, 53, 52, 39, 55, 6, 6, 21, 20, 23, 7], 
+                x_coordinates: vec![65, 77, 77, 77, 55, 185, 175, 163, 163, 163, 175, 55], 
+                y_coordinates: vec![21, 211, 306, 490, 590, 600, 533, 335, 231, 71, -40, -50]
+            })
+        }];
+        // 转换字形
+        let (glyf_data, loca_data) = transform_glyf_and_loca(&glyphs, 0).unwrap();
+        println!("glyf_data: {:?}", glyf_data);
+        assert!(loca_data.is_empty());
+        assert!(!glyf_data.is_empty());
+        // 解码字形
+        let v = GlyfDecoder::decode(&glyf_data).unwrap();
+        assert!(!v.0.is_empty());
+        println!("decode glyf_data: {:?}", v);
+        
+        let mut reader = Reader::new(&v.0);
+        let record = GlyfRecord::parse(&mut reader, 0).unwrap();
+        println!("record: {:?}", record);
     }
 }

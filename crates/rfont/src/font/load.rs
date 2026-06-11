@@ -380,6 +380,17 @@ impl Font {
             Self::detect_sfnt_format(data)
         }
     }
+ 
+     /// 获取 name 表
+     pub fn get_name_table(&self) -> Option<rfont_core::NameTable> {
+         use rfont_core::NameTable;
+         use rfont_types::ReadBytes;
+ 
+         let name_bytes = self.font_data.get_table_bytes(Tag(*b"name"))?;
+         println!("name_bytes: {:?}", name_bytes);
+         let mut reader = Reader::new(name_bytes);
+         NameTable::read_from(&mut reader).ok()
+     }
 
     /// 检测 SFNT 格式（TTF/OTF）
     fn detect_sfnt_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {

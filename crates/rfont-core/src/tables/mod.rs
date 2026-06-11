@@ -7,6 +7,7 @@ pub mod hhea;
 pub mod hmtx;
 pub mod loca;
 pub mod maxp;
+pub mod name;
 pub mod woff;
 pub mod woff2;
 pub mod woff2_transform;
