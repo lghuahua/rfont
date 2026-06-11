@@ -59,11 +59,11 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
          println!("  未找到 name 表");
      }
  
-    // 水平度量信息
-    println!("\n{}", "水平度量:".bold());
-    println!("  Ascender:     {}", info.ascender);
-    println!("  Descender:    {}", info.descender);
-    println!("  Line Gap:     {}", info.line_gap);
+     // 水平度量信息
+     println!("\n{}", "水平度量:".bold());
+     println!("  Ascender:     {}", info.ascender);
+     println!("  Descender:    {}", info.descender);
+     println!("  Line Gap:     {}", info.line_gap);
 
     // 表列表
     if verbose {
@@ -83,21 +83,21 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
 
         println!("\n  总计: {} 个表", tables.len());
     }
+    // println!("  {:?} 字符", font.cmap.subtables);
+    // // 支持的字符统计
+    // let supported_chars = font.get_supported_characters();
+    // println!("\n{}", "字符支持:".bold());
+    // println!("  支持的 Unicode 字符数: {}", supported_chars.len());
 
-    // 支持的字符统计
-    let supported_chars = font.get_supported_characters();
-    println!("\n{}", "字符支持:".bold());
-    println!("  支持的 Unicode 字符数: {}", supported_chars.len());
-
-    if verbose && !supported_chars.is_empty() {
-        // 显示前 20 个字符作为示例
-        let sample: String = supported_chars
-            .iter()
-            .take(20)
-            .filter_map(|&c| char::from_u32(c))
-            .collect();
-        println!("  示例字符: {}", sample);
-    }
+    // if verbose && !supported_chars.is_empty() {
+    //     // 显示前 20 个字符作为示例
+    //     let sample: String = supported_chars
+    //         .iter()
+    //         .take(20)
+    //         .filter_map(|&c| char::from_u32(c))
+    //         .collect();
+    //     println!("  示例字符: {}", sample);
+    // }
 
     Ok(())
 }
@@ -121,7 +121,7 @@ fn output_json(font: &Font, verbose: bool) -> Result<()> {
             "descender": info.descender,
             "line_gap": info.line_gap,
         },
-        "supported_characters_count": font.get_supported_characters().len(),
+        // "supported_characters_count": font.get_supported_characters().len(),
     });
 
     if let Some(version) = &info.version {

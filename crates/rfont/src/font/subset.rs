@@ -54,7 +54,7 @@ impl Font {
             .collect();
 
         // 统计支持的字符数量
-        info.supported_char_count = self.cmap.unicode_map.len();
+        // info.supported_char_count = self.cmap.unicode_map.len();
 
         // TODO: 从 name 表提取 family_name, style_name, version
         // 这需要解析 name 表，暂时留为 None
@@ -76,18 +76,6 @@ impl Font {
             .collect()
     }
 
-    /// 获取字体支持的所有 Unicode 字符
-    ///
-    /// 从 cmap 表中提取所有映射的 Unicode 码点，并排序返回。
-    ///
-    /// # 返回值
-    /// 排序后的 Unicode 码点列表
-    pub fn get_supported_characters(&self) -> Vec<u32> {
-        let mut chars: Vec<u32> = self.cmap.unicode_map.keys().cloned().collect();
-        chars.sort();
-        chars
-    }
-
     /// 检查字体是否支持特定字符
     ///
     /// # 参数
@@ -96,8 +84,8 @@ impl Font {
     /// # 返回值
     /// - `true`: 字体支持该字符
     /// - `false`: 字体不支持该字符
-    pub fn supports_character(&self, unicode: u32) -> bool {
-        self.cmap.unicode_map.contains_key(&unicode)
+    pub fn supports_character(&self, unicode: char) -> bool {
+        self.cmap.get_glyph_id(unicode).is_some()
     }
 
     /// 将文本转换为字形 ID 列表
@@ -122,8 +110,7 @@ impl Font {
     pub fn text_to_glyph_ids(&self, text: &str) -> Vec<u16> {
         text.chars()
             .filter_map(|ch| {
-                let unicode = ch as u32;
-                self.cmap.unicode_map.get(&unicode).copied()
+                self.cmap.get_glyph_id(ch)
             })
             .collect()
     }
@@ -308,15 +295,9 @@ impl Font {
         );
         let _enter = span.enter();
 
-        text.chars()
-            .map(|ch| {
-                self.cmap
-                    .unicode_map
-                    .get(&(ch as u32))
-                    .copied()
-                    .unwrap_or(0)
-            })
-            .collect()
+        text.chars().map(|ch| self.cmap.get_glyph_id(ch).map_or(0, |v| v)).collect()
+
+
     }
 
     /// 子集化并序列化字体

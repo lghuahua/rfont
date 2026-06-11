@@ -35,7 +35,6 @@ pub struct FontSubsetBuilder<'a> {
     font: &'a Font,
     text: Option<String>,
     glyph_ids: Option<Vec<u16>>,
-    unicode_ranges: Option<Vec<(u32, u32)>>,
     options: SubsetOptions,
 }
 
@@ -52,7 +51,6 @@ impl<'a> FontSubsetBuilder<'a> {
             font,
             text: None,
             glyph_ids: None,
-            unicode_ranges: None,
             options: SubsetOptions::default(),
         }
     }
@@ -82,37 +80,6 @@ impl<'a> FontSubsetBuilder<'a> {
     /// 更新后的 Builder（支持链式调用）
     pub fn glyph_ids(mut self, ids: Vec<u16>) -> Self {
         self.glyph_ids = Some(ids);
-        self
-    }
-
-    /// 添加 Unicode 范围（start, end）
-    ///
-    /// 指定一个 Unicode 码点范围，包含该范围内的所有字符对应的字形。
-    /// 可以多次调用此方法添加多个范围。
-    ///
-    /// # 参数
-    /// - `start`: 起始 Unicode 码点
-    /// - `end`: 结束 Unicode 码点（包含）
-    ///
-    /// # 返回值
-    /// 更新后的 Builder（支持链式调用）
-    ///
-    /// # 示例
-    /// ```no_run
-    /// use rfont::Font;
-    ///
-    /// let font = Font::load("font.ttf").unwrap();
-    /// let subset = font.subset_builder()
-    ///     .unicode_range(0x0041, 0x005A) // A-Z
-    ///     .unicode_range(0x0061, 0x007A) // a-z
-    ///     .build()
-    ///     .unwrap();
-    /// ```
-    pub fn unicode_range(mut self, start: u32, end: u32) -> Self {
-        if self.unicode_ranges.is_none() {
-            self.unicode_ranges = Some(Vec::new());
-        }
-        self.unicode_ranges.as_mut().unwrap().push((start, end));
         self
     }
 
@@ -250,17 +217,6 @@ impl<'a> FontSubsetBuilder<'a> {
         // 直接指定的字形 ID
         if let Some(ref ids) = self.glyph_ids {
             needed_glyphs.extend(ids.iter().cloned());
-        }
-
-        // 从 Unicode 范围中提取字形 ID
-        if let Some(ref ranges) = self.unicode_ranges {
-            for &(start, end) in ranges {
-                for unicode in start..=end {
-                    if let Some(&glyph_id) = self.font.cmap.unicode_map.get(&unicode) {
-                        needed_glyphs.insert(glyph_id);
-                    }
-                }
-            }
         }
 
         // 确保至少有一个字形

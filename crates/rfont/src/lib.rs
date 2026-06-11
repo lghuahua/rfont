@@ -173,22 +173,6 @@ mod tests {
     }
 
     #[test]
-    fn test_subset_with_unicode_range() {
-        use crate::Font;
-
-        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
-
-        // 使用 Unicode 范围进行子集化（基本拉丁字母）
-        let subset_data = font
-            .subset_builder()
-            .unicode_range(0x0041, 0x005A) // A-Z
-            .build()
-            .unwrap();
-
-        assert!(!subset_data.is_empty());
-    }
-
-    #[test]
     fn test_subset_options_web_optimized() {
         use crate::{Font, SubsetOptions};
 
@@ -238,23 +222,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_supported_characters() {
-        use crate::Font;
-
-        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
-
-        let chars = font.get_supported_characters();
-
-        // 字符列表不应为空
-        assert!(!chars.is_empty());
-
-        // 应该已排序
-        for i in 1..chars.len() {
-            assert!(chars[i] > chars[i - 1]);
-        }
-    }
-
-    #[test]
     fn test_supports_character() {
         use crate::Font;
 
@@ -265,7 +232,7 @@ mod tests {
         for ch in common_chars {
             // 这个测试假设字体支持基本拉丁字母
             // 如果失败，说明字体可能不支持这些字符
-            let supported = font.supports_character(ch as u32);
+            let supported = font.supports_character(ch );
             // 不强制断言，因为字体可能不包含这些字符
             println!(
                 "Character '{}' (U+{:04X}): {}",

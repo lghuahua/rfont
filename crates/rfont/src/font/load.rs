@@ -142,7 +142,7 @@ impl Font {
                     tag: "cmap".to_string(),
                 })?;
         let cmap = Cmap::read_from(&mut Reader::new(cmap_bytes))?;
-        debug!(unicode_map_size = cmap.unicode_map.len(), "Cmap 表解析完成");
+        debug!("Cmap 表解析完成");
 
         // hmtx 需要 hhea 和 maxp 的参数
         let hmtx_bytes =
@@ -377,9 +377,9 @@ impl Font {
         }
         // 检测 TTF/OTF
         else {
-            Self::detect_sfnt_format(data)
-        }
-    }
+             Self::detect_sfnt_format(data)
+         }
+     }
  
      /// 获取 name 表
      pub fn get_name_table(&self) -> Option<rfont_core::NameTable> {
@@ -391,8 +391,8 @@ impl Font {
          let mut reader = Reader::new(name_bytes);
          NameTable::read_from(&mut reader).ok()
      }
-
-    /// 检测 SFNT 格式（TTF/OTF）
+ 
+     /// 检测 SFNT 格式（TTF/OTF）
     fn detect_sfnt_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {
         use rfont_types::FontFormat;
 
@@ -662,7 +662,7 @@ fn reconstruct_transformed_tables(
         if let Some(transform_length) = entry.transform_length {
             if entry.tag.as_str() == "glyf" {
                 let transform_data = reader.read_bytes(transform_length as usize)?;
-
+                
                 match GlyfDecoder::decode(transform_data) {
                     Ok((glyf_data, loca_data)) => {
                         data_vec = glyf_data;
@@ -800,7 +800,7 @@ fn woff2_uncomprss(reader: &mut Reader, hdr: &Woff2Header) -> Result<Vec<u8>, Fo
         let start_offset = (12 + num_tables as usize * TABLE_DIR_ENTRY_SIZE) as u32;
         let mut table_data = Vec::new();
 
-        for (tag, data) in all_tables { 
+        for (tag, data) in all_tables {
             let checksum = calc_sfnt_checksum(data);
             font_checksum += checksum as u64;
             let offset = start_offset + table_data.len() as u32;
@@ -815,7 +815,7 @@ fn woff2_uncomprss(reader: &mut Reader, hdr: &Woff2Header) -> Result<Vec<u8>, Fo
 
             pad4(&mut table_data);
         }
-        // snft header + table records 
+        // snft header + table records
         font_checksum += calc_sfnt_checksum(&font_writer.data) as u64;
 
         let font_checksum_u32 = (font_checksum & 0xFFFFFFFF) as u32;
