@@ -1,6 +1,5 @@
 use crate::Font;
 use crate::font::load::assemble_ttf;
-use rfont_core::round4;
 use rfont_types::{Reader, Tag, WriteBytes};
 use tracing::{debug, error, info, span, warn, Level};
 
@@ -967,11 +966,7 @@ impl Font {
             }
         }
 
-        // ⭐ 计算 total_sfnt_size = SFNT 头 (12) + 表目录 (16×num_tables) + 所有表数据（填充后）
-        let final_total_sfnt_size =
-            12u32 + (num_tables as u32) * 16 + uncompressed_table_stream.len() as u32;
         info!(
-            total_sfnt_size = final_total_sfnt_size,
             stream_size = uncompressed_table_stream.len(),
             "表数据流拼接完成"
         );
@@ -1005,7 +1000,7 @@ impl Font {
         woff2_writer.write_u32(0)?; // length (稍后回填)
         woff2_writer.write_u16(num_tables)?;
         woff2_writer.write_u16(0)?; // reserved
-        woff2_writer.write_u32(final_total_sfnt_size)?; // total_sfnt_size
+        woff2_writer.write_u32(ttf_data.len() as u32)?; // total_sfnt_size
         woff2_writer.write_u32(total_compressed_size)?; // total_compressed_size
         woff2_writer.write_u16(1)?; // major_version
         woff2_writer.write_u16(0)?; // minor_version
@@ -1071,15 +1066,14 @@ impl Font {
             .extend_from_slice(&compressed_table_stream);
 
         // 回填总长度
-        let mut total_length = woff2_writer.data.len() as u32;
-
-        total_length = round4(total_length);
+        woff2_writer.pad_to_4_bytes();
+        let total_length = woff2_writer.data.len() as u32;
 
         woff2_writer.data[header_offset + 8..header_offset + 12]
             .copy_from_slice(&total_length.to_be_bytes());
 
         debug!(
-            total_sfnt_size = final_total_sfnt_size,
+            total_sfnt_size = ttf_data.len() as u32,
             total_compressed_size = total_compressed_size,
             woff2_size = total_length,
             "WOFF2 文件生成完成"
