@@ -1,7 +1,6 @@
 /// OpenType 通用常量
 ///
 /// 这些常量在 OpenType/TrueType 规范中定义，被多个 crate 共享使用。
-
 // SFNT 版本和校验和
 pub const SFNT_CHECKSUM_MAGIC: u32 = 0xB1B0AFBA;
 pub const SFNT_VERSION_TTF: u32 = 0x00010000;

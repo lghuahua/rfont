@@ -1,5 +1,5 @@
 use crate::Font;
-use rfont_types::{FontError};
+use rfont_types::FontError;
 
 /// 提取 glyf 和 loca 数据
 pub fn extract_glyf_and_loca(

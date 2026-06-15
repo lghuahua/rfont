@@ -4,8 +4,10 @@ use rfont_core::tables::glyf::GlyfTable;
 use rfont_core::tables::woff::{WoffHeader, WoffTableDirectoryEntry};
 use rfont_core::tables::woff2::{Woff2Header, Woff2TableDirectoryEntry, WOFF2_KNOWN_TAGS};
 use rfont_core::tables::woff2_transform::GlyfDecoder;
-use rfont_core::{Cmap, Head, Hhea, Hmtx, Loca, Maxp, calc_sfnt_checksum, pad4};
-use rfont_types::{FontError, ReadBytes, Reader, SFNT_CHECKSUM_MAGIC, TableRecord, Tag, WriteBytes, Writer};
+use rfont_core::{calc_sfnt_checksum, pad4, Cmap, Head, Hhea, Hmtx, Loca, Maxp};
+use rfont_types::{
+    FontError, ReadBytes, Reader, TableRecord, Tag, WriteBytes, Writer, SFNT_CHECKSUM_MAGIC,
+};
 use std::io::Read;
 use tracing::{debug, info, span, Level};
 
@@ -165,7 +167,9 @@ impl Font {
                 .ok_or(FontError::TableNotFound {
                     tag: "glyf".to_string(),
                 })?;
-        let glyf = GlyfTable { data: glyf_bytes.to_vec() };
+        let glyf = GlyfTable {
+            data: glyf_bytes.to_vec(),
+        };
 
         Ok(Font {
             font_data,
@@ -175,7 +179,7 @@ impl Font {
             loca,
             cmap,
             hmtx,
-            glyf
+            glyf,
         })
     }
 
@@ -327,7 +331,7 @@ impl Font {
         // 解压缩并重组为 SFNT 数据
         woff2_header.total_sfnt_size = transform_size;
 
-        // 写入 
+        // 写入
         let sfnt_data = write_ttf_data(&mut reader, &woff2_header, &table_entries)?;
 
         tracing::debug!(
@@ -335,7 +339,7 @@ impl Font {
             // expected = woff2_header.total_sfnt_size as usize,
             "WOFF2 重组完成"
         );
-        
+
         // 使用重组后的 SFNT 数据创建 Font
         let f = Self::load_ttf(&sfnt_data)?;
 
@@ -386,21 +390,21 @@ impl Font {
         }
         // 检测 TTF/OTF
         else {
-             Self::detect_sfnt_format(data)
-         }
-     }
- 
-     /// 获取 name 表
-     pub fn get_name_table(&self) -> Option<rfont_core::NameTable> {
-         use rfont_core::NameTable;
-         use rfont_types::ReadBytes;
- 
-         let name_bytes = self.font_data.get_table_bytes(Tag(*b"name"))?;
-         let mut reader = Reader::new(name_bytes);
-         NameTable::read_from(&mut reader).ok()
-     }
- 
-     /// 检测 SFNT 格式（TTF/OTF）
+            Self::detect_sfnt_format(data)
+        }
+    }
+
+    /// 获取 name 表
+    pub fn get_name_table(&self) -> Option<rfont_core::NameTable> {
+        use rfont_core::NameTable;
+        use rfont_types::ReadBytes;
+
+        let name_bytes = self.font_data.get_table_bytes(Tag(*b"name"))?;
+        let mut reader = Reader::new(name_bytes);
+        NameTable::read_from(&mut reader).ok()
+    }
+
+    /// 检测 SFNT 格式（TTF/OTF）
     fn detect_sfnt_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {
         use rfont_types::FontFormat;
 
@@ -653,7 +657,7 @@ fn write_ttf_data(
     // 解压
     let decompressed_data = woff2_uncomprss(reader, hdr)?;
     let mut table_reader = Reader::new(&decompressed_data);
-    let mut all_tables = reconstruct_transformed_tables(&mut table_reader, &table_entries)?;
+    let mut all_tables = reconstruct_transformed_tables(&mut table_reader, table_entries)?;
     assemble_ttf(&mut all_tables)
 }
 
@@ -661,16 +665,19 @@ fn reconstruct_transformed_tables(
     reader: &mut Reader,
     table_entries: &[Woff2TableDirectoryEntry],
 ) -> Result<Vec<(Tag, Vec<u8>)>, FontError> {
-    tracing::debug!(entries_len = table_entries.len(), "reconstruct transformed tables");
+    tracing::debug!(
+        entries_len = table_entries.len(),
+        "reconstruct transformed tables"
+    );
     let mut loca_data_ = Vec::new();
     let mut all_tables = Vec::new();
 
-    for entry in table_entries.iter() { 
+    for entry in table_entries.iter() {
         let mut data_vec = Vec::new();
         if let Some(transform_length) = entry.transform_length {
             if entry.tag.as_str() == "glyf" {
                 let transform_data = reader.read_bytes(transform_length as usize)?;
-                
+
                 match GlyfDecoder::decode(transform_data) {
                     Ok((glyf_data, loca_data)) => {
                         data_vec = glyf_data;
@@ -715,10 +722,8 @@ fn reconstruct_transformed_tables(
             };
         }
 
-
         all_tables.push((entry.tag, data_vec));
     }
-
 
     Ok(all_tables)
 }
@@ -760,78 +765,79 @@ fn woff2_uncomprss(reader: &mut Reader, hdr: &Woff2Header) -> Result<Vec<u8>, Fo
     Ok(decompressed_buffer)
 }
 
-
-
-    /// 组装最终的 TTF 文件（包含校验和计算）
-    pub fn assemble_ttf(
-        all_tables: &mut [(Tag, Vec<u8>)],
-    ) -> Result<Vec<u8>, FontError> {
-        use rfont_types::{SFNT_VERSION_TTF, TABLE_DIR_ENTRY_SIZE};
-        debug!("Assembling TTF");
-        // 按标签排序（TTF 规范要求）
-        // all_tables.sort_by_key(|(tag, _)| tag.0);
-        all_tables.sort_by(|a, b| {
-            let a_idx = WOFF2_KNOWN_TAGS.iter().position(|t| t == &a.0);
-            let b_idx = WOFF2_KNOWN_TAGS.iter().position(|t| t == &b.0);
-            match (a_idx, b_idx) {
-                (Some(ai), Some(bi)) => ai.cmp(&bi),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => a.0.as_str().cmp(b.0.as_str()),
-            }
-        });
-
-        let num_tables = all_tables.len() as u16;
-
-        let mut font_writer = Writer::new();
-
-        font_writer.write_u32(SFNT_VERSION_TTF)?;
-        font_writer.write_u16(num_tables)?;
-        let max_pow2: u32 = if num_tables > 0 {
-            // 找到小于等于 num_tables 的最大 2 的幂
-            1 << (31 - num_tables.leading_zeros())
-        } else {
-            1
-        };
-
-        let search_range = max_pow2 * 16;
-        let entry_selector = max_pow2.trailing_zeros() as u16;
-        let range_shift = ((num_tables as u32) * 16).saturating_sub(search_range) as u16;
-        font_writer.write_u16(search_range as u16)?;
-        font_writer.write_u16(entry_selector)?;
-        font_writer.write_u16(range_shift)?;
-
-        let mut font_checksum: u64 = 0;
-        let mut head_offset = 0;
-
-        let start_offset = (12 + num_tables as usize * TABLE_DIR_ENTRY_SIZE) as u32;
-        let mut table_data = Vec::new();
-
-        for (tag, data) in all_tables {
-            let checksum = calc_sfnt_checksum(data);
-            font_checksum += checksum as u64;
-            let offset = start_offset + table_data.len() as u32;
-
-            if tag.as_str() == "head" {
-                head_offset = table_data.len();
-            }
-            table_data.extend_from_slice(data);
-
-            let table_record = TableRecord { tag: *tag, checksum, offset, length: data.len() as u32};
-            table_record.write_to(&mut font_writer)?;
-
-            pad4(&mut table_data);
+/// 组装最终的 TTF 文件（包含校验和计算）
+pub fn assemble_ttf(all_tables: &mut [(Tag, Vec<u8>)]) -> Result<Vec<u8>, FontError> {
+    use rfont_types::{SFNT_VERSION_TTF, TABLE_DIR_ENTRY_SIZE};
+    debug!("Assembling TTF");
+    // 按标签排序（TTF 规范要求）
+    // all_tables.sort_by_key(|(tag, _)| tag.0);
+    all_tables.sort_by(|a, b| {
+        let a_idx = WOFF2_KNOWN_TAGS.iter().position(|t| t == &a.0);
+        let b_idx = WOFF2_KNOWN_TAGS.iter().position(|t| t == &b.0);
+        match (a_idx, b_idx) {
+            (Some(ai), Some(bi)) => ai.cmp(&bi),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.0.as_str().cmp(b.0.as_str()),
         }
-        // snft header + table records
-        font_checksum += calc_sfnt_checksum(&font_writer.data) as u64;
+    });
 
-        let font_checksum_u32 = (font_checksum & 0xFFFFFFFF) as u32;
-        let checksum_adjustment = SFNT_CHECKSUM_MAGIC.wrapping_sub(font_checksum_u32);
+    let num_tables = all_tables.len() as u16;
 
-        table_data[head_offset + 8..head_offset + 12]
-            .copy_from_slice(&checksum_adjustment.to_be_bytes());
+    let mut font_writer = Writer::new();
 
-        font_writer.write_bytes(&table_data)?;
+    font_writer.write_u32(SFNT_VERSION_TTF)?;
+    font_writer.write_u16(num_tables)?;
+    let max_pow2: u32 = if num_tables > 0 {
+        // 找到小于等于 num_tables 的最大 2 的幂
+        1 << (31 - num_tables.leading_zeros())
+    } else {
+        1
+    };
 
-        Ok(font_writer.data)
+    let search_range = max_pow2 * 16;
+    let entry_selector = max_pow2.trailing_zeros() as u16;
+    let range_shift = ((num_tables as u32) * 16).saturating_sub(search_range) as u16;
+    font_writer.write_u16(search_range as u16)?;
+    font_writer.write_u16(entry_selector)?;
+    font_writer.write_u16(range_shift)?;
+
+    let mut font_checksum: u64 = 0;
+    let mut head_offset = 0;
+
+    let start_offset = (12 + num_tables as usize * TABLE_DIR_ENTRY_SIZE) as u32;
+    let mut table_data = Vec::new();
+
+    for (tag, data) in all_tables {
+        let checksum = calc_sfnt_checksum(data);
+        font_checksum += checksum as u64;
+        let offset = start_offset + table_data.len() as u32;
+
+        if tag.as_str() == "head" {
+            head_offset = table_data.len();
+        }
+        table_data.extend_from_slice(data);
+
+        let table_record = TableRecord {
+            tag: *tag,
+            checksum,
+            offset,
+            length: data.len() as u32,
+        };
+        table_record.write_to(&mut font_writer)?;
+
+        pad4(&mut table_data);
     }
+    // snft header + table records
+    font_checksum += calc_sfnt_checksum(&font_writer.data) as u64;
+
+    let font_checksum_u32 = (font_checksum & 0xFFFFFFFF) as u32;
+    let checksum_adjustment = SFNT_CHECKSUM_MAGIC.wrapping_sub(font_checksum_u32);
+
+    table_data[head_offset + 8..head_offset + 12]
+        .copy_from_slice(&checksum_adjustment.to_be_bytes());
+
+    font_writer.write_bytes(&table_data)?;
+
+    Ok(font_writer.data)
+}

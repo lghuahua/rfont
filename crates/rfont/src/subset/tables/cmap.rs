@@ -1,8 +1,7 @@
 use crate::Font;
 use rfont_core::Cmap;
 use rfont_types::{FontError, WriteBytes, Writer};
-use std::collections::{HashMap};
-
+use std::collections::HashMap;
 
 fn rebuild_cmap_subtable(
     old_map: &HashMap<u32, u16>,
@@ -25,26 +24,23 @@ pub fn rebuild_cmap(font: &Font, subset_glyphs: &[u16]) -> Result<Vec<u8>, FontE
     // subset_glyphs 是按顺序排列的，索引就是新的 glyph ID
     let mut old_to_new_gid = HashMap::new();
     for (new_gid, &old_gid) in subset_glyphs.iter().enumerate() {
-        if old_gid != 0  { 
-            old_to_new_gid.insert(old_gid, new_gid as u16) ;
+        if old_gid != 0 {
+            old_to_new_gid.insert(old_gid, new_gid as u16);
         }
     }
 
     let mut subtables = HashMap::new();
 
-    font.cmap.subtables.iter().for_each(|(key, subtable)| { 
+    font.cmap.subtables.iter().for_each(|(key, subtable)| {
         let new_map = rebuild_cmap_subtable(subtable, &old_to_new_gid);
         if !new_map.is_empty() {
             subtables.insert(*key, new_map);
         }
     });
 
-    let new_cmap = Cmap {
-        subtables,
-    };
+    let new_cmap = Cmap { subtables };
 
     let mut writer = Writer::new();
     new_cmap.write_to(&mut writer)?;
     Ok(writer.data)
-
 }

@@ -71,7 +71,7 @@ impl LONGDATETIME {
             Err(e) => -(e.duration().as_secs() as i64),
         };
         Self(unix_seconds + MAC_TO_UNIX_OFFSET)
-    }    
+    }
     /// 获取原始秒数
     pub fn as_seconds(self) -> i64 {
         self.0
@@ -93,7 +93,7 @@ impl WriteBytes for LONGDATETIME {
         // let now = SystemTime::now();
         // println!("now: {:?}", now);
         // let seconds = LONGDATETIME::from_system_time(now).as_seconds();
-  
+
         writer.write_bytes(&self.0.to_be_bytes())
     }
 }
@@ -193,7 +193,7 @@ pub struct U255(pub u16);
 impl<'a> ReadBytes<'a> for U255 {
     fn read_from(reader: &mut Reader<'a>) -> Result<Self, FontError> {
         let first_byte = reader.read_u8()?;
-        
+
         let value = match first_byte {
             253 => {
                 // 253 + next byte (0-252)
@@ -207,11 +207,11 @@ impl<'a> ReadBytes<'a> for U255 {
             }
             255 => {
                 // Full u16 value
-                reader.read_u16()? as u16
+                reader.read_u16()?
             }
             0..=252 => first_byte as u16,
         };
-        
+
         Ok(U255(value))
     }
 }
@@ -219,7 +219,7 @@ impl<'a> ReadBytes<'a> for U255 {
 impl WriteBytes for U255 {
     fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
         let value = self.0;
-        
+
         if value <= 252 {
             // Single byte encoding
             writer.write_u8(value as u8)
@@ -246,12 +246,12 @@ impl U255 {
     pub fn new(value: u16) -> Self {
         U255(value)
     }
-    
+
     /// Get the inner value
     pub fn value(&self) -> u16 {
         self.0
     }
-    
+
     /// Get the encoded size in bytes (1, 2, or 3)
     pub fn encoded_size(&self) -> usize {
         let value = self.0;
@@ -608,7 +608,6 @@ mod tests {
         assert_eq!(record.encoding_id, 0);
     }
 
-
     #[test]
     fn test_table_record_debug() {
         let tag = Tag(*b"head");
@@ -819,7 +818,9 @@ mod tests {
     #[test]
     fn test_u255_roundtrip_all_ranges() {
         // 测试所有范围的读写往返
-        let test_values = vec![0, 100, 252, 253, 300, 505, 508, 600, 760, 761, 1000, 10000, 65535];
+        let test_values = vec![
+            0, 100, 252, 253, 300, 505, 508, 600, 760, 761, 1000, 10000, 65535,
+        ];
 
         for value in test_values {
             let original = U255::new(value);

@@ -509,7 +509,10 @@ mod tests {
         record.write_to(&mut writer).unwrap();
 
         assert_eq!(writer.data.len(), 12);
-        assert_eq!(&writer.data, &[0x00, 0x03, 0x00, 0x01, 0x04, 0x09, 0x00, 0x01, 0x00, 0x0A, 0x00, 0x20]);
+        assert_eq!(
+            &writer.data,
+            &[0x00, 0x03, 0x00, 0x01, 0x04, 0x09, 0x00, 0x01, 0x00, 0x0A, 0x00, 0x20]
+        );
     }
 
     #[test]
@@ -541,31 +544,31 @@ mod tests {
             0x00, 0x00, // version = 0
             0x00, 0x01, // count = 1
             0x00, 0x12, // string_offset = 18 (6 + 12)
-            ];
-    
-            // Name record (12 bytes)
-            data.extend_from_slice(&[
-                0x00, 0x03, // platform_id = 3
-                0x00, 0x01, // encoding_id = 1
-                0x04, 0x09, // language_id = 0x0409
-                0x00, 0x01, // name_id = 1
-                0x00, 0x04, // length = 4
-                0x00, 0x00, // offset = 0
-            ]);
-    
-            // String data: "Test" (4 bytes)
-            data.extend_from_slice(b"Test");
-    
-            let mut reader = Reader::new(&data);
-            let name = Name::read_from(&mut reader).unwrap();
-    
-            assert_eq!(name.version, NameVersion::V0);
-            assert_eq!(name.count, 1);
-            assert_eq!(name.string_offset, 18);
-            assert_eq!(name.records.len(), 1);
-            assert_eq!(name.records[0].name_id, 1);
-            assert_eq!(name.records[0].length, 4);
-        }
+        ];
+
+        // Name record (12 bytes)
+        data.extend_from_slice(&[
+            0x00, 0x03, // platform_id = 3
+            0x00, 0x01, // encoding_id = 1
+            0x04, 0x09, // language_id = 0x0409
+            0x00, 0x01, // name_id = 1
+            0x00, 0x04, // length = 4
+            0x00, 0x00, // offset = 0
+        ]);
+
+        // String data: "Test" (4 bytes)
+        data.extend_from_slice(b"Test");
+
+        let mut reader = Reader::new(&data);
+        let name = Name::read_from(&mut reader).unwrap();
+
+        assert_eq!(name.version, NameVersion::V0);
+        assert_eq!(name.count, 1);
+        assert_eq!(name.string_offset, 18);
+        assert_eq!(name.records.len(), 1);
+        assert_eq!(name.records[0].name_id, 1);
+        assert_eq!(name.records[0].length, 4);
+    }
     #[test]
     fn test_name_get_string() {
         // Header: 6 bytes, Record: 12 bytes, string_offset = 18
@@ -576,8 +579,7 @@ mod tests {
         ];
 
         data.extend_from_slice(&[
-            0x00, 0x03, 0x00, 0x01, 0x04, 0x09,
-            0x00, 0x01, 0x00, 0x04, 0x00, 0x00,
+            0x00, 0x03, 0x00, 0x01, 0x04, 0x09, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00,
         ]);
 
         data.extend_from_slice(b"Test");
@@ -600,14 +602,12 @@ mod tests {
 
         // Record 1: name_id = 1 (Family) - 12 bytes
         data.extend_from_slice(&[
-            0x00, 0x03, 0x00, 0x01, 0x04, 0x09,
-            0x00, 0x01, 0x00, 0x04, 0x00, 0x00,
+            0x00, 0x03, 0x00, 0x01, 0x04, 0x09, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00,
         ]);
 
         // Record 2: name_id = 6 (PostScript) - 12 bytes
         data.extend_from_slice(&[
-            0x00, 0x03, 0x00, 0x01, 0x04, 0x09,
-            0x00, 0x06, 0x00, 0x08, 0x00, 0x04,
+            0x00, 0x03, 0x00, 0x01, 0x04, 0x09, 0x00, 0x06, 0x00, 0x08, 0x00, 0x04,
         ]);
 
         // String data: "Family" (6 bytes) + "PostSC" (6 bytes) = 12 bytes

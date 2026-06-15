@@ -1,9 +1,14 @@
 use crate::Font;
 use rfont_core::Head;
-use rfont_types::{FontError, HEAD_TABLE_SIZE, ReadBytes, Reader, Tag, WriteBytes, Writer};
+use rfont_types::{FontError, ReadBytes, Reader, Tag, WriteBytes, Writer, HEAD_TABLE_SIZE};
 
 /// 更新 head 表（包含校验和调整和时间戳）
-pub fn update_head(font: &Font, checksum_adjustment: u32, index_to_loc_format: u16, transform: bool ) -> Result<Vec<u8>, FontError> {
+pub fn update_head(
+    font: &Font,
+    checksum_adjustment: u32,
+    index_to_loc_format: u16,
+    transform: bool,
+) -> Result<Vec<u8>, FontError> {
     let head_data = font
         .font_data
         .get_table_bytes(Tag(*b"head"))

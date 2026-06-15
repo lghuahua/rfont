@@ -232,7 +232,7 @@ mod tests {
         for ch in common_chars {
             // 这个测试假设字体支持基本拉丁字母
             // 如果失败，说明字体可能不支持这些字符
-            let supported = font.supports_character(ch );
+            let supported = font.supports_character(ch);
             // 不强制断言，因为字体可能不包含这些字符
             println!(
                 "Character '{}' (U+{:04X}): {}",

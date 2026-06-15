@@ -51,19 +51,19 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
         println!("  版本:         {}", version);
     }
 
-     // Name 表信息
-     println!("\n{}", "名称信息:".bold());
-     if let Some(name_table) = font.get_name_table() {
-         name_table.print_info();
-     } else {
-         println!("  未找到 name 表");
-     }
- 
-     // 水平度量信息
-     println!("\n{}", "水平度量:".bold());
-     println!("  Ascender:     {}", info.ascender);
-     println!("  Descender:    {}", info.descender);
-     println!("  Line Gap:     {}", info.line_gap);
+    // Name 表信息
+    println!("\n{}", "名称信息:".bold());
+    if let Some(name_table) = font.get_name_table() {
+        name_table.print_info();
+    } else {
+        println!("  未找到 name 表");
+    }
+
+    // 水平度量信息
+    println!("\n{}", "水平度量:".bold());
+    println!("  Ascender:     {}", info.ascender);
+    println!("  Descender:    {}", info.descender);
+    println!("  Line Gap:     {}", info.line_gap);
 
     // 表列表
     if verbose {

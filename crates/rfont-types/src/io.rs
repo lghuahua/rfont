@@ -1,4 +1,4 @@
-use crate::{U255, error::FontError};
+use crate::{error::FontError, U255};
 
 /// Trait for reading bytes from a stream.
 pub trait ReadBytes<'a> {
@@ -20,6 +20,10 @@ pub struct Reader<'a> {
 impl<'a> Reader<'a> {
     pub fn new(data: &'a [u8]) -> Self {
         Self { data, offset: 0 }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 
     pub fn len(&self) -> usize {
@@ -177,6 +181,10 @@ impl Default for Writer {
 impl Writer {
     pub fn new() -> Self {
         Self { data: Vec::new() }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 
     pub fn len(&self) -> usize {

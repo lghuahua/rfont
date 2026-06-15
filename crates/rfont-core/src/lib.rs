@@ -10,7 +10,7 @@ pub use tables::hhea::Hhea;
 pub use tables::hmtx::{Hmtx, HmtxRecord};
 pub use tables::loca::Loca;
 pub use tables::maxp::Maxp;
-pub use tables::name::{NameTable, NameId, NameRecord, NameVersion, PlatformId};
+pub use tables::name::{NameId, NameRecord, NameTable, NameVersion, PlatformId};
 
 pub fn pad4(data: &mut Vec<u8>) {
     while !data.len().is_multiple_of(4) {
@@ -19,11 +19,11 @@ pub fn pad4(data: &mut Vec<u8>) {
 }
 
 /// 将 u32 值向上对齐到最近的 4 的倍数
-/// 
+///
 /// 如果向上舍入会导致溢出，则返回原值
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```
 /// use rfont_core::round4;
 /// assert_eq!(round4(0), 0);

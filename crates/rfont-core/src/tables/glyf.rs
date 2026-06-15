@@ -26,14 +26,17 @@ pub const OVERLAP_COMPOUND: u16 = 0x0400; // bit 10: 复合字形重叠
 pub const SCALED_COMPONENT_OFFSET: u16 = 0x0800; // bit 11: 缩放的组件偏移
 pub const UNSCALED_COMPONENT_OFFSET: u16 = 0x1000; // bit 12: 未缩放的组件偏移
 
-pub struct GlyfTable { 
+pub struct GlyfTable {
     pub data: Vec<u8>,
 }
 
 impl GlyfTable {
-    pub fn slice(&self, start: usize, end: usize) -> Result<Vec<u8>, FontError> { 
+    pub fn slice(&self, start: usize, end: usize) -> Result<Vec<u8>, FontError> {
         if start > end || end > self.data.len() {
-            return Err(FontError::Generic(format!("Invalid glyph start: {}, end: {}", start, end)));
+            return Err(FontError::Generic(format!(
+                "Invalid glyph start: {}, end: {}",
+                start, end
+            )));
         }
         Ok(self.data[start..end].to_vec())
     }
@@ -99,7 +102,7 @@ impl WriteBytes for CompositeGlyph {
 pub struct CompositeComponent {
     pub flags: u16,
     pub glyph_index: u16,
-    pub data: Vec<u8>
+    pub data: Vec<u8>,
 }
 
 impl WriteBytes for CompositeComponent {
@@ -158,9 +161,7 @@ impl GlyfRecord {
             let mut x_coordinates = Vec::with_capacity(total_points);
             let mut prev_x: i16 = 0;
 
-            for i in 0..total_points {
-                let flag = flags[i];
-
+            for flag in flags.iter() {
                 // bit 1: X_IS_SHORT (单字节)
                 if flag & FLAG_X_SHORT != 0 {
                     // 单字节坐标值
@@ -194,9 +195,7 @@ impl GlyfRecord {
             let mut y_coordinates = Vec::with_capacity(total_points);
             let mut prev_y: i16 = 0;
 
-            for i in 0..total_points {
-                let flag = flags[i];
-
+            for flag in flags.iter() {
                 // bit 2: Y_IS_SHORT (单字节)
                 if flag & FLAG_Y_SHORT != 0 {
                     // 单字节坐标值
@@ -244,7 +243,7 @@ impl GlyfRecord {
             loop {
                 let flags = reader.read_u16()?;
                 let glyph_index = reader.read_u16()?;
-  
+
                 let mut arg_size = 0;
                 if flags & ARG_1_AND_2_ARE_WORDS != 0 {
                     arg_size += 4;
@@ -694,7 +693,6 @@ mod tests {
         }
     }
 
-
     // ==================== 写入测试 ====================
 
     #[test]
@@ -761,7 +759,7 @@ mod tests {
             components: vec![CompositeComponent {
                 flags: 0x0001,
                 glyph_index: 5,
-                data: vec![0x00, 0x05, 0x00, 0x0A] // argument1=5, argument2=10
+                data: vec![0x00, 0x05, 0x00, 0x0A], // argument1=5, argument2=10
             }],
         };
 

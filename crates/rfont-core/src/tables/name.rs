@@ -123,7 +123,7 @@ impl NameTable {
 
     /// Try to decode a string as UTF-16 BE (Windows Unicode).
     pub fn decode_utf16_be(data: &[u8]) -> Option<String> {
-        if data.len() % 2 != 0 {
+        if !data.len().is_multiple_of(2) {
             return None;
         }
 
@@ -196,59 +196,58 @@ impl NameTable {
             .and_then(|data| Self::decode_utf16_be(data).or_else(|| Self::decode_utf8(data)))
     }
 
-     /// Get the PostScript name as a decoded string.
-     pub fn get_postscript_name_str(&self) -> Option<String> {
-         self.get_postscript_name()
-             .and_then(|data| Self::decode_utf8(data))
-     }
- 
-     /// Print all name table entries in a readable format.
-     pub fn print_info(&self) {
-         println!("Name Table Information:");
-         println!("======================");
-         println!("Version: {:?}", self.version());
-         println!("Record Count: {}", self.count());
-         println!();
- 
-         // Define name ID to label mapping
-         let name_id_labels = [
-             (1, "copyright"),
-             (2, "family"),
-             (3, "subfamily"),
-             (4, "unique_id"),
-             (5, "full_name"),
-             (6, "version"),
-             (7, "postscript_name"),
-             (8, "trademark"),
-             (9, "manufacturer"),
-             (10, "designer"),
-             (11, "manufacturer_url"),
-             (12, "designer_url"),
-             (13, "license_description"),
-             (14, "license_url"),
-             (16, "preferred_family"),
-             (17, "preferred_subfamily"),
-             (18, "compatible_full"),
-             (19, "sample_text"),
-             (20, "postscript_cid"),
-             (21, "wws_family"),
-             (22, "wws_subfamily"),
-         ];
- 
-         // Print each unique name ID
-         for (name_id, label) in name_id_labels.iter() {
-             let records = self.find_by_name_id(*name_id);
-             if !records.is_empty() {
-                 // Use the first record (preferably Windows platform)
-                 for record in &records {
-                     if let Some(decoded) = self.decode_string(record) {
-                         println!("{}: {}", label, decoded);
-                     }
-                 }
-             }
-         }
-     }
- }
+    /// Get the PostScript name as a decoded string.
+    pub fn get_postscript_name_str(&self) -> Option<String> {
+        self.get_postscript_name().and_then(Self::decode_utf8)
+    }
+
+    /// Print all name table entries in a readable format.
+    pub fn print_info(&self) {
+        println!("Name Table Information:");
+        println!("======================");
+        println!("Version: {:?}", self.version());
+        println!("Record Count: {}", self.count());
+        println!();
+
+        // Define name ID to label mapping
+        let name_id_labels = [
+            (1, "copyright"),
+            (2, "family"),
+            (3, "subfamily"),
+            (4, "unique_id"),
+            (5, "full_name"),
+            (6, "version"),
+            (7, "postscript_name"),
+            (8, "trademark"),
+            (9, "manufacturer"),
+            (10, "designer"),
+            (11, "manufacturer_url"),
+            (12, "designer_url"),
+            (13, "license_description"),
+            (14, "license_url"),
+            (16, "preferred_family"),
+            (17, "preferred_subfamily"),
+            (18, "compatible_full"),
+            (19, "sample_text"),
+            (20, "postscript_cid"),
+            (21, "wws_family"),
+            (22, "wws_subfamily"),
+        ];
+
+        // Print each unique name ID
+        for (name_id, label) in name_id_labels.iter() {
+            let records = self.find_by_name_id(*name_id);
+            if !records.is_empty() {
+                // Use the first record (preferably Windows platform)
+                for record in &records {
+                    if let Some(decoded) = self.decode_string(record) {
+                        println!("{}: {}", label, decoded);
+                    }
+                }
+            }
+        }
+    }
+}
 
 impl<'a> ReadBytes<'a> for NameTable {
     fn read_from(reader: &mut Reader<'a>) -> Result<Self, FontError> {
@@ -321,21 +320,26 @@ mod tests {
 
         // length = 16 (8 characters * 2 bytes each for UTF-16)
         data.extend_from_slice(&[
-            0x00, 0x03, 0x00, 0x01, 0x04, 0x09,
-            0x00, 0x01, 0x00, 0x10, 0x00, 0x00,
+            0x00, 0x03, 0x00, 0x01, 0x04, 0x09, 0x00, 0x01, 0x00, 0x10, 0x00, 0x00,
         ]);
 
         // "TestFont" in UTF-16 BE (16 bytes)
         data.extend_from_slice(&[
-            0x00, 0x54, 0x00, 0x65, 0x00, 0x73, 0x00, 0x74,
-            0x00, 0x46, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x74,
+            0x00, 0x54, 0x00, 0x65, 0x00, 0x73, 0x00, 0x74, 0x00, 0x46, 0x00, 0x6F, 0x00, 0x6E,
+            0x00, 0x74,
         ]);
 
         let mut reader = Reader::new(&data);
         let name_table = NameTable::read_from(&mut reader).unwrap();
 
         let family_bytes = name_table.get_family_name().unwrap();
-        assert_eq!(family_bytes, &[0x00, 0x54, 0x00, 0x65, 0x00, 0x73, 0x00, 0x74, 0x00, 0x46, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x74]);
+        assert_eq!(
+            family_bytes,
+            &[
+                0x00, 0x54, 0x00, 0x65, 0x00, 0x73, 0x00, 0x74, 0x00, 0x46, 0x00, 0x6F, 0x00, 0x6E,
+                0x00, 0x74
+            ]
+        );
     }
 
     #[test]
@@ -368,14 +372,12 @@ mod tests {
 
         // Record 1: name_id = 1 (Family) - 12 bytes
         data.extend_from_slice(&[
-            0x00, 0x03, 0x00, 0x01, 0x04, 0x09,
-            0x00, 0x01, 0x00, 0x04, 0x00, 0x00,
+            0x00, 0x03, 0x00, 0x01, 0x04, 0x09, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00,
         ]);
 
         // Record 2: name_id = 6 (PostScript) - 12 bytes
         data.extend_from_slice(&[
-            0x00, 0x03, 0x00, 0x01, 0x04, 0x09,
-            0x00, 0x06, 0x00, 0x08, 0x00, 0x04,
+            0x00, 0x03, 0x00, 0x01, 0x04, 0x09, 0x00, 0x06, 0x00, 0x08, 0x00, 0x04,
         ]);
 
         // String data: "Test" (4 bytes) + "PostSC" (8 bytes) = 12 bytes

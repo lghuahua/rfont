@@ -17,13 +17,13 @@ pub struct GlyfEncoder {
     n_glyphs: u16,
     index_format: u8,
     // 7个主要流
-    n_contour_stream: Writer,   // 轮廓数量流
-    n_points_stream: Writer,    // 点数流
-    flag_byte_stream: Writer,   // 标志位流
-    glyph_stream: Writer,       // 字形数据流（坐标三元组）
-    composite_stream: Writer,   // 复合字形流
+    n_contour_stream: Writer,    // 轮廓数量流
+    n_points_stream: Writer,     // 点数流
+    flag_byte_stream: Writer,    // 标志位流
+    glyph_stream: Writer,        // 字形数据流（坐标三元组）
+    composite_stream: Writer,    // 复合字形流
     bbox_bitmap: Vec<u8>,        // BBox 位图
-    bbox_stream: Writer,        // BBox 数据流
+    bbox_stream: Writer,         // BBox 数据流
     instruction_stream: Vec<u8>, // 指令流
 
     // 重叠位图（可选）
@@ -212,7 +212,14 @@ impl GlyfEncoder {
     }
 
     /// 写入 BBox
-    fn write_bbox(&mut self, glyph_id: u16, x_min: i16, y_min: i16, x_max: i16, y_max: i16) -> Result<(), FontError> {
+    fn write_bbox(
+        &mut self,
+        glyph_id: u16,
+        x_min: i16,
+        y_min: i16,
+        x_max: i16,
+        y_max: i16,
+    ) -> Result<(), FontError> {
         // 设置位图中的对应位
         let byte_idx = (glyph_id >> 3) as usize;
         let bit_idx = glyph_id & 7;
@@ -232,47 +239,47 @@ impl GlyfEncoder {
     fn write_instructions(&mut self, instructions: &[u8]) -> Result<(), FontError> {
         // 先写入长度（使用 255UShort 编码）
         // Self::write_255_ushort(&mut self.instruction_stream, instructions.len());
-        self.glyph_stream.write_255_ushort(instructions.len() as u16)?;
+        self.glyph_stream
+            .write_255_ushort(instructions.len() as u16)?;
         // 再写入指令数据
         self.instruction_stream.extend_from_slice(instructions);
         Ok(())
     }
 
-/// 判断是否应该写入简单字形的 BBox
-///
-/// 参考 Google woff2 项目的 ShouldWriteSimpleGlyphBbox 实现：
-/// 1. 空字形：只有当 bbox 非零时才写入
-/// 2. 非空字形：遍历所有点计算实际 bbox，与预存值比较
-///    - 如果一致：不写入（解码器可从坐标推导）
-///    - 如果不一致：写入（保证数据正确性）
-fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
-    // 1. 空字形处理
-    if glyph.num_contours <= 0 || glyph.end_pts_of_contours.is_empty() {
-        return glyph.x_min != 0 || glyph.y_min != 0 || 
-               glyph.x_max != 0 || glyph.y_max != 0;
-    }
-    
-    // 2. 遍历所有点，计算实际 bbox
-    let mut computed_x_min = i32::MAX;
-    let mut computed_y_min = i32::MAX;
-    let mut computed_x_max = i32::MIN;
-    let mut computed_y_max = i32::MIN;
-    
-    for (&x, &y) in glyph.x_coordinates.iter().zip(glyph.y_coordinates.iter()) {
-        let x = x as i32;
-        let y = y as i32;
-        computed_x_min = computed_x_min.min(x);
-        computed_y_min = computed_y_min.min(y);
-        computed_x_max = computed_x_max.max(x);
-        computed_y_max = computed_y_max.max(y);
-    }
+    /// 判断是否应该写入简单字形的 BBox
+    ///
+    /// 参考 Google woff2 项目的 ShouldWriteSimpleGlyphBbox 实现：
+    /// 1. 空字形：只有当 bbox 非零时才写入
+    /// 2. 非空字形：遍历所有点计算实际 bbox，与预存值比较
+    ///    - 如果一致：不写入（解码器可从坐标推导）
+    ///    - 如果不一致：写入（保证数据正确性）
+    fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
+        // 1. 空字形处理
+        if glyph.num_contours <= 0 || glyph.end_pts_of_contours.is_empty() {
+            return glyph.x_min != 0 || glyph.y_min != 0 || glyph.x_max != 0 || glyph.y_max != 0;
+        }
 
-    // 3. 比较预存 bbox 和计算 bbox
-    glyph.x_min as i32 != computed_x_min ||
-    glyph.y_min as i32 != computed_y_min ||
-    glyph.x_max as i32 != computed_x_max ||
-    glyph.y_max as i32 != computed_y_max
-}
+        // 2. 遍历所有点，计算实际 bbox
+        let mut computed_x_min = i32::MAX;
+        let mut computed_y_min = i32::MAX;
+        let mut computed_x_max = i32::MIN;
+        let mut computed_y_max = i32::MIN;
+
+        for (&x, &y) in glyph.x_coordinates.iter().zip(glyph.y_coordinates.iter()) {
+            let x = x as i32;
+            let y = y as i32;
+            computed_x_min = computed_x_min.min(x);
+            computed_y_min = computed_y_min.min(y);
+            computed_x_max = computed_x_max.max(x);
+            computed_y_max = computed_y_max.max(y);
+        }
+
+        // 3. 比较预存 bbox 和计算 bbox
+        glyph.x_min as i32 != computed_x_min
+            || glyph.y_min as i32 != computed_y_min
+            || glyph.x_max as i32 != computed_x_max
+            || glyph.y_max as i32 != computed_y_max
+    }
 
     /// 确保重叠位图已初始化
     fn ensure_overlap_bitmap(&mut self) {
@@ -283,14 +290,14 @@ fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        let n_contour_stream_size =  self.n_contour_stream.len() as u32;
+        let n_contour_stream_size = self.n_contour_stream.len() as u32;
         let n_points_stream_size = self.n_points_stream.len() as u32;
         let flag_byte_stream_size = self.flag_byte_stream.len() as u32;
         let glyph_stream_size = self.glyph_stream.len() as u32;
-        let composite_stream_size = self.composite_stream.len()  as u32;
-        let bbox_bitmap_size = self.bbox_bitmap.len()  as u32;
-        let bbox_stream_size = self.bbox_stream.len()  as u32;
-        let instruction_stream_size = self.instruction_stream.len()  as u32;
+        let composite_stream_size = self.composite_stream.len() as u32;
+        let bbox_bitmap_size = self.bbox_bitmap.len() as u32;
+        let bbox_stream_size = self.bbox_stream.len() as u32;
+        let instruction_stream_size = self.instruction_stream.len() as u32;
         let overlap_bitmap_size = self.overlap_bitmap.len() as u32;
 
         tracing::debug!(
@@ -305,7 +312,15 @@ fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
             "各流大小统计"
         );
 
-        let stream_size = n_contour_stream_size + n_points_stream_size + flag_byte_stream_size + glyph_stream_size + composite_stream_size + bbox_bitmap_size + bbox_stream_size + instruction_stream_size + overlap_bitmap_size;
+        let stream_size = n_contour_stream_size
+            + n_points_stream_size
+            + flag_byte_stream_size
+            + glyph_stream_size
+            + composite_stream_size
+            + bbox_bitmap_size
+            + bbox_stream_size
+            + instruction_stream_size
+            + overlap_bitmap_size;
 
         let mut result = Vec::with_capacity(stream_size as usize + 36);
         let option_flages: u16 = if self.overlap_bitmap.is_empty() { 0 } else { 1 };
@@ -332,8 +347,6 @@ fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
         result.extend_from_slice(&self.instruction_stream);
         result
     }
-
-
 }
 
 /// 转换 glyf 和 loca 表
@@ -392,9 +405,9 @@ pub fn transform_glyf_and_loca(
 mod tests {
     use rfont_types::Reader;
 
-use crate::tables::woff2_transform::GlyfDecoder;
+    use crate::tables::woff2_transform::GlyfDecoder;
 
-use super::*;
+    use super::*;
 
     #[test]
     fn test_triplet_encoding_zero_x() {
@@ -434,18 +447,22 @@ use super::*;
         let glyphs = vec![GlyfRecord {
             glyph_id: 0,
             data: GlyphData::Simple(SimpleGlyph {
-                num_contours: 1, x_min: 55, y_min: -50, x_max: 185, y_max: 600,
+                num_contours: 1,
+                x_min: 55,
+                y_min: -50,
+                x_max: 185,
+                y_max: 600,
                 end_pts_of_contours: vec![11],
                 instructions: vec![],
-                flags: vec![54, 54, 53, 52, 39, 55, 6, 6, 21, 20, 23, 7], 
-                x_coordinates: vec![65, 77, 77, 77, 55, 185, 175, 163, 163, 163, 175, 55], 
-                y_coordinates: vec![21, 211, 306, 490, 590, 600, 533, 335, 231, 71, -40, -50]
-            })
+                flags: vec![54, 54, 53, 52, 39, 55, 6, 6, 21, 20, 23, 7],
+                x_coordinates: vec![65, 77, 77, 77, 55, 185, 175, 163, 163, 163, 175, 55],
+                y_coordinates: vec![21, 211, 306, 490, 590, 600, 533, 335, 231, 71, -40, -50],
+            }),
         }];
         // 转换字形
         let glyf_data = transform_glyf_and_loca(&glyphs, 1).unwrap();
         assert!(!glyf_data.is_empty());
-        
+
         // 解码字形
         let (decoded_glyf, _decoded_loca) = GlyfDecoder::decode(&glyf_data).unwrap();
         assert!(!decoded_glyf.is_empty());
@@ -453,7 +470,7 @@ use super::*;
         // 解析字形
         let mut reader = Reader::new(&decoded_glyf);
         let record = GlyfRecord::parse(&mut reader, 0).unwrap();
-        
+
         // 验证解析结果
         match &record.data {
             GlyphData::Simple(simple) => {

@@ -1,5 +1,5 @@
-use crate::Font;
 use crate::font::load::assemble_ttf;
+use crate::Font;
 use rfont_types::{Reader, Tag, WriteBytes};
 use tracing::{debug, error, info, span, warn, Level};
 
@@ -110,9 +110,7 @@ impl Font {
     /// ```
     pub fn text_to_glyph_ids(&self, text: &str) -> Vec<u16> {
         text.chars()
-            .filter_map(|ch| {
-                self.cmap.get_glyph_id(ch)
-            })
+            .filter_map(|ch| self.cmap.get_glyph_id(ch))
             .collect()
     }
 
@@ -296,9 +294,9 @@ impl Font {
         );
         let _enter = span.enter();
 
-        text.chars().map(|ch| self.cmap.get_glyph_id(ch).map_or(0, |v| v)).collect()
-
-
+        text.chars()
+            .map(|ch| self.cmap.get_glyph_id(ch).map_or(0, |v| v))
+            .collect()
     }
 
     /// 子集化并序列化字体
@@ -926,7 +924,7 @@ impl Font {
 
             // 执行 glyf/loca 转换
             debug!("开始 glyf/loca 转换，字形数量 = {}", all_glyphs.len());
-            match transform_glyf_and_loca(&all_glyphs, index_to_loc_format)  {
+            match transform_glyf_and_loca(&all_glyphs, index_to_loc_format) {
                 Ok(transformed_glyf) => {
                     debug!("glyf/loca 转换成功");
                     let original_size = *glyf_length as f64;

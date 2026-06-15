@@ -61,22 +61,23 @@ pub struct GlyfHeader {
     pub index_format: u16, // 0 = short (2 bytes), 1 = long (4 bytes)
 }
 
-
-pub struct GlyfDecoder {
-
-}
+pub struct GlyfDecoder {}
 
 impl GlyfDecoder {
-    pub fn decode( data: &[u8]) -> Result<(Vec<u8>, Vec<u8>), FontError> {
+    pub fn decode(data: &[u8]) -> Result<(Vec<u8>, Vec<u8>), FontError> {
         let mut reader = Reader::new(data);
         let header = GlyfHeader::read_from(&mut reader)?;
 
         if header.reserved != 0 {
-            return Err(FontError::Generic("Reserved field must be zero".to_string()));
+            return Err(FontError::Generic(
+                "Reserved field must be zero".to_string(),
+            ));
         }
 
         if header.num_glyphs == 0 {
-            return Err(FontError::Generic("Number of glyphs must be greater than zero".to_string()));
+            return Err(FontError::Generic(
+                "Number of glyphs must be greater than zero".to_string(),
+            ));
         }
 
         let has_overlap_bitmap = header.flags & FLAG_OVERLAP_COMPOUND != 0;
@@ -87,32 +88,29 @@ impl GlyfDecoder {
             *size = reader.read_u32()?;
         }
 
-        tracing::debug!(
-            "各流大小统计 {:?}", substream_sizes
-        );
+        tracing::debug!("各流大小统计 {:?}", substream_sizes);
 
         // 提取子流数据
-        let n_contour_stream = reader.read_bytes(substream_sizes[0] as usize )?;
-        let n_points_stream = reader.read_bytes(substream_sizes[1] as usize )?;
-        let flag_stream = reader.read_bytes(substream_sizes[2] as usize )?;
-        let glyph_stream = reader.read_bytes(substream_sizes[3] as usize )?;
-            
-        let composite_stream = reader.read_bytes(substream_sizes[4] as usize )?;
-        let bbox_stream = reader.read_bytes(substream_sizes[5] as usize )?;
-        let instruction_stream = reader.read_bytes(substream_sizes[6] as usize )?;
+        let n_contour_stream = reader.read_bytes(substream_sizes[0] as usize)?;
+        let n_points_stream = reader.read_bytes(substream_sizes[1] as usize)?;
+        let flag_stream = reader.read_bytes(substream_sizes[2] as usize)?;
+        let glyph_stream = reader.read_bytes(substream_sizes[3] as usize)?;
+
+        let composite_stream = reader.read_bytes(substream_sizes[4] as usize)?;
+        let bbox_stream = reader.read_bytes(substream_sizes[5] as usize)?;
+        let instruction_stream = reader.read_bytes(substream_sizes[6] as usize)?;
 
         // if has_overlap_bitmap {
         //     let overlap_bitmap = reader.read_bytes( ((header.num_glyphs + 7) >> 3) as usize )?;
         // }
 
         let overlap_bitmap = if has_overlap_bitmap {
-            Some(reader.read_bytes( ((header.num_glyphs + 7) >> 3) as usize )?)
+            Some(reader.read_bytes(((header.num_glyphs + 7) >> 3) as usize)?)
         } else {
             None
         };
 
         tracing::debug!("流提取完成");
-
 
         // let expected_loca_dst_length = if header.index_format == 0 { 2 } else { 4 };
 
@@ -123,75 +121,75 @@ impl GlyfDecoder {
         let mut n_contour_reader = Reader::new(n_contour_stream);
         let mut composite_reader = Reader::new(composite_stream);
         let mut glyph_reader = Reader::new(glyph_stream);
-        let mut instruction_reader= Reader::new(instruction_stream);
+        let mut instruction_reader = Reader::new(instruction_stream);
         let mut n_points_reader = Reader::new(n_points_stream);
-        let mut bbox_reader= Reader::new(bbox_stream);
-        let mut flag_reader= Reader::new(flag_stream);
-        
+        let mut bbox_reader = Reader::new(bbox_stream);
+        let mut flag_reader = Reader::new(flag_stream);
+
         let bbox_bitmap_length = header.num_glyphs.div_ceil(8) as usize;
-        let bbox_bitmap = bbox_reader.read_bytes(bbox_bitmap_length as usize)?;
-    
-    // 逐字形处理
-    for glyph_idx in 0..header.num_glyphs {
-        let glyph_start = glyf_data.len();
-        // loca_writer.write_bytes(bytes)
-        loca_values.push(glyph_start as u32);
+        let bbox_bitmap = bbox_reader.read_bytes(bbox_bitmap_length)?;
 
-        // 读取轮廓数
-        let n_contours = n_contour_reader.read_u16()?;
+        // 逐字形处理
+        for glyph_idx in 0..header.num_glyphs {
+            let glyph_start = glyf_data.len();
+            // loca_writer.write_bytes(bytes)
+            loca_values.push(glyph_start as u32);
 
-        // 检查是否有 bbox
-        let byte_idx = glyph_idx as usize / 8;
-        let bit_idx = glyph_idx as usize % 8;
-        let have_bbox = if byte_idx < bbox_bitmap.len() {
-            (bbox_bitmap[byte_idx] >> (7 - bit_idx)) & 1 != 0
-        } else {
-            false
-        };
+            // 读取轮廓数
+            let n_contours = n_contour_reader.read_u16()?;
 
-        if n_contours == 0xFFFF {
-            // === 复合字形 ===
-            reconstruct_composite_glyph(
-                &mut composite_reader,
-                &mut glyph_reader,
-                &mut instruction_reader,
-                have_bbox,
-                &mut bbox_reader,
-                &mut glyf_data,
-            )?;
-        } else if n_contours > 0 {
-            // === 简单字形 ===
-            reconstruct_simple_glyph(
-                n_contours,
-                &mut n_points_reader,
-                &mut flag_reader,
-                &mut glyph_reader,
-                &mut instruction_reader,
-                have_bbox,
-                &mut bbox_reader,
-                has_overlap_bitmap,
-                overlap_bitmap,
-                glyph_idx,
-                &mut glyf_data,
-            )?;
-        } else {
-            // n_contours == 0: 空字形
-            if have_bbox {
-                return Err(FontError::Generic(
-                    "Empty glyph should not have bbox".to_string(),
-                ));
+            // 检查是否有 bbox
+            let byte_idx = glyph_idx as usize / 8;
+            let bit_idx = glyph_idx as usize % 8;
+            let have_bbox = if byte_idx < bbox_bitmap.len() {
+                (bbox_bitmap[byte_idx] >> (7 - bit_idx)) & 1 != 0
+            } else {
+                false
+            };
+
+            if n_contours == 0xFFFF {
+                // === 复合字形 ===
+                reconstruct_composite_glyph(
+                    &mut composite_reader,
+                    &mut glyph_reader,
+                    &mut instruction_reader,
+                    have_bbox,
+                    &mut bbox_reader,
+                    &mut glyf_data,
+                )?;
+            } else if n_contours > 0 {
+                // === 简单字形 ===
+                reconstruct_simple_glyph(
+                    n_contours,
+                    &mut n_points_reader,
+                    &mut flag_reader,
+                    &mut glyph_reader,
+                    &mut instruction_reader,
+                    have_bbox,
+                    &mut bbox_reader,
+                    has_overlap_bitmap,
+                    overlap_bitmap,
+                    glyph_idx,
+                    &mut glyf_data,
+                )?;
+            } else {
+                // n_contours == 0: 空字形
+                if have_bbox {
+                    return Err(FontError::Generic(
+                        "Empty glyph should not have bbox".to_string(),
+                    ));
+                }
+                // 空字形不写入任何数据
             }
-            // 空字形不写入任何数据
         }
+
+        // 添加最后一个 loca 值（指向 glyf 表的末尾）
+        loca_values.push(glyf_data.len() as u32);
+
+        // 构建 loca 表
+        let loca_data = build_loca_table(&loca_values, header.index_format);
+        Ok((glyf_data, loca_data))
     }
-
-    // 添加最后一个 loca 值（指向 glyf 表的末尾）
-    loca_values.push(glyf_data.len() as u32);
-
-    // 构建 loca 表
-    let loca_data = build_loca_table(&loca_values, header.index_format);
-    Ok((glyf_data, loca_data))
-}
 }
 
 // ============================================================================
@@ -200,11 +198,7 @@ impl GlyfDecoder {
 
 /// 根据标志位确定符号
 fn with_sign(flag: u8, baseval: i32) -> i32 {
-    if flag & 1 != 0 {
-        baseval
-    } else {
-        -baseval
-    }
+    if flag & 1 != 0 { baseval } else { -baseval }
 }
 
 /// 安全整数加法，防止溢出
@@ -252,7 +246,7 @@ pub fn triplet_decode(
 
     // // 计算实际需要的数据字节数
     // let required_bytes = calculate_triplet_bytes_consumed(flags_buf, n_points)?;
-    
+
     // // 检查 triplet_buf 长度是否足够
     // if triplet_buf.len() < required_bytes {
     //     return Err(FontError::Generic(format!(
@@ -271,7 +265,6 @@ pub fn triplet_decode(
         let flag = flags_buf[i];
         let on_curve = (flag >> 7) == 0;
         let flag_low = flag & 0x7f;
-
 
         // 解码 dx, dy
         let (dx, dy) = if flag_low < 10 {
@@ -311,10 +304,7 @@ pub fn triplet_decode(
             // dx 8 位, dy 12 位（共用 3 字节）
             let b1 = triplet_reader.read_u8()?;
             let b2 = triplet_reader.read_u8()?;
-            let dx_val = with_sign(
-                flag_low,
-                ((b1 as i32) << 4) + ((b2 >> 4) as i32),
-            );
+            let dx_val = with_sign(flag_low, ((b1 as i32) << 4) + ((b2 >> 4) as i32));
             let dy_val = with_sign(
                 flag_low >> 1,
                 (((b2 & 0x0f) as i32) << 8) + triplet_reader.read_u8()? as i32,
@@ -328,8 +318,7 @@ pub fn triplet_decode(
             );
             let dy_val = with_sign(
                 flag_low >> 1,
-                ((triplet_reader.read_u8()? as i32) << 8)
-                    + triplet_reader.read_u8()? as i32,
+                ((triplet_reader.read_u8()? as i32) << 8) + triplet_reader.read_u8()? as i32,
             );
             (dx_val, dy_val)
         };
@@ -386,7 +375,7 @@ fn write_flag(writer: &mut Writer, flag: u8, count: u8) -> Result<(), FontError>
     Ok(())
 }
 
-fn write_y_coordinates(writer: &mut Writer, value: i32, flag: &mut u8)  -> Result<(), FontError> {
+fn write_y_coordinates(writer: &mut Writer, value: i32, flag: &mut u8) -> Result<(), FontError> {
     if value == 0 {
         *flag |= GLYF_THIS_Y_IS_SAME;
     } else if value.unsigned_abs() < 256 {
@@ -398,7 +387,7 @@ fn write_y_coordinates(writer: &mut Writer, value: i32, flag: &mut u8)  -> Resul
     Ok(())
 }
 
-fn write_x_coordinates(writer: &mut Writer, value: i32, flag: &mut u8)  -> Result<(), FontError> {
+fn write_x_coordinates(writer: &mut Writer, value: i32, flag: &mut u8) -> Result<(), FontError> {
     if value == 0 {
         *flag |= GLYF_THIS_X_IS_SAME;
     } else if value.unsigned_abs() < 256 {
@@ -409,7 +398,6 @@ fn write_x_coordinates(writer: &mut Writer, value: i32, flag: &mut u8)  -> Resul
     }
     Ok(())
 }
-
 
 // ============================================================================
 // StorePoints: 将点数组转换为标准 glyf 格式
@@ -444,11 +432,11 @@ pub fn store_points(
     let mut y_writer = Writer::with_capacity(estimated_size);
 
     let mut last_x: i32 = 0;
-    let mut last_y: i32 = 0;    
+    let mut last_y: i32 = 0;
     let mut last_flag: i32 = -1;
     let mut repeat_count: u8 = 0;
 
-    for (i, point) in points.iter().enumerate() { 
+    for (i, point) in points.iter().enumerate() {
         let mut flag: u8 = if point.on_curve { GLYF_ON_CURVE } else { 0 };
 
         // 第一个点且需要 overlap 标志
@@ -462,12 +450,12 @@ pub fn store_points(
         write_x_coordinates(&mut x_writer, dx, &mut flag)?;
         write_y_coordinates(&mut y_writer, dy, &mut flag)?;
         // println!("cuc_flag: flag={:08b}, v: {}, count={}, last_flag={}", flag, flag, repeat_count, last_flag);
-        if last_flag == flag as i32 && repeat_count != 255 { 
+        if last_flag == flag as i32 && repeat_count != 255 {
             repeat_count += 1;
         } else if i != 0 {
             write_flag(glyph_writer, last_flag as u8, repeat_count)?;
             repeat_count = 0;
-        }     
+        }
 
         last_x = point.x;
         last_y = point.y;
@@ -510,23 +498,20 @@ fn reconstruct_simple_glyph(
 
     // 读取三元组数据
     // 解码点坐标
-    let points = triplet_decode(
-        flags_buf,
-        glyph_reader,
-        total_n_points,
-    )?;
+    let points = triplet_decode(flags_buf, glyph_reader, total_n_points)?;
 
     // 读取指令长度
     let instruction_length_value = U255::read_from(glyph_reader)?.value() as usize;
-    
+
     // 读取指令数据
     // 读取指令数据
     let instructions = if instruction_length_value > 0 {
-        instruction_reader.read_bytes(instruction_length_value)?.to_vec()
+        instruction_reader
+            .read_bytes(instruction_length_value)?
+            .to_vec()
     } else {
         Vec::new()
     };
-
 
     // 构建字形缓冲区
     let mut glyph_writer = Writer::new();
@@ -554,9 +539,7 @@ fn reconstruct_simple_glyph(
         end_point += n_pts as i32;
         // glyph_buf.extend_from_slice(&(end_point as u16).to_be_bytes());
         if end_point >= 65536 {
-            return Err(FontError::Generic(
-                "Contour end point overflow".to_string(),
-            ));
+            return Err(FontError::Generic("Contour end point overflow".to_string()));
         }
         glyph_writer.write_u16(end_point as u16)?;
     }
@@ -566,7 +549,6 @@ fn reconstruct_simple_glyph(
     // glyph_buf.extend_from_slice(&(instruction_length_value as u16).to_be_bytes());
     glyph_writer.write_bytes(&instructions)?;
 
-
     // 存储点
     let has_overlap_bit = has_overlap_bitmap
         && overlap_bitmap.is_some_and(|bmp| {
@@ -575,11 +557,7 @@ fn reconstruct_simple_glyph(
             byte_idx < bmp.len() && (bmp[byte_idx] >> (7 - bit_idx)) & 1 != 0
         });
 
-    store_points(
-        &points,
-        has_overlap_bit,
-        &mut glyph_writer,
-    )?;
+    store_points(&points, has_overlap_bit, &mut glyph_writer)?;
 
     glyf_data.extend_from_slice(&glyph_writer.data);
 
@@ -942,7 +920,7 @@ mod tests {
         store_points(&points, true, &mut glyph_writer).unwrap();
         // 应该有数据输出
         assert!(glyph_writer.data.len() > 0);
-        
+
         // 验证第一个标志位包含 OVERLAP_SIMPLE
         // 第一个点的 flag 应该是 GLYF_ON_CURVE | OVERLAP_SIMPLE = 0x01 | 0x40 = 0x41
         // 但由于新的实现使用 write_flag，实际存储方式可能不同
@@ -1052,7 +1030,7 @@ mod tests {
         let mut glyph_writer = Writer::new();
 
         store_points(&points, false, &mut glyph_writer).unwrap();
-        
+
         // 输出应该包含三部分：标志位 + X 坐标数据 + Y 坐标数据
         // 由于实现细节是先将标志位写入 glyph_writer，然后追加 X 和 Y 数据
         assert!(glyph_writer.data.len() >= 2); // 至少 2 个标志字节
@@ -1068,8 +1046,8 @@ mod tests {
                 on_curve: true,
             },
             Point {
-                x: 50,  // dx = -50
-                y: 80,  // dy = -20
+                x: 50, // dx = -50
+                y: 80, // dy = -20
                 on_curve: true,
             },
         ];
@@ -1158,7 +1136,7 @@ mod tests {
 
         // 2. 验证输出数据
         assert!(glyph_writer.data.len() > 0);
-        
+
         // 3. 验证数据结构：应该有标志位 + X 坐标 + Y 坐标
         // 由于实现细节，我们只验证有数据输出
     }
