@@ -69,7 +69,7 @@ fn test_font_format(path: &str, format: &str) -> Result<(), Box<dyn std::error::
         "   - index_to_loc_format: {}",
         font.head.index_to_loc_format
     );
-    println!("   - Cmap 映射数: {}", font.cmap.unicode_map.len());
+    println!("   - Cmap 映射数: {}", font.cmap.supported_chars_count());
 
     // 测试一些常见汉字
     let test_texts = vec!["阿里妈妈刀隶体", "Hello World", "测试123"];

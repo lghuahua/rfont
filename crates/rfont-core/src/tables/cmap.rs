@@ -398,23 +398,46 @@ impl Cmap {
         Ok(map)
     }
 
-    /// 获取字形 ID（带缓存优化）
+    /// 获取字形 ID
     pub fn get_glyph_id(&self, char_code: char) -> Option<u16> {
         let code = char_code as u32;
 
+        self.get_glyph_id_by_code(code)
+    }
+    /// 获取字形 ID
+    pub fn get_glyph_id_by_code(&self, code: u32) -> Option<u16> {
         // 直接查找 unicode_map
         for (_key, map) in self.subtables.iter() {
             if let Some(id) = map.get(&code) {
                 if *id > 0 { return Some(*id) }
             }
         };
-        info!("No glyph found for character: {}", char_code);
+        info!("No glyph found for char code: {}", code);
         None
     }
-
     /// 批量查询字形 ID（优化版本）
     pub fn get_glyph_ids(&self, text: &str) -> Vec<(char, Option<u16>)> {
         text.chars().map(|ch| (ch, self.get_glyph_id(ch))).collect()
+    }
+
+    pub fn supported_chars(&self) -> Vec<char> {
+        let mut chars = Vec::new();
+        let mut iter = self.subtables.iter();
+        if let Some((_, map)) = iter.next() {
+            for (char_code, _glyph_id) in map.iter() {
+                chars.push(char::from_u32(*char_code).unwrap());
+            }
+        }
+
+        chars
+    }
+
+    pub fn supported_chars_count(&self) -> usize {
+        let mut iter = self.subtables.iter();
+        if let Some((_, map)) = iter.next() {
+            return map.len();
+        }
+        0
     }
 
 }

@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     let test_chars = vec!['阿', '里', '妈', '妈', 'A', 'B', '1', '2'];
     for ch in test_chars {
-        let supported = font.supports_character(ch as u32);
+        let supported = font.supports_character(ch);
         let status = if supported { "✅" } else { "❌" };
         println!("{} '{}' (U+{:04X})", status, ch, ch as u32);
     }

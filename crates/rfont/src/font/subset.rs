@@ -55,7 +55,8 @@ impl Font {
             .collect();
 
         // 统计支持的字符数量
-        // info.supported_char_count = self.cmap.unicode_map.len();
+
+        info.supported_char_count = self.cmap.supported_chars_count();
 
         // TODO: 从 name 表提取 family_name, style_name, version
         // 这需要解析 name 表，暂时留为 None
