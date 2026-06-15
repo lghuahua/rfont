@@ -360,9 +360,6 @@ impl Font {
         let (new_loca_data, new_glyf_data) =
             glyf_loca::extract_glyf_and_loca(self, &subset_glyphs_vec)?;
 
-            println!("glyf_data: {:?}", new_glyf_data);
-            println!("loca_data: {:?}", new_loca_data);
-
         // 3. 构建新的 cmap
         let new_cmap_data = cmap::rebuild_cmap(self, &subset_glyphs_vec)?;
 
@@ -651,13 +648,6 @@ impl Font {
 
                 // 如果压缩后反而变大，使用原始数据（不压缩）
                 if result.len() >= table_data.len() {
-                    if tag.as_str() == "head" {
-                        eprintln!(
-                            "DEBUG: head 表压缩后变大 ({} >= {}), 使用原始数据",
-                            result.len(),
-                            table_data.len()
-                        );
-                    }
                     info!(
                         tag = tag.as_str(),
                         original_size = table_data.len(),
@@ -666,13 +656,6 @@ impl Font {
                     );
                     table_data.clone()
                 } else {
-                    if tag.as_str() == "head" {
-                        eprintln!(
-                            "DEBUG: head 表压缩成功 ({} < {})",
-                            result.len(),
-                            table_data.len()
-                        );
-                    }
                     debug!(
                         tag = tag.as_str(),
                         original_size = table_data.len(),
@@ -685,15 +668,6 @@ impl Font {
 
             let comp_length = compressed_data.len() as u32;
             let padded_comp_length = (comp_length + 3) & !3; // 对齐到 4 字节
-
-            if tag.as_str() == "head" {
-                eprintln!(
-                    "DEBUG: head 表 - comp_length={}, orig_length={}, compressed_data.len()={}",
-                    comp_length,
-                    *length,
-                    compressed_data.len()
-                );
-            }
 
             // 记录表条目信息
             table_entries.push((

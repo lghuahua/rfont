@@ -71,8 +71,6 @@ impl GlyfDecoder {
         let mut reader = Reader::new(data);
         let header = GlyfHeader::read_from(&mut reader)?;
 
-        println!("Glyf header: {:?}", header);
-
         if header.reserved != 0 {
             return Err(FontError::Generic("Reserved field must be zero".to_string()));
         }
@@ -132,12 +130,7 @@ impl GlyfDecoder {
         
         let bbox_bitmap_length = header.num_glyphs.div_ceil(8) as usize;
         let bbox_bitmap = bbox_reader.read_bytes(bbox_bitmap_length as usize)?;
-        println!("glyph_stream {:?}", glyph_stream);
-        tracing::debug!(
-            glyph_reader = glyph_reader.len()
-        );
     
-
     // 逐字形处理
     for glyph_idx in 0..header.num_glyphs {
         let glyph_start = glyf_data.len();
@@ -155,8 +148,6 @@ impl GlyfDecoder {
         } else {
             false
         };
-
-        println!("glyph_idx: {}, glyf_data: {:?}", glyph_idx,  glyf_data);
 
         if n_contours == 0xFFFF {
             // === 复合字形 ===
@@ -194,14 +185,11 @@ impl GlyfDecoder {
         }
     }
 
-    
-
     // 添加最后一个 loca 值（指向 glyf 表的末尾）
     loca_values.push(glyf_data.len() as u32);
 
     // 构建 loca 表
     let loca_data = build_loca_table(&loca_values, header.index_format);
-
     Ok((glyf_data, loca_data))
 }
 }
@@ -388,39 +376,6 @@ pub fn compute_bbox(points: &[Point], writer: &mut Writer) -> Result<(), FontErr
     Ok(())
 }
 
-/// 计算三元组解码消耗的字节数
-///
-/// 根据标志位缓冲区计算实际需要读取的三元组数据字节数
-fn calculate_triplet_bytes_consumed(flags_buf: &[u8], n_points: usize) -> Result<usize, FontError> {
-    if flags_buf.len() < n_points {
-        return Err(FontError::Generic(format!(
-            "Flags buffer too small: need {}, got {}",
-            n_points,
-            flags_buf.len()
-        )));
-    }
-
-    let mut total_bytes = 0;
-    for i in 0..n_points {
-        let flag = flags_buf[i];
-        let flag_low = flag & 0x7f;
-
-        // 根据 flag 值确定数据字节数（与 triplet_decode 保持一致）
-        let n_data_bytes = if flag_low < 84 {
-            1
-        } else if flag_low < 120 {
-            2
-        } else if flag_low < 124 {
-            3
-        } else {
-            4
-        };
-        total_bytes += n_data_bytes;
-    }
-
-    Ok(total_bytes)
-}
-
 fn write_flag(writer: &mut Writer, flag: u8, count: u8) -> Result<(), FontError> {
     if count != 0 {
         writer.write_u8(flag | GLYF_REPEAT)?;
@@ -554,26 +509,12 @@ fn reconstruct_simple_glyph(
     let flags_buf = flag_reader.read_bytes(total_n_points)?;
 
     // 读取三元组数据
-    // let triplet_start = glyph_reader.offset;
-    // let remaining = glyph_reader.len() - triplet_start;
-    println!("glyph_reader len: {:?} offset: {} total_n_points: {}", glyph_reader.len(), glyph_reader.offset, total_n_points);
     // 解码点坐标
     let points = triplet_decode(
         flags_buf,
         glyph_reader,
         total_n_points,
     )?;
-    
-    // // 计算实际消耗的字节数
-    let triplet_bytes_consumed = calculate_triplet_bytes_consumed(flags_buf, total_n_points)?;
-    println!("Triplet bytes consumed: {} glyph_reader offset: {:?}", triplet_bytes_consumed, glyph_reader.offset);
-    // if triplet_bytes_consumed > remaining {
-    //     return Err(FontError::Generic(format!(
-    //         "Triplet data insufficient: needed {}, available {}",
-    //         triplet_bytes_consumed, remaining
-    //     )));
-    // }
-    // glyph_reader.skip(triplet_bytes_consumed)?;
 
     // 读取指令长度
     let instruction_length_value = U255::read_from(glyph_reader)?.value() as usize;
@@ -624,8 +565,7 @@ fn reconstruct_simple_glyph(
     glyph_writer.write_u16(instruction_length_value as u16)?;
     // glyph_buf.extend_from_slice(&(instruction_length_value as u16).to_be_bytes());
     glyph_writer.write_bytes(&instructions)?;
-    // glyph_buf.extend_from_slice(&instructions);
-    println!("instruction_length_value: {}, instructions: {:?}", instruction_length_value, instructions);
+
 
     // 存储点
     let has_overlap_bit = has_overlap_bitmap

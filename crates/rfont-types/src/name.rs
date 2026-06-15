@@ -386,7 +386,6 @@ impl<'a> ReadBytes<'a> for Name {
         for _ in 0..count {
             records.push(NameRecord::read_from(reader)?);
         }
-        println!("name: records {:?}", records);
 
         // Read string data
         let string_start = string_offset as usize;

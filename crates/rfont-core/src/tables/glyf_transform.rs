@@ -246,7 +246,6 @@ impl GlyfEncoder {
 ///    - 如果一致：不写入（解码器可从坐标推导）
 ///    - 如果不一致：写入（保证数据正确性）
 fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
-    println!("should_write_bbox {}, {}, {}, {}", glyph.x_min, glyph.y_min, glyph.x_max, glyph.y_max);
     // 1. 空字形处理
     if glyph.num_contours <= 0 || glyph.end_pts_of_contours.is_empty() {
         return glyph.x_min != 0 || glyph.y_min != 0 || 
@@ -268,8 +267,6 @@ fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
         computed_y_max = computed_y_max.max(y);
     }
 
-    println!("should_write_bbox computed_x_min: {}, computed_y_min: {}, computed_x_max: {}, computed_y_max: {}", computed_x_min, computed_y_min, computed_x_max, computed_y_max);
-    
     // 3. 比较预存 bbox 和计算 bbox
     glyph.x_min as i32 != computed_x_min ||
     glyph.y_min as i32 != computed_y_min ||
@@ -307,8 +304,6 @@ fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
             instruction_stream_size = instruction_stream_size,
             "各流大小统计"
         );
-
-        println!("转换后 glyph_stream: {:?}", self.glyph_stream.data);
 
         let stream_size = n_contour_stream_size + n_points_stream_size + flag_byte_stream_size + glyph_stream_size + composite_stream_size + bbox_bitmap_size + bbox_stream_size + instruction_stream_size + overlap_bitmap_size;
 
@@ -454,7 +449,7 @@ use super::*;
         // 解码字形
         let (decoded_glyf, _decoded_loca) = GlyfDecoder::decode(&glyf_data).unwrap();
         assert!(!decoded_glyf.is_empty());
-        
+
         // 解析字形
         let mut reader = Reader::new(&decoded_glyf);
         let record = GlyfRecord::parse(&mut reader, 0).unwrap();
