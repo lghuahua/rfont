@@ -123,7 +123,13 @@ pub fn run(
         Some(p) => p.to_path_buf(),
         None => {
             let stem = input.file_stem().unwrap().to_str().unwrap();
-            let ext = if format == "woff" { "woff" } else { "ttf" };
+            let ext = if format == "woff" {
+                "woff"
+            } else if format == "woff2" {
+                "woff2"
+            } else {
+                "ttf"
+            };
             input.with_file_name(format!("{}_subset.{}", stem, ext))
         }
     };
