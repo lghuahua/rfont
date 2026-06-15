@@ -1,5 +1,6 @@
 use brotli::Decompressor;
 use flate2::read::ZlibDecoder;
+use rfont_core::tables::glyf::GlyfTable;
 use rfont_core::tables::woff::{WoffHeader, WoffTableDirectoryEntry};
 use rfont_core::tables::woff2::{Woff2Header, Woff2TableDirectoryEntry, WOFF2_KNOWN_TAGS};
 use rfont_core::tables::woff2_transform::GlyfDecoder;
@@ -48,6 +49,7 @@ pub struct Font {
     pub loca: Loca,
     pub cmap: Cmap,
     pub hmtx: Hmtx,
+    pub glyf: GlyfTable,
 }
 
 impl Font {
@@ -157,6 +159,13 @@ impl Font {
             maxp.num_glyphs,
         )?;
         debug!(metrics_count = hmtx.metrics.len(), "Hmtx 表解析完成");
+        let glyf_bytes =
+            font_data
+                .get_table_bytes(Tag(*b"glyf"))
+                .ok_or(FontError::TableNotFound {
+                    tag: "glyf".to_string(),
+                })?;
+        let glyf = GlyfTable { data: glyf_bytes.to_vec() };
 
         Ok(Font {
             font_data,
@@ -166,6 +175,7 @@ impl Font {
             loca,
             cmap,
             hmtx,
+            glyf
         })
     }
 
@@ -301,7 +311,6 @@ impl Font {
             num_tables = woff2_header.num_tables,
             "WOFF2 Header 解析完成"
         );
-        println!("{:?}", woff2_header);
 
         // 解析表目录
         let mut table_entries = Vec::new();
@@ -329,7 +338,7 @@ impl Font {
         
         // 使用重组后的 SFNT 数据创建 Font
         let f = Self::load_ttf(&sfnt_data)?;
-        println!("WOFF2 重组完成 重组数据为： {:?}", f.get_font_info());
+
         Ok(f)
     }
 
@@ -387,7 +396,6 @@ impl Font {
          use rfont_types::ReadBytes;
  
          let name_bytes = self.font_data.get_table_bytes(Tag(*b"name"))?;
-         println!("name_bytes: {:?}", name_bytes);
          let mut reader = Reader::new(name_bytes);
          NameTable::read_from(&mut reader).ok()
      }
@@ -759,8 +767,7 @@ fn woff2_uncomprss(reader: &mut Reader, hdr: &Woff2Header) -> Result<Vec<u8>, Fo
         all_tables: &mut [(Tag, Vec<u8>)],
     ) -> Result<Vec<u8>, FontError> {
         use rfont_types::{SFNT_VERSION_TTF, TABLE_DIR_ENTRY_SIZE};
-
-
+        debug!("Assembling TTF");
         // 按标签排序（TTF 规范要求）
         // all_tables.sort_by_key(|(tag, _)| tag.0);
         all_tables.sort_by(|a, b| {

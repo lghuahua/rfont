@@ -26,6 +26,19 @@ pub const OVERLAP_COMPOUND: u16 = 0x0400; // bit 10: 复合字形重叠
 pub const SCALED_COMPONENT_OFFSET: u16 = 0x0800; // bit 11: 缩放的组件偏移
 pub const UNSCALED_COMPONENT_OFFSET: u16 = 0x1000; // bit 12: 未缩放的组件偏移
 
+pub struct GlyfTable { 
+    pub data: Vec<u8>,
+}
+
+impl GlyfTable {
+    pub fn slice(&self, start: usize, end: usize) -> Result<Vec<u8>, FontError> { 
+        if start > end || end > self.data.len() {
+            return Err(FontError::Generic(format!("Invalid glyph start: {}, end: {}", start, end)));
+        }
+        Ok(self.data[start..end].to_vec())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GlyfRecord {
     pub glyph_id: u16,

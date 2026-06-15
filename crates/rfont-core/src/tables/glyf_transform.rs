@@ -347,7 +347,7 @@ fn should_write_bbox(&self, glyph: &SimpleGlyph) -> bool {
 pub fn transform_glyf_and_loca(
     glyphs: &[GlyfRecord],
     index_format: u8,
-) -> Result<(Vec<u8>, Vec<u8>), FontError> {
+) -> Result<Vec<u8>, FontError> {
     let n_glyphs = glyphs.len() as u16;
 
     tracing::debug!(n_glyphs = n_glyphs, "开始 glyf/loca 转换");
@@ -388,11 +388,9 @@ pub fn transform_glyf_and_loca(
         "glyf 转换完成"
     );
 
-    // 生成转换后的 loca 数据（在 WOFF2 中，loca 被省略，因为可以从其他信息推导）
-    // 这里返回一个空的 loca，实际使用时需要根据具体规范调整
-    let transformed_loca = Vec::new();
+    // 转换后的 loca 数据（在 WOFF2 中，loca 被省略，因为可以从其他信息推导）
 
-    Ok((transformed_glyf, transformed_loca))
+    Ok(transformed_glyf)
 }
 
 #[cfg(test)]
@@ -430,7 +428,7 @@ use super::*;
             data: GlyphData::Empty,
         }];
 
-        let (glyf_data, _loca_data) = transform_glyf_and_loca(&glyphs, 0).unwrap();
+        let glyf_data = transform_glyf_and_loca(&glyphs, 0).unwrap();
 
         // 空字形应该产生一些输出（n_contour = 0）
         assert!(!glyf_data.is_empty());
@@ -450,17 +448,32 @@ use super::*;
             })
         }];
         // 转换字形
-        let (glyf_data, loca_data) = transform_glyf_and_loca(&glyphs, 0).unwrap();
-        println!("glyf_data: {:?}", glyf_data);
-        assert!(loca_data.is_empty());
+        let glyf_data = transform_glyf_and_loca(&glyphs, 1).unwrap();
         assert!(!glyf_data.is_empty());
-        // 解码字形
-        let v = GlyfDecoder::decode(&glyf_data).unwrap();
-        assert!(!v.0.is_empty());
-        println!("decode glyf_data: {:?}", v);
         
-        let mut reader = Reader::new(&v.0);
+        // 解码字形
+        let (decoded_glyf, _decoded_loca) = GlyfDecoder::decode(&glyf_data).unwrap();
+        assert!(!decoded_glyf.is_empty());
+        
+        // 解析字形
+        let mut reader = Reader::new(&decoded_glyf);
         let record = GlyfRecord::parse(&mut reader, 0).unwrap();
-        println!("record: {:?}", record);
+        
+        // 验证解析结果
+        match &record.data {
+            GlyphData::Simple(simple) => {
+                assert_eq!(simple.num_contours, 1);
+                assert_eq!(simple.x_min, 55);
+                assert_eq!(simple.y_min, -50);
+                assert_eq!(simple.x_max, 185);
+                assert_eq!(simple.y_max, 600);
+                assert_eq!(simple.end_pts_of_contours, vec![11]);
+                assert_eq!(simple.flags.len(), 12);
+                assert_eq!(simple.x_coordinates.len(), 12);
+                assert_eq!(simple.y_coordinates.len(), 12);
+                println!("✓ Simple glyph parsed successfully!");
+            }
+            _ => panic!("Expected Simple glyph, got {:?}", record.data),
+        }
     }
 }

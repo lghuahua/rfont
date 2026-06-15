@@ -6,6 +6,7 @@ use font_macros::ReadBytes;
 /// - ReconstructGlyf: glyf 表重建
 /// - StorePoints: 点数组转换为标准 glyf 格式
 use rfont_types::{FontError, ReadBytes, Reader, U255, Writer};
+use tracing::info;
 
 // ============================================================================
 // 常量定义
@@ -477,6 +478,11 @@ pub fn store_points(
     glyph_writer: &mut Writer,
 ) -> Result<(), FontError> {
     let n_points = points.len();
+    if n_points == 0 {
+        // return Err(FontError::Generic("Cannot store empty points".to_string()));
+        info!("points is empty");
+        return Ok(());
+    }
 
     let estimated_size = n_points * 2;
     let mut x_writer = Writer::with_capacity(estimated_size);
@@ -489,7 +495,6 @@ pub fn store_points(
 
     for (i, point) in points.iter().enumerate() { 
         let mut flag: u8 = if point.on_curve { GLYF_ON_CURVE } else { 0 };
-        // glyph_writer.write_u8(flag);
 
         // 第一个点且需要 overlap 标志
         if has_overlap_bit && i == 0 {
@@ -499,15 +504,15 @@ pub fn store_points(
         let dx = point.x - last_x;
         let dy = point.y - last_y;
 
-        if last_flag == flag as i32 && repeat_count != 255 { 
-            repeat_count += 1;
-        } else {
-            write_flag(glyph_writer, flag as u8, repeat_count)?;
-            repeat_count = 0;
-        }     
-
         write_x_coordinates(&mut x_writer, dx, &mut flag)?;
         write_y_coordinates(&mut y_writer, dy, &mut flag)?;
+        // println!("cuc_flag: flag={:08b}, v: {}, count={}, last_flag={}", flag, flag, repeat_count, last_flag);
+        if last_flag == flag as i32 && repeat_count != 255 { 
+            repeat_count += 1;
+        } else if i != 0 {
+            write_flag(glyph_writer, last_flag as u8, repeat_count)?;
+            repeat_count = 0;
+        }     
 
         last_x = point.x;
         last_y = point.y;
@@ -1188,17 +1193,17 @@ mod tests {
             Point {
                 x: 10,
                 y: 20,
-                on_curve: false,
+                on_curve: true,
             },
             Point {
                 x: 30,
                 y: 40,
-                on_curve: true,
+                on_curve: false,
             },
             Point {
                 x: 50,
                 y: 60,
-                on_curve: false,
+                on_curve: true,
             },
             Point {
                 x: 70,
@@ -1231,7 +1236,7 @@ mod tests {
             },
             Point {
                 x: 10,
-                y: 20,
+                y: 10,
                 on_curve: true,
             },
             Point {
@@ -1456,8 +1461,8 @@ mod tests {
             },
             Point {
                 x: 10,
-                y: 20,
-                on_curve: false,
+                y: 10,
+                on_curve: true,
             },
             Point {
                 x: 20,

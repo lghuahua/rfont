@@ -1,5 +1,5 @@
 use crate::Font;
-use rfont_types::{FontError, Tag};
+use rfont_types::{FontError};
 
 /// 提取 glyf 和 loca 数据
 pub fn extract_glyf_and_loca(
@@ -18,28 +18,18 @@ pub fn extract_glyf_and_loca(
         new_loca_offsets.push(current_offset);
 
         // 从原始 glyf 表中提取字形数据
+        // 跳过 .notdef (glyph_id == 0) 的轮廓数据，保持空的 .notdef
+        if glyph_id == 0 {
+            continue;
+        }
+
         if (glyph_id as usize) < font.loca.offsets.len() - 1 {
             let start = font.loca.offsets[glyph_id as usize];
             let end = font.loca.offsets[glyph_id as usize + 1];
 
-            if start < end {
-                // 获取原始 glyf 表的字节数据
-                let glyf_bytes = font.font_data.get_table_bytes(Tag(*b"glyf")).ok_or(
-                    FontError::TableNotFound {
-                        tag: "glyf".to_string(),
-                    },
-                )?;
-
-                if (end as usize) <= glyf_bytes.len() {
-                    new_glyf_data.extend_from_slice(&glyf_bytes[start as usize..end as usize]);
-                    current_offset += end - start;
-
-                    // 对齐到 4 字节边界
-                    let padding = (4 - (current_offset % 4)) % 4;
-                    new_glyf_data.extend(std::iter::repeat_n(0, padding as usize));
-                    current_offset += padding;
-                }
-            }
+            let glyf_bytes = font.glyf.slice(start as usize, end as usize)?;
+            new_glyf_data.extend_from_slice(&glyf_bytes);
+            current_offset += end - start;
         }
     }
 

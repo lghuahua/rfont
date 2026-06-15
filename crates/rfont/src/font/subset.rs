@@ -954,7 +954,7 @@ impl Font {
             // 执行 glyf/loca 转换
             debug!("开始 glyf/loca 转换，字形数量 = {}", all_glyphs.len());
             match transform_glyf_and_loca(&all_glyphs, index_to_loc_format)  {
-                Ok((transformed_glyf, transformed_loca)) => {
+                Ok(transformed_glyf) => {
                     debug!("glyf/loca 转换成功");
                     let original_size = *glyf_length as f64;
                     let transformed_size = transformed_glyf.len() as f64;
@@ -964,13 +964,12 @@ impl Font {
                         original_glyf_size = *glyf_length,
                         transformed_glyf_size = transformed_glyf.len(),
                         original_loca_size = *loca_length,
-                        transformed_loca_size = transformed_loca.len(),
                         compression_ratio = format!("{:.1}%", ratio),
                         "glyf 表转换成功"
                     );
 
                     transformed_tables.insert(Tag(*b"glyf"), transformed_glyf);
-                    transformed_tables.insert(Tag(*b"loca"), transformed_loca);
+                    transformed_tables.insert(Tag(*b"loca"), Vec::new());
                 }
                 Err(e) => {
                     error!(error = ?e, "glyf/loca 转换失败，将使用原始数据");
@@ -982,7 +981,7 @@ impl Font {
         // ⭐ 先拼接表数据流，然后使用实际大小作为 total_sfnt_size
         // 注意：total_sfnt_size 应该是解压后的完整 SFNT 大小（包括 SFNT 头、表目录和所有表数据）
 
-        // 将所有表数据按 WOFF2 规范顺序拼接成一个流
+        // 将所有表数据按 WOFF2 规范顺序拼接成一个流,无需进行4字对齐
         let mut uncompressed_table_stream = Vec::new();
         for (tag, offset, length) in &sorted_tables {
             // 如果该表已转换，使用转换后的数据
