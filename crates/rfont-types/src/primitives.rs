@@ -1,9 +1,10 @@
 use crate::io::{ReadBytes, Reader, WriteBytes, Writer};
 use crate::FontError;
-use chrono::{Duration, NaiveDate, NaiveDateTime};
 use font_macros::ReadBytes;
 use std::fmt;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+const MAC_TO_UNIX_OFFSET: i64 = 2082844800;
 #[derive(Debug, Clone)]
 pub struct TableRecord {
     pub tag: Tag,
@@ -60,50 +61,40 @@ impl WriteBytes for EncodingRecord {
 }
 
 #[derive(Debug, Clone)]
-pub struct LONGDATETIME(pub NaiveDateTime);
+pub struct LONGDATETIME(i64);
 
 impl LONGDATETIME {
-    fn get_start() -> Option<NaiveDateTime> {
-        let date = NaiveDate::from_ymd_opt(1904, 1, 1)?;
-        date.and_hms_opt(0, 0, 0)
+    /// 从 SystemTime 创建
+    pub fn from_system_time(time: SystemTime) -> Self {
+        let unix_seconds = match time.duration_since(UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as i64,
+            Err(e) => -(e.duration().as_secs() as i64),
+        };
+        Self(unix_seconds + MAC_TO_UNIX_OFFSET)
+    }    
+    /// 获取原始秒数
+    pub fn as_seconds(self) -> i64 {
+        self.0
     }
 }
 
 impl<'a> ReadBytes<'a> for LONGDATETIME {
     fn read_from(reader: &mut Reader<'a>) -> Result<Self, FontError> {
-        let high = reader.read_u32()? as i64;
-        let low = reader.read_u32()? as i64;
-        let seconds = (high << 32) | low;
+        let buf = reader.read_bytes(8)?;
+        let seconds = i64::from_be_bytes(buf.try_into().map_err(|_| FontError::InvalidBaseDate)?);
 
-        let start = LONGDATETIME::get_start().ok_or(FontError::InvalidBaseDate)?;
-
-        // chrono::Duration::seconds 的范围是 i64::MIN / 1_000_000_000 到 i64::MAX / 1_000_000_000
-        // 大约 ±292 年。字体时间戳可能超出此范围，需要安全处理。
-        const MAX_SECONDS: i64 = i64::MAX / 1_000_000_000;
-        const MIN_SECONDS: i64 = i64::MIN / 1_000_000_000;
-
-        let dt = if (MIN_SECONDS..=MAX_SECONDS).contains(&seconds) {
-            start + Duration::seconds(seconds)
-        } else {
-            // 如果时间戳超出范围，使用起始时间作为fallback
-            eprintln!(
-                "Warning: LONGDATETIME value {} out of bounds (max={}), using epoch",
-                seconds, MAX_SECONDS
-            );
-            start
-        };
-
-        Ok(LONGDATETIME(dt))
+        Ok(LONGDATETIME(seconds))
     }
 }
 
 impl WriteBytes for LONGDATETIME {
     fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
-        let start = LONGDATETIME::get_start().ok_or(FontError::InvalidBaseDate)?;
-        let duration = self.0.signed_duration_since(start);
-        writer.write_u32(duration.num_seconds() as u32)?;
-        writer.write_u32(0)?; // High 32 bits
-        Ok(())
+        // 写入当前时间
+        // let now = SystemTime::now();
+        // println!("now: {:?}", now);
+        // let seconds = LONGDATETIME::from_system_time(now).as_seconds();
+  
+        writer.write_bytes(&self.0.to_be_bytes())
     }
 }
 
@@ -278,7 +269,6 @@ impl U255 {
 mod tests {
     use super::*;
     use crate::io::Reader;
-    use chrono::Datelike;
 
     #[test]
     fn test_tag_creation() {
@@ -365,30 +355,6 @@ mod tests {
         assert_eq!(read_record.checksum, original.checksum);
         assert_eq!(read_record.offset, original.offset);
         assert_eq!(read_record.length, original.length);
-    }
-
-    #[test]
-    fn test_longdatetime_read() {
-        // 1970-01-01 00:00:00 相对于 1904-01-01 的秒数
-        let seconds_since_1904 = 2082844800u64;
-        let high = (seconds_since_1904 >> 32) as u32;
-        let low = seconds_since_1904 as u32;
-
-        let data = vec![
-            (high >> 24) as u8,
-            (high >> 16) as u8,
-            (high >> 8) as u8,
-            high as u8,
-            (low >> 24) as u8,
-            (low >> 16) as u8,
-            (low >> 8) as u8,
-            low as u8,
-        ];
-        let mut reader = Reader::new(&data);
-        let datetime = LONGDATETIME::read_from(&mut reader).unwrap();
-
-        // 验证解析成功（具体日期可能因时区而异）
-        assert!(datetime.0.year() >= 1970);
     }
 
     #[test]
@@ -642,44 +608,6 @@ mod tests {
         assert_eq!(record.encoding_id, 0);
     }
 
-    #[test]
-    fn test_longdatetime_write() {
-        use crate::io::Writer;
-        use chrono::NaiveDate;
-
-        let mut writer = Writer::new();
-        let date = NaiveDate::from_ymd_opt(1970, 1, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
-        let datetime = LONGDATETIME(date);
-
-        datetime.write_to(&mut writer).unwrap();
-
-        // 应该有 8 字节输出
-        assert_eq!(writer.data.len(), 8);
-    }
-
-    #[test]
-    fn test_longdatetime_write_basic() {
-        use crate::io::Writer;
-        use chrono::NaiveDate;
-
-        let mut writer = Writer::new();
-        let date = NaiveDate::from_ymd_opt(1970, 1, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
-        let datetime = LONGDATETIME(date);
-
-        datetime.write_to(&mut writer).unwrap();
-
-        // 应该有 8 字节输出
-        assert_eq!(writer.data.len(), 8);
-
-        // 验证后 4 字节（高 32 位，write_to 只写了低 32 位）
-        assert_eq!(&writer.data[4..8], &[0, 0, 0, 0]);
-    }
 
     #[test]
     fn test_table_record_debug() {

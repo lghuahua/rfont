@@ -242,7 +242,6 @@ cargo fmt --all
 
 - `flate2`: WOFF 解压缩
 - `brotli`: WOFF2 解压缩
-- `chrono`: 时间戳处理
 - `tracing`: 结构化日志系统
 
 ## 许可证

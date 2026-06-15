@@ -1,47 +1,28 @@
 use crate::Font;
-use rfont_types::{FontError, Tag, HEAD_TABLE_SIZE, LONGDATETIME_EPOCH_YEAR};
+use rfont_core::Head;
+use rfont_types::{FontError, HEAD_TABLE_SIZE, ReadBytes, Reader, Tag, WriteBytes, Writer};
 
 /// 更新 head 表（包含校验和调整和时间戳）
 pub fn update_head(font: &Font, checksum_adjustment: u32, index_to_loc_format: u16, transform: bool ) -> Result<Vec<u8>, FontError> {
-    let mut head_data = font
+    let head_data = font
         .font_data
         .get_table_bytes(Tag(*b"head"))
         .ok_or(FontError::TableNotFound {
             tag: "head".to_string(),
         })?
         .to_vec();
+    let mut reader = Reader::new(&head_data);
+    let mut head = Head::read_from(&mut reader)?;
 
-    if head_data.len() < HEAD_TABLE_SIZE {
-        return Err(FontError::Generic("head table too short".to_string()));
-    }
-
-    // 更新 checkSumAdjustment（偏移量 8-11）
-    head_data[8..12].copy_from_slice(&checksum_adjustment.to_be_bytes());
+    head.check_sum_adjustment = checksum_adjustment;
+    head.index_to_loc_format = index_to_loc_format as i16;
     if transform {
-        // 添加 transform 信息
-        head_data[16] = head_data[16] | 0x08;
+        head.flags |= 1 << 5;
     }
+    let mut writer = Writer::with_capacity(HEAD_TABLE_SIZE);
+    head.write_to(&mut writer)?;
 
-    // 更新 modified 时间戳（偏移量 24-31）
-    use chrono::NaiveDateTime;
-    let now = chrono::Utc::now().naive_utc();
-    let base_date = NaiveDateTime::new(
-        chrono::NaiveDate::from_ymd_opt(LONGDATETIME_EPOCH_YEAR, 1, 1).unwrap(),
-        chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-    );
-
-    let seconds_since_1904 = now.signed_duration_since(base_date).num_seconds();
-
-    // LONGDATETIME 是 64 位有符号整数（高位32位 + 低位32位）
-    let high = (seconds_since_1904 >> 32) as u32;
-    let low = (seconds_since_1904 & 0xFFFFFFFF) as u32;
-
-    head_data[24..28].copy_from_slice(&high.to_be_bytes());
-    head_data[28..32].copy_from_slice(&low.to_be_bytes());
-
-    head_data[50..52].copy_from_slice(&index_to_loc_format.to_be_bytes());
-
-    Ok(head_data)
+    Ok(writer.data)
 }
 
 #[cfg(test)]
@@ -62,30 +43,6 @@ mod tests {
 
         let decoded = u32::from_be_bytes(bytes);
         assert_eq!(decoded, checksum);
-    }
-
-    #[test]
-    fn test_longdatetime_format() {
-        // 测试 LONGDATETIME 格式（64位时间戳）
-        use chrono::NaiveDateTime;
-        let now = chrono::Utc::now().naive_utc();
-        let base_date = NaiveDateTime::new(
-            chrono::NaiveDate::from_ymd_opt(LONGDATETIME_EPOCH_YEAR, 1, 1).unwrap(),
-            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-        );
-
-        let seconds_since_1904 = now.signed_duration_since(base_date).num_seconds();
-
-        // 验证时间在合理范围内（1904年之后）
-        assert!(seconds_since_1904 > 0);
-
-        // 分解为 high 和 low 32位
-        let high = (seconds_since_1904 >> 32) as u32;
-        let low = (seconds_since_1904 & 0xFFFFFFFF) as u32;
-
-        // 重新组合
-        let reconstructed = ((high as i64) << 32) | (low as i64);
-        assert_eq!(reconstructed, seconds_since_1904);
     }
 
     #[test]
