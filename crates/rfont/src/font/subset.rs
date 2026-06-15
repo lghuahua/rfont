@@ -1,5 +1,6 @@
 use crate::Font;
 use crate::font::load::assemble_ttf;
+use rfont_core::round4;
 use rfont_types::{Reader, Tag, WriteBytes};
 use tracing::{debug, error, info, span, warn, Level};
 
@@ -1096,7 +1097,10 @@ impl Font {
             .extend_from_slice(&compressed_table_stream);
 
         // 回填总长度
-        let total_length = woff2_writer.data.len() as u32;
+        let mut total_length = woff2_writer.data.len() as u32;
+
+        total_length = round4(total_length);
+
         woff2_writer.data[header_offset + 8..header_offset + 12]
             .copy_from_slice(&total_length.to_be_bytes());
 
