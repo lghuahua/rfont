@@ -33,7 +33,7 @@ pub struct GlyfEncoder {
 impl GlyfEncoder {
     /// 创建新的编码器
     pub fn new(n_glyphs: u16, index_format: u8) -> Self {
-        let bbox_bitmap_size = (n_glyphs as usize).div_ceil(8);
+        let bbox_bitmap_size = ((n_glyphs + 31) >> 5) << 2;
 
         Self {
             n_glyphs,
@@ -43,7 +43,7 @@ impl GlyfEncoder {
             flag_byte_stream: Writer::new(),
             glyph_stream: Writer::new(),
             composite_stream: Writer::new(),
-            bbox_bitmap: vec![0u8; bbox_bitmap_size],
+            bbox_bitmap: vec![0u8; bbox_bitmap_size.into()],
             bbox_stream: Writer::new(),
             instruction_stream: Vec::new(),
             overlap_bitmap: Vec::new(),
