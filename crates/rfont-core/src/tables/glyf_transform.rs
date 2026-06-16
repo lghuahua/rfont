@@ -464,7 +464,8 @@ mod tests {
         assert!(!glyf_data.is_empty());
 
         // 解码字形
-        let (decoded_glyf, _decoded_loca) = GlyfDecoder::decode(&glyf_data).unwrap();
+        let mut decoder = GlyfDecoder::new(&glyf_data).unwrap();
+        let (decoded_glyf, _decoded_loca) = decoder.decode().unwrap();
         assert!(!decoded_glyf.is_empty());
 
         // 解析字形

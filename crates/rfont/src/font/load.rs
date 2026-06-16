@@ -677,8 +677,8 @@ fn reconstruct_transformed_tables(
         if let Some(transform_length) = entry.transform_length {
             if entry.tag.as_str() == "glyf" {
                 let transform_data = reader.read_bytes(transform_length as usize)?;
-
-                match GlyfDecoder::decode(transform_data) {
+                let mut glyf_decoder = GlyfDecoder::new(transform_data)?;
+                match glyf_decoder.decode() {
                     Ok((glyf_data, loca_data)) => {
                         data_vec = glyf_data;
                         loca_data_ = loca_data;

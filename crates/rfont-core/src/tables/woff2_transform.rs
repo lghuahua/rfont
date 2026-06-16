@@ -30,13 +30,6 @@ const FLAG_WE_HAVE_AN_X_AND_Y_SCALE: u16 = 1 << 6;
 const FLAG_WE_HAVE_A_TWO_BY_TWO: u16 = 1 << 7;
 const FLAG_WE_HAVE_INSTRUCTIONS: u16 = 1 << 8;
 
-/// glyf 表偏移量常量
-// const END_PTS_OF_CONTOURS_OFFSET: usize = 10;
-// const GLYF_HEADER_SIZE: usize = 10; // xMin, yMin, xMax, yMax (各 2 字节) + nContours (2 字节)
-
-/// 默认字形缓冲区大小（98% 的字形不超过 5KB）
-// const DEFAULT_GLYPH_BUF_SIZE: usize = 5120;
-
 /// 子流数量
 const NUM_SUBSTREAMS: usize = 7;
 
@@ -61,10 +54,20 @@ pub struct GlyfHeader {
     pub index_format: u16, // 0 = short (2 bytes), 1 = long (4 bytes)
 }
 
-pub struct GlyfDecoder {}
+pub struct GlyfDecoder<'a> {
+    header: GlyfHeader,
+    n_contour_reader: Reader<'a>,
+    n_points_reader: Reader<'a>,
+    flag_reader: Reader<'a>,
+    glyph_reader: Reader<'a>,
+    composite_reader: Reader<'a>,
+    bbox_reader: Reader<'a>,
+    instruction_reader: Reader<'a>,
+    overlap_bitmap: Option<Vec<u8>>,
+}
 
-impl GlyfDecoder {
-    pub fn decode(data: &[u8]) -> Result<(Vec<u8>, Vec<u8>), FontError> {
+impl<'a> GlyfDecoder<'a> {
+    pub fn new(data: &'a [u8]) -> Result<Self, FontError> {
         let mut reader = Reader::new(data);
         let header = GlyfHeader::read_from(&mut reader)?;
 
@@ -100,43 +103,52 @@ impl GlyfDecoder {
         let bbox_stream = reader.read_bytes(substream_sizes[5] as usize)?;
         let instruction_stream = reader.read_bytes(substream_sizes[6] as usize)?;
 
-        // if has_overlap_bitmap {
-        //     let overlap_bitmap = reader.read_bytes( ((header.num_glyphs + 7) >> 3) as usize )?;
-        // }
-
         let overlap_bitmap = if has_overlap_bitmap {
-            Some(reader.read_bytes(((header.num_glyphs + 7) >> 3) as usize)?)
+            Some(
+                reader
+                    .read_bytes(((header.num_glyphs + 7) >> 3) as usize)?
+                    .to_vec(),
+            )
         } else {
             None
         };
 
+        let n_contour_reader = Reader::new(n_contour_stream);
+        let composite_reader = Reader::new(composite_stream);
+        let glyph_reader = Reader::new(glyph_stream);
+        let instruction_reader = Reader::new(instruction_stream);
+        let n_points_reader = Reader::new(n_points_stream);
+        let bbox_reader = Reader::new(bbox_stream);
+        let flag_reader = Reader::new(flag_stream);
+
         tracing::debug!("流提取完成");
-
-        // let expected_loca_dst_length = if header.index_format == 0 { 2 } else { 4 };
-
-        let mut glyf_data = Vec::new();
-        // let loca_values: Vec<u32> = Vec::new();
+        Ok(Self {
+            header,
+            n_contour_reader,
+            n_points_reader,
+            flag_reader,
+            glyph_reader,
+            composite_reader,
+            bbox_reader,
+            instruction_reader,
+            overlap_bitmap,
+        })
+    }
+    pub fn decode(&mut self) -> Result<(Vec<u8>, Vec<u8>), FontError> {
+        let mut glyf_writer = Writer::new();
 
         let mut loca_values = Vec::new();
-        let mut n_contour_reader = Reader::new(n_contour_stream);
-        let mut composite_reader = Reader::new(composite_stream);
-        let mut glyph_reader = Reader::new(glyph_stream);
-        let mut instruction_reader = Reader::new(instruction_stream);
-        let mut n_points_reader = Reader::new(n_points_stream);
-        let mut bbox_reader = Reader::new(bbox_stream);
-        let mut flag_reader = Reader::new(flag_stream);
 
-        let bbox_bitmap_length = header.num_glyphs.div_ceil(8) as usize;
-        let bbox_bitmap = bbox_reader.read_bytes(bbox_bitmap_length)?;
+        let bbox_bitmap_length = ((self.header.num_glyphs + 31) >> 5) << 2;
+        let bbox_bitmap = self.bbox_reader.read_bytes(bbox_bitmap_length as usize)?;
 
         // 逐字形处理
-        for glyph_idx in 0..header.num_glyphs {
-            let glyph_start = glyf_data.len();
-            // loca_writer.write_bytes(bytes)
+        for glyph_idx in 0..self.header.num_glyphs {
+            let glyph_start = glyf_writer.len();
             loca_values.push(glyph_start as u32);
 
             // 读取轮廓数
-            let n_contours = n_contour_reader.read_u16()?;
+            let n_contours = self.n_contour_reader.read_u16()?;
 
             // 检查是否有 bbox
             let byte_idx = glyph_idx as usize / 8;
@@ -149,28 +161,17 @@ impl GlyfDecoder {
 
             if n_contours == 0xFFFF {
                 // === 复合字形 ===
-                reconstruct_composite_glyph(
-                    &mut composite_reader,
-                    &mut glyph_reader,
-                    &mut instruction_reader,
-                    have_bbox,
-                    &mut bbox_reader,
-                    &mut glyf_data,
-                )?;
+                self.reconstruct_composite_glyph(have_bbox, &mut glyf_writer)?;
             } else if n_contours > 0 {
                 // === 简单字形 ===
-                reconstruct_simple_glyph(
+                let has_overlap_bit = self.overlap_bitmap.as_ref().is_some_and(|bmp| {
+                    byte_idx < bmp.len() && (bmp[byte_idx] >> (7 - bit_idx)) & 1 != 0
+                });
+                self.reconstruct_simple_glyph(
                     n_contours,
-                    &mut n_points_reader,
-                    &mut flag_reader,
-                    &mut glyph_reader,
-                    &mut instruction_reader,
                     have_bbox,
-                    &mut bbox_reader,
-                    has_overlap_bitmap,
-                    overlap_bitmap,
-                    glyph_idx,
-                    &mut glyf_data,
+                    has_overlap_bit,
+                    &mut glyf_writer,
                 )?;
             } else {
                 // n_contours == 0: 空字形
@@ -184,11 +185,129 @@ impl GlyfDecoder {
         }
 
         // 添加最后一个 loca 值（指向 glyf 表的末尾）
-        loca_values.push(glyf_data.len() as u32);
+        loca_values.push(glyf_writer.len() as u32);
 
         // 构建 loca 表
-        let loca_data = build_loca_table(&loca_values, header.index_format);
-        Ok((glyf_data, loca_data))
+        let loca_data = build_loca_table(&loca_values, self.header.index_format);
+        Ok((glyf_writer.data, loca_data))
+    }
+
+    /// 重建简单字形
+    fn reconstruct_simple_glyph(
+        &mut self,
+        n_contours: u16,
+        have_bbox: bool,
+        has_overlap_bit: bool,
+        glyph_writer: &mut Writer,
+    ) -> Result<(), FontError> {
+        // tracing::debug!("Reconstructing simple glyph: {}", glyph_idx);
+        // 读取每个轮廓的点数
+        let mut n_points_vec = Vec::new();
+        let mut total_n_points: usize = 0;
+
+        for _ in 0..n_contours {
+            let n_points_contour = U255::read_from(&mut self.n_points_reader)?.value() as usize;
+            n_points_vec.push(n_points_contour);
+            total_n_points += n_points_contour;
+        }
+
+        // 读取标志位
+        let flags_buf = self.flag_reader.read_bytes(total_n_points)?;
+
+        // 读取三元组数据
+        // 解码点坐标
+        let points = triplet_decode(flags_buf, &mut self.glyph_reader, total_n_points)?;
+
+        // 读取指令长度
+        let instruction_length_value = U255::read_from(&mut self.glyph_reader)?.value() as usize;
+
+        // 读取指令数据
+        let instructions = if instruction_length_value > 0 {
+            self.instruction_reader
+                .read_bytes(instruction_length_value)?
+                .to_vec()
+        } else {
+            Vec::new()
+        };
+
+        // 写入 nContours
+        glyph_writer.write_u16(n_contours)?;
+
+        // 写入或计算 bbox
+        if have_bbox {
+            let bbox_data = self.bbox_reader.read_bytes(8)?;
+            glyph_writer.write_bytes(bbox_data)?;
+        } else {
+            // 先占位 8 字节
+            // let current_len = glyph_buf.len();
+            // glyph_buf.resize(current_len + 8, 0);
+            // 计算 bbox 并写入
+            compute_bbox(&points, glyph_writer)?;
+        }
+
+        // 写入轮廓结束点
+        let mut end_point: i32 = -1;
+        for &n_pts in &n_points_vec {
+            end_point += n_pts as i32;
+            if end_point >= 65536 {
+                return Err(FontError::Generic("Contour end point overflow".to_string()));
+            }
+            glyph_writer.write_u16(end_point as u16)?;
+        }
+
+        // 写入指令长度和指令数据
+        glyph_writer.write_u16(instruction_length_value as u16)?;
+        glyph_writer.write_bytes(&instructions)?;
+
+        // 存储点
+        store_points(&points, has_overlap_bit, glyph_writer)?;
+        Ok(())
+    }
+
+    /// 重建复合字形
+    /// 从转换后的数据重建标准 glyf 格式的复合字形
+    fn reconstruct_composite_glyph(
+        &mut self,
+        have_bbox: bool,
+        glyph_writer: &mut Writer,
+    ) -> Result<(), FontError> {
+        tracing::debug!("Reconstructing composite glyph");
+        if !have_bbox {
+            return Err(FontError::Generic(
+                "Composite glyph must have bbox".to_string(),
+            ));
+        }
+
+        // 1. 计算复合字形组件的大小
+        let remaining_composite = &self.composite_reader.data[self.composite_reader.offset..];
+        let (composite_size, have_instructions) = size_of_composite(remaining_composite)?;
+
+        // 2. 读取指令大小（如果有）
+        let mut instruction_size: u16 = 0;
+        if have_instructions {
+            instruction_size = U255::read_from(&mut self.glyph_reader)?.value();
+        }
+
+        // 4. 写入 nContours = 0xFFFF（表示复合字形）
+        glyph_writer.write_u16(0xFFFF)?;
+
+        // 5. 写入 bbox
+        let bbox_data = self.bbox_reader.read_bytes(8)?;
+        glyph_writer.write_bytes(bbox_data)?;
+
+        // 6. 复制复合字形组件数据
+        glyph_writer.write_bytes(self.composite_reader.read_bytes(composite_size)?)?;
+
+        // 7. 写入指令（如果有）
+        if have_instructions {
+            glyph_writer.write_u16(instruction_size)?;
+            glyph_writer.write_bytes(
+                self.instruction_reader
+                    .read_bytes(instruction_size as usize)?,
+            )?;
+        }
+
+        Ok(())
     }
 }
 
@@ -244,25 +363,13 @@ pub fn triplet_decode(
         )));
     }
 
-    // // 计算实际需要的数据字节数
-    // let required_bytes = calculate_triplet_bytes_consumed(flags_buf, n_points)?;
-
-    // // 检查 triplet_buf 长度是否足够
-    // if triplet_buf.len() < required_bytes {
-    //     return Err(FontError::Generic(format!(
-    //         "TripletDecode: triplet buffer too small: need {}, got {}",
-    //         required_bytes,
-    //         triplet_buf.len()
-    //     )));
-    // }
-
     let mut points = Vec::with_capacity(n_points);
     let mut x: i32 = 0;
     let mut y: i32 = 0;
     // let mut triplet_index: usize = 0;
 
-    for i in 0..n_points {
-        let flag = flags_buf[i];
+    for flag in flags_buf.iter().take(n_points) {
+        // let flag = flags_buf[i];
         let on_curve = (flag >> 7) == 0;
         let flag_low = flag & 0x7f;
 
@@ -467,103 +574,6 @@ pub fn store_points(
     glyph_writer.write_bytes(&y_writer.data)
 }
 
-/// 重建简单字形
-fn reconstruct_simple_glyph(
-    n_contours: u16,
-    n_points_reader: &mut Reader,
-    flag_reader: &mut Reader,
-    glyph_reader: &mut Reader,
-    instruction_reader: &mut Reader,
-    have_bbox: bool,
-    bbox_reader: &mut Reader,
-    has_overlap_bitmap: bool,
-    overlap_bitmap: Option<&[u8]>,
-    glyph_idx: u16,
-    glyf_data: &mut Vec<u8>,
-) -> Result<(), FontError> {
-    tracing::debug!("Reconstructing simple glyph: {}", glyph_idx);
-    // 读取每个轮廓的点数
-    let mut n_points_vec = Vec::new();
-    let mut total_n_points: usize = 0;
-
-    for _ in 0..n_contours {
-        // let n_points_contour = read_255ushort(n_points_reader)? as usize;
-        let n_points_contour = U255::read_from(n_points_reader)?.value() as usize;
-        n_points_vec.push(n_points_contour);
-        total_n_points += n_points_contour;
-    }
-
-    // 读取标志位
-    let flags_buf = flag_reader.read_bytes(total_n_points)?;
-
-    // 读取三元组数据
-    // 解码点坐标
-    let points = triplet_decode(flags_buf, glyph_reader, total_n_points)?;
-
-    // 读取指令长度
-    let instruction_length_value = U255::read_from(glyph_reader)?.value() as usize;
-
-    // 读取指令数据
-    // 读取指令数据
-    let instructions = if instruction_length_value > 0 {
-        instruction_reader
-            .read_bytes(instruction_length_value)?
-            .to_vec()
-    } else {
-        Vec::new()
-    };
-
-    // 构建字形缓冲区
-    let mut glyph_writer = Writer::new();
-
-    // 写入 nContours
-    glyph_writer.write_u16(n_contours)?;
-    // glyph_buf.extend_from_slice(&n_contours.to_be_bytes());
-
-    // 写入或计算 bbox
-    if have_bbox {
-        let bbox_data = bbox_reader.read_bytes(8)?;
-        glyph_writer.write_bytes(bbox_data)?;
-        // glyph_buf.extend_from_slice(bbox_data);
-    } else {
-        // 先占位 8 字节
-        // let current_len = glyph_buf.len();
-        // glyph_buf.resize(current_len + 8, 0);
-        // 计算 bbox 并写入
-        compute_bbox(&points, &mut glyph_writer)?;
-    }
-
-    // 写入轮廓结束点
-    let mut end_point: i32 = -1;
-    for &n_pts in &n_points_vec {
-        end_point += n_pts as i32;
-        // glyph_buf.extend_from_slice(&(end_point as u16).to_be_bytes());
-        if end_point >= 65536 {
-            return Err(FontError::Generic("Contour end point overflow".to_string()));
-        }
-        glyph_writer.write_u16(end_point as u16)?;
-    }
-
-    // 写入指令长度和指令数据
-    glyph_writer.write_u16(instruction_length_value as u16)?;
-    // glyph_buf.extend_from_slice(&(instruction_length_value as u16).to_be_bytes());
-    glyph_writer.write_bytes(&instructions)?;
-
-    // 存储点
-    let has_overlap_bit = has_overlap_bitmap
-        && overlap_bitmap.is_some_and(|bmp| {
-            let byte_idx = glyph_idx as usize / 8;
-            let bit_idx = glyph_idx as usize % 8;
-            byte_idx < bmp.len() && (bmp[byte_idx] >> (7 - bit_idx)) & 1 != 0
-        });
-
-    store_points(&points, has_overlap_bit, &mut glyph_writer)?;
-
-    glyf_data.extend_from_slice(&glyph_writer.data);
-
-    Ok(())
-}
-
 /// 计算复合字形组件的大小
 ///
 /// 参考 Google woff2 的 SizeOfComposite 函数
@@ -621,78 +631,6 @@ fn size_of_composite(composite_data: &[u8]) -> Result<(usize, bool), FontError> 
     let size = reader.offset - start_offset;
     Ok((size, have_instructions))
 }
-
-/// 重建复合字形（完整版本）
-///
-/// 参考 Google woff2 的实现，从转换后的数据重建标准 glyf 格式的复合字形
-fn reconstruct_composite_glyph(
-    composite_reader: &mut Reader,
-    glyph_reader: &mut Reader,
-    instruction_reader: &mut Reader,
-    have_bbox: bool,
-    bbox_reader: &mut Reader,
-    glyf_data: &mut Vec<u8>,
-) -> Result<(), FontError> {
-    tracing::debug!("Reconstructing composite glyph");
-    if !have_bbox {
-        return Err(FontError::Generic(
-            "Composite glyph must have bbox".to_string(),
-        ));
-    }
-
-    // 1. 计算复合字形组件的大小
-    let remaining_composite = &composite_reader.data[composite_reader.offset..];
-    let (composite_size, have_instructions) = size_of_composite(remaining_composite)?;
-
-    // 2. 读取指令大小（如果有）
-    let mut instruction_size: u16 = 0;
-    if have_instructions {
-        instruction_size = U255::read_from(glyph_reader)?.value();
-    }
-
-    // 复合字形不需要预先计算大小，直接写入数据
-
-    // 4. 写入 nContours = 0xFFFF（表示复合字形）
-    glyf_data.extend_from_slice(&0xFFFFu16.to_be_bytes());
-
-    // 5. 写入 bbox
-    let bbox_data = bbox_reader.read_bytes(8)?;
-    glyf_data.extend_from_slice(bbox_data);
-
-    // 6. 复制复合字形组件数据
-    let component_start = composite_reader.offset;
-    let component_end = component_start + composite_size;
-
-    if component_end > composite_reader.data.len() {
-        return Err(FontError::Generic(
-            "Composite: component data out of bounds".to_string(),
-        ));
-    }
-
-    glyf_data.extend_from_slice(&composite_reader.data[component_start..component_end]);
-    composite_reader.skip(composite_size)?;
-
-    // 7. 写入指令（如果有）
-    if have_instructions {
-        glyf_data.extend_from_slice(&instruction_size.to_be_bytes());
-
-        // 读取指令数据
-        let instr_start = instruction_reader.offset;
-        let instr_end = instr_start + instruction_size as usize;
-
-        if instr_end > instruction_reader.data.len() {
-            return Err(FontError::Generic(
-                "Composite: instruction data out of bounds".to_string(),
-            ));
-        }
-
-        glyf_data.extend_from_slice(&instruction_reader.data[instr_start..instr_end]);
-        instruction_reader.skip(instruction_size as usize)?;
-    }
-
-    Ok(())
-}
-
 /// 构建 loca 表
 fn build_loca_table(loca_values: &[u32], index_format: u16) -> Vec<u8> {
     let mut loca_data =
