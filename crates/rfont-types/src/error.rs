@@ -3,9 +3,17 @@ use thiserror::Error;
 /// 字体处理错误的结构化类型
 #[derive(Debug, Error)]
 pub enum FontError {
+    // ==================== 文件格式错误 ====================
     #[error("Invalid magic number: expected {expected:#010X}, got {actual:#010X}")]
     InvalidMagicNumber { expected: u32, actual: u32 },
 
+    #[error("Invalid file format: {reason} (length: {actual_length} bytes)")]
+    InvalidFileFormat {
+        reason: String,
+        actual_length: usize,
+    },
+
+    // ==================== 表相关错误 ====================
     #[error("Table '{tag}' not found in font")]
     TableNotFound { tag: String },
 
@@ -16,9 +24,6 @@ pub enum FontError {
         max: u32,
     },
 
-    #[error("Unsupported cmap format: {format}")]
-    UnsupportedCmapFormat { format: u16 },
-
     #[error("Invalid table checksum: table '{tag}' expected {expected:#010X}, got {actual:#010X}")]
     InvalidChecksum {
         tag: String,
@@ -26,17 +31,19 @@ pub enum FontError {
         actual: u32,
     },
 
+    #[error("Table '{table}' is too short: need at least {min_size} bytes, got {actual_size}")]
+    TableTooShort {
+        table: String,
+        min_size: usize,
+        actual_size: usize,
+    },
+
+    // ==================== 数据解析错误 ====================
+    #[error("Unsupported cmap format: {format}")]
+    UnsupportedCmapFormat { format: u16 },
+
     #[error("Unexpected end of data at offset {offset}, needed {needed} bytes")]
     UnexpectedEndOfData { offset: usize, needed: usize },
-
-    #[error("Invalid glyph index: {glyph_id} exceeds maximum {max_glyphs}")]
-    InvalidGlyphIndex { glyph_id: u16, max_glyphs: u16 },
-
-    #[error("Invalid units per em: {value} (must be between 16 and 16384)")]
-    InvalidUnitsPerEm { value: u16 },
-
-    #[error("WOFF decompression failed: {message}")]
-    WoffDecompressionError { message: String },
 
     #[error("Failed to parse {table} at offset {offset}: {reason}")]
     ParseError {
@@ -45,6 +52,17 @@ pub enum FontError {
         reason: String,
     },
 
+    // ==================== 压缩/解压缩错误 ====================
+    #[error("WOFF decompression failed: {message}")]
+    WoffDecompressionError { message: String },
+
+    #[error("WOFF compression failed: {message}")]
+    WoffCompressionError { message: String },
+
+    #[error("WOFF2 Brotli decompression failed: {message}")]
+    Woff2DecompressionError { message: String },
+
+    // ==================== 其他错误 ====================
     #[error("Invalid base date for LONGDATETIME calculation")]
     InvalidBaseDate,
 
@@ -69,6 +87,9 @@ impl FontError {
             FontError::InvalidMagicNumber { .. } => {
                 Some("文件可能不是有效的字体格式，请检查文件扩展名是否正确")
             }
+            FontError::InvalidFileFormat { .. } => {
+                Some("文件格式无效或不完整，请尝试重新下载或验证文件完整性")
+            }
             FontError::TableNotFound { .. } => {
                 Some("字体文件可能损坏或不完整，请尝试重新下载或验证文件完整性")
             }
@@ -77,8 +98,15 @@ impl FontError {
                 Some("字体校验和不匹配，文件可能在传输过程中损坏，请重新下载")
             }
             FontError::UnexpectedEndOfData { .. } => Some("文件被截断或不完整，请确保文件完整下载"),
+            FontError::TableTooShort { .. } => Some("字体表长度不足，文件可能已损坏"),
             FontError::WoffDecompressionError { .. } => {
                 Some("WOFF 解压缩失败，文件可能损坏或使用了不支持的压缩算法")
+            }
+            FontError::WoffCompressionError { .. } => {
+                Some("WOFF 压缩失败，可能是内存不足或系统资源问题")
+            }
+            FontError::Woff2DecompressionError { .. } => {
+                Some("WOFF2 Brotli 解压缩失败，文件可能损坏或使用了不支持的压缩参数")
             }
             FontError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 Some("文件不存在，请检查路径是否正确")
@@ -178,27 +206,6 @@ mod tests {
         assert!(suggestion.unwrap().contains("截断"));
     }
 
-    #[test]
-    fn test_invalid_glyph_index_error() {
-        let err = FontError::InvalidGlyphIndex {
-            glyph_id: 1000,
-            max_glyphs: 500,
-        };
-
-        let msg = format!("{}", err);
-        assert!(msg.contains("1000"));
-        assert!(msg.contains("500"));
-    }
-
-    #[test]
-    fn test_invalid_units_per_em_error() {
-        let err = FontError::InvalidUnitsPerEm { value: 10 };
-
-        let msg = format!("{}", err);
-        assert!(msg.contains("10"));
-        assert!(msg.contains("16"));
-        assert!(msg.contains("16384"));
-    }
 
     #[test]
     fn test_woff_decompression_error() {
@@ -267,6 +274,68 @@ mod tests {
             reason: "test".to_string(),
         };
         assert!(err.suggestion().is_none());
+    }
+
+    #[test]
+    fn test_invalid_file_format_error() {
+        let err = FontError::InvalidFileFormat {
+            reason: "invalid length".to_string(),
+            actual_length: 100,
+        };
+
+        let msg = format!("{}", err);
+        assert!(msg.contains("invalid length"));
+        assert!(msg.contains("100"));
+
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+        assert!(suggestion.unwrap().contains("不完整"));
+    }
+
+    #[test]
+    fn test_table_too_short_error() {
+        let err = FontError::TableTooShort {
+            table: "head".to_string(),
+            min_size: 54,
+            actual_size: 30,
+        };
+
+        let msg = format!("{}", err);
+        assert!(msg.contains("head"));
+        assert!(msg.contains("54"));
+        assert!(msg.contains("30"));
+
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+        assert!(suggestion.unwrap().contains("损坏"));
+    }
+
+    #[test]
+    fn test_woff_compression_error() {
+        let err = FontError::WoffCompressionError {
+            message: "out of memory".to_string(),
+        };
+
+        let msg = format!("{}", err);
+        assert!(msg.contains("out of memory"));
+
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+        assert!(suggestion.unwrap().contains("内存"));
+    }
+
+    #[test]
+    fn test_woff2_decompression_error() {
+        let err = FontError::Woff2DecompressionError {
+            message: "brotli error".to_string(),
+        };
+
+        let msg = format!("{}", err);
+        assert!(msg.contains("brotli error"));
+
+        let suggestion = err.suggestion();
+        assert!(suggestion.is_some());
+        assert!(suggestion.unwrap().contains("损坏"));
     }
 
     #[test]

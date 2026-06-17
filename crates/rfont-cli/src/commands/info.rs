@@ -37,7 +37,8 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
     println!("{}", "─".repeat(60).dimmed());
 
     // 基本信息
-    let info = font.get_font_info();
+    let info = font.get_font_info()
+        .context("获取字体信息失败")?;
 
     println!("\n{}", "基本信息:".bold());
     println!("  字形数量:     {}", info.glyph_count);
@@ -105,7 +106,7 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
 fn output_json(font: &Font, verbose: bool) -> Result<()> {
     use serde_json::{Value, json};
 
-    let info = font.get_font_info();
+    let info = font.get_font_info().context("获取字体信息失败")?;
 
     let mut result = json!({
         "glyph_count": info.glyph_count,

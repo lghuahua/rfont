@@ -253,7 +253,7 @@ mod tests {
 
         let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
 
-        let info = font.get_font_info();
+        let info = font.get_font_info().unwrap();
 
         // 验证基本信息
         assert!(info.units_per_em > 0);

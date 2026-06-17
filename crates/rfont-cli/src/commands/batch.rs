@@ -282,7 +282,8 @@ fn convert_single_file(
 
 /// 执行格式转换
 fn perform_conversion(font: &Font, format: &str, compression: u8) -> Result<Vec<u8>> {
-    let all_glyph_ids: Vec<u16> = (0..font.get_font_info().glyph_count).collect();
+    let font_info = font.get_font_info().context("获取字体信息失败")?;
+    let all_glyph_ids: Vec<u16> = (0..font_info.glyph_count).collect();
 
     let data = font
         .subset_builder()

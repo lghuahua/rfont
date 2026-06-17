@@ -1,3 +1,4 @@
+use anyhow::Context;
 use brotli::Decompressor;
 use flate2::read::ZlibDecoder;
 use rfont_core::tables::glyf::GlyfTable;
@@ -62,12 +63,12 @@ impl Font {
     ///
     /// # 返回值
     /// - `Ok(Font)`: 成功加载的字体对象
-    /// - `Err(FontError)`: 加载失败时的错误信息
+    /// - `Err(anyhow::Error)`: 加载失败时的错误信息，包含详细上下文
     ///
     /// # 错误
-    /// - `Io`: 文件读取失败
-    /// - `TableNotFound`: 必需的字体表缺失
-    /// - `Generic`: 其他解析错误
+    /// - 文件读取失败
+    /// - 必需的字体表缺失
+    /// - 其他解析错误
     ///
     /// # 示例
     /// ```no_run
@@ -75,12 +76,13 @@ impl Font {
     ///
     /// let font = Font::load("path/to/font.ttf").expect("无法加载字体");
     /// ```
-    pub fn load(path: &str) -> Result<Self, FontError> {
+    pub fn load(path: &str) -> anyhow::Result<Self> {
         let span = span!(Level::INFO, "load_font", path = path);
         let _enter = span.enter();
 
         info!("开始加载字体文件");
-        let data = std::fs::read(path).map_err(FontError::Io)?;
+        let data = std::fs::read(path)
+            .map_err(|e| anyhow::anyhow!("无法读取字体文件 '{}': {}", path, e))?;
 
         debug!(size = data.len(), "字体文件读取完成");
 
@@ -88,14 +90,17 @@ impl Font {
         if data.len() >= 4 && &data[0..4] == b"wOF2" {
             info!("检测到 WOFF2 格式");
             Self::load_woff2(&data)
+                .context(format!("解析 WOFF2 字体文件 '{}' 失败", path))
         }
         // 检查是否为 WOFF 格式
         else if data.len() >= 4 && &data[0..4] == b"wOFF" {
             info!("检测到 WOFF 格式");
             Self::load_woff(&data)
+                .context(format!("解析 WOFF 字体文件 '{}' 失败", path))
         } else {
             info!("检测到 TTF/OTF 格式");
             Self::load_ttf(&data)
+                .context(format!("解析 TTF/OTF 字体文件 '{}' 失败", path))
         }
     }
 
@@ -403,7 +408,10 @@ impl Font {
     /// ```
     pub fn detect_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {
         if data.len() < 4 {
-            return Err(FontError::Generic("数据太短，无法检测格式".to_string()));
+            return Err(FontError::InvalidFileFormat { 
+                reason: "数据太短，无法检测格式".to_string(),
+                actual_length: data.len()
+            });
         }
 
         // 检测 WOFF2
@@ -742,7 +750,9 @@ fn woff2_uncomprss(reader: &mut Reader, hdr: &Woff2Header) -> Result<Vec<u8>, Fo
     decompressor
         .read_to_end(&mut decompressed_buffer)
         .map_err(|e| {
-            FontError::Generic(format!("WOFF2: Failed to decompress with Brotli: {}", e))
+            FontError::Woff2DecompressionError { 
+                message: format!("Brotli 解压缩失败: {}", e) 
+            }
         })?;
 
     debug!(
@@ -847,9 +857,9 @@ pub fn assemble_ttf(all_tables: &mut [(Tag, Vec<u8>)]) -> Result<Vec<u8>, FontEr
 }
 
 impl Font {
-    /// 获取字体元数据信息
+    /// 获取字体信息
     ///
-    /// 从已加载的字体表中提取关键元数据，包括字形数量、度量信息、表列表等。
+    /// 从各个字体表中提取基本信息，包括字形数量、度量信息、支持的字符数等。
     ///
     /// # 返回值
     /// `FontInfo` 结构体，包含字体的基本信息
@@ -859,11 +869,11 @@ impl Font {
     /// use rfont::Font;
     ///
     /// let font = Font::load("font.ttf").unwrap();
-    /// let info = font.get_font_info();
+    /// let info = font.get_font_info().unwrap();
     /// println!("字形数量: {}", info.glyph_count);
     /// println!("支持的字符数: {}", info.supported_char_count);
     /// ```
-    pub fn get_font_info(&self) -> crate::info::FontInfo {
+    pub fn get_font_info(&self) -> anyhow::Result<crate::info::FontInfo> {
         use crate::info::{FontInfo, TableInfo};
 
         let mut info = FontInfo::new();
@@ -908,7 +918,7 @@ impl Font {
             });
         }
 
-        info
+        Ok(info)
     }
 
     /// 获取所有表的列表

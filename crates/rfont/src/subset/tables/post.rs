@@ -33,7 +33,11 @@ pub struct PostTableInfo {
 /// - 适用于子集化场景，因为字形名称在运行时通常不需要
 pub fn subset_post_table(_font: &Font, original_post: &[u8]) -> Result<Vec<u8>, FontError> {
     if original_post.len() < POST_TABLE_MIN_SIZE {
-        return Err(FontError::Generic("post table too short".to_string()));
+        return Err(FontError::TableTooShort { 
+            table: "post".to_string(),
+            min_size: POST_TABLE_MIN_SIZE,
+            actual_size: original_post.len()
+        });
     }
 
     // 读取 post 表版本
@@ -73,7 +77,11 @@ pub fn subset_post_table(_font: &Font, original_post: &[u8]) -> Result<Vec<u8>, 
 /// - 仅固定头部：32 字节（无字形名称数据）
 fn subset_post_v2_to_v3(original_post: &[u8]) -> Result<Vec<u8>, FontError> {
     if original_post.len() < POST_V2_MIN_SIZE {
-        return Err(FontError::Generic("post v2 table too short".to_string()));
+        return Err(FontError::TableTooShort { 
+            table: "post v2".to_string(),
+            min_size: POST_V2_MIN_SIZE,
+            actual_size: original_post.len()
+        });
     }
 
     // 解析原始 post v2 表的信息
@@ -111,7 +119,11 @@ fn subset_post_v2_to_v3(original_post: &[u8]) -> Result<Vec<u8>, FontError> {
 /// 解析 post 表头部信息
 fn parse_post_header(data: &[u8]) -> Result<PostTableInfo, FontError> {
     if data.len() < 32 {
-        return Err(FontError::Generic("post header too short".to_string()));
+        return Err(FontError::TableTooShort { 
+            table: "post header".to_string(),
+            min_size: 32,
+            actual_size: data.len()
+        });
     }
 
     let version = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);

@@ -1,5 +1,5 @@
+use anyhow::{anyhow, Context};
 use crate::Font;
-use rfont_types::FontError;
 use std::collections::HashSet;
 use tracing::debug;
 
@@ -217,16 +217,13 @@ impl<'a> FontSubsetBuilder<'a> {
         self
     }
 
-    /// 构建并执行子集化
+    /// 构建子集字体
     ///
-    /// 根据配置收集所有需要包含的字形 ID，执行子集化操作，返回最终的字体数据。
+    /// 根据配置收集字形 ID，执行子集化操作，返回序列化后的字体数据。
     ///
     /// # 返回值
     /// - `Ok(Vec<u8>)`: 子集化后的字体数据
-    /// - `Err(FontError)`: 如果未指定任何字形或子集化失败
-    ///
-    /// # 错误
-    /// - `Generic`: 当没有指定任何字形时（文本、字形 ID、Unicode 范围都为空）
+    /// - `Err(anyhow::Error)`: 子集化失败时的错误信息
     ///
     /// # 示例
     /// ```no_run
@@ -238,7 +235,7 @@ impl<'a> FontSubsetBuilder<'a> {
     ///     Err(e) => eprintln!("子集化失败: {}", e),
     /// }
     /// ```
-    pub fn build(self) -> Result<Vec<u8>, FontError> {
+    pub fn build(self) -> anyhow::Result<Vec<u8>> {
         // 收集需要包含的字形 ID
         let mut needed_glyphs = HashSet::new();
 
@@ -266,9 +263,7 @@ impl<'a> FontSubsetBuilder<'a> {
 
         // 确保至少有一个字形
         if needed_glyphs.is_empty() {
-            return Err(FontError::Generic(
-                "No glyphs specified for subset".to_string(),
-            ));
+            return Err(anyhow!("未指定任何字形用于子集化"));
         }
 
         // 转换为排序的向量
@@ -278,6 +273,8 @@ impl<'a> FontSubsetBuilder<'a> {
         debug!(glyph_count = glyph_ids.len(), "开始子集化处理");
 
         // 执行子集化
-        self.font.subset_with_options(&glyph_ids, &self.options)
+        self.font
+            .subset_with_options(&glyph_ids, &self.options)
+            .context(format!("子集化失败，请求 {} 个字形", glyph_ids.len()))
     }
 }

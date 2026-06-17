@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let font = Font::load("crates/rfont/src/AlimamaDaoLiTi.ttf")?;
 
     // 获取字体信息
-    let info = font.get_font_info();
+    let info = font.get_font_info()?;
 
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("📄 字体基本信息");

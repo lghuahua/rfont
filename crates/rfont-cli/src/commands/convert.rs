@@ -34,7 +34,7 @@ pub fn run(input: &Path, output: Option<&Path>, format: &str, compression: u8) -
         Font::load(input.to_str().unwrap()).context(format!("无法加载字体文件: {:?}", input))?;
 
     debug!(
-        glyph_count = font.get_font_info().glyph_count,
+        glyph_count = font.get_font_info().context("获取字体信息失败")?.glyph_count,
         "字体加载成功"
     );
     println!("  ✓ 成功加载字体");
@@ -55,9 +55,11 @@ pub fn run(input: &Path, output: Option<&Path>, format: &str, compression: u8) -
         compression_level = compression,
         "开始格式转换"
     );
+    
+    let font_info = font.get_font_info().context("获取字体信息失败")?;
     let converted_data = if format == "woff" {
         // TTF → WOFF：使用所有字形 ID
-        let all_glyph_ids: Vec<u16> = (0..font.get_font_info().glyph_count as u16).collect();
+        let all_glyph_ids: Vec<u16> = (0..font_info.glyph_count as u16).collect();
         font.subset_builder()
             .glyph_ids(all_glyph_ids)
             .output_format("woff")
@@ -69,7 +71,7 @@ pub fn run(input: &Path, output: Option<&Path>, format: &str, compression: u8) -
         font.convert_to_woff2(font.font_data().as_bytes(), compression)?
     } else {
         // WOFF/WOFF2 → TTF（或其他情况）
-        let all_glyph_ids: Vec<u16> = (0..font.get_font_info().glyph_count as u16).collect();
+        let all_glyph_ids: Vec<u16> = (0..font_info.glyph_count as u16).collect();
         font.subset_builder()
             .glyph_ids(all_glyph_ids)
             .output_format("ttf")
