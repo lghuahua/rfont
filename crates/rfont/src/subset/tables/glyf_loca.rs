@@ -28,6 +28,7 @@ pub fn extract_glyf_and_loca(
             let end = font.loca.offsets[glyph_id as usize + 1];
 
             let glyf_bytes = font.glyf.slice(start as usize, end as usize)?;
+            // Cow<[u8]> 可以直接作为 &[u8] 使用
             new_glyf_data.extend_from_slice(&glyf_bytes);
             current_offset += end - start;
         }

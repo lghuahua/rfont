@@ -164,9 +164,8 @@ impl Font {
                 .ok_or(FontError::TableNotFound {
                     tag: "glyf".to_string(),
                 })?;
-        let glyf = GlyfTable {
-            data: glyf_bytes.to_vec(),
-        };
+        // 使用 from_vec 转换为 Rc，避免额外拷贝
+        let glyf = GlyfTable::from_vec(glyf_bytes.to_vec());
 
         Ok(Font {
             font_data,
