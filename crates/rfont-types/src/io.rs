@@ -1,4 +1,4 @@
-use crate::{error::FontError, U255};
+use crate::{U255, error::FontError};
 
 /// Trait for reading bytes from a stream.
 pub trait ReadBytes<'a> {

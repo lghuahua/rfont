@@ -3,7 +3,7 @@ use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use rfont::Font;
 use std::path::Path;
-use tracing::{debug, info, span, warn, Level};
+use tracing::{Level, debug, info, span, warn};
 
 pub fn run(
     input: &Path,
@@ -31,7 +31,7 @@ pub fn run(
     let font =
         Font::load(input.to_str().unwrap()).context(format!("无法加载字体文件: {:?}", input))?;
 
-    debug!(glyph_count = font.maxp.num_glyphs, "字体加载成功");
+    debug!(glyph_count = font.maxp().num_glyphs, "字体加载成功");
     println!("  ✓ 成功加载字体");
     println!("  字形总数: {}", font.get_font_info().glyph_count);
 

@@ -1,7 +1,7 @@
 [package]
 name = "rfont-cli"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "命令行字体子集化和转换工具，支持 TTF/WOFF/WOFF2 格式"
 authors = ["lghuahua"]
 license = "MIT"

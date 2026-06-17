@@ -29,17 +29,17 @@ fn ser_fields(fields: &Fields) -> Vec<TokenStream> {
         let name = &field.ident;
 
         for attr in &field.attrs {
-            if attr.path().is_ident("rfont") {
-                if let Err(e) = attr.parse_nested_meta(|meta| {
+            if attr.path().is_ident("rfont")
+                && let Err(e) = attr.parse_nested_meta(|meta| {
                     if meta.path.is_ident("capacity_with") {
                         let item: LitStr = meta.value()?.parse()?;
                         field_capacity.insert(item.value(), name);
                     }
                     Ok(())
-                }) {
-                    println!("error: {:?}", e)
-                };
-            }
+                })
+            {
+                println!("error: {:?}", e)
+            };
         }
     }
 

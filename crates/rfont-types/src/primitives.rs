@@ -1,5 +1,5 @@
-use crate::io::{ReadBytes, Reader, WriteBytes, Writer};
 use crate::FontError;
+use crate::io::{ReadBytes, Reader, WriteBytes, Writer};
 use font_macros::ReadBytes;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};

@@ -4,7 +4,7 @@ use glob::glob;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rfont::Font;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info, span, warn, Level};
+use tracing::{Level, debug, info, span, warn};
 
 /// 批量转换命令的参数
 pub struct BatchConvertArgs {

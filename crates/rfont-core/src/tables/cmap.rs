@@ -30,7 +30,8 @@ impl<'a> ReadBytes<'a> for Cmap {
 
         let encoding_records: Vec<EncodingRecord> = reader.read_array(num_tables as usize)?;
 
-        let mut subtables = HashMap::new();
+        // 预分配 HashMap 容量，避免多次扩容
+        let mut subtables = HashMap::with_capacity(num_tables as usize);
 
         for record in encoding_records.iter() {
             let key: CmapSubtableKey = record.into();
@@ -95,17 +96,18 @@ impl Cmap {
     }
 
     fn encode_format4(map: &HashMap<u32, u16>) -> Vec<u8> {
-        // 收集并排序所有字符码位
+        // 收集并排序所有字符码位（使用 unstable sort 更快）
         let mut unicode_map = map
             .iter()
             .map(|(cp, glyph_id)| (*cp, *glyph_id))
             .collect::<Vec<_>>();
-        unicode_map.sort_by_key(|&(unicode, _)| unicode);
+        unicode_map.sort_unstable_by_key(|&(unicode, _)| unicode);
 
-        // 构建段（segments）
-        let mut start_codes = Vec::new();
-        let mut end_codes = Vec::new();
-        let mut id_deltas = Vec::new();
+        // 构建段（segments）- 预分配容量
+        let estimated_segments = (unicode_map.len() / 10).max(1); // 估算段数量
+        let mut start_codes = Vec::with_capacity(estimated_segments + 1); // +1 for sentinel
+        let mut end_codes = Vec::with_capacity(estimated_segments + 1);
+        let mut id_deltas = Vec::with_capacity(estimated_segments + 1);
 
         let mut i = 0;
         while i < unicode_map.len() {
@@ -149,7 +151,10 @@ impl Cmap {
         id_deltas.push(1);
 
         let n_segments = start_codes.len() as u16;
-        let mut result = Vec::new();
+        
+        // 预分配结果向量容量
+        let length = 16 + (n_segments * 8); // 16是头部固定部分，8是每个段占用的字节数
+        let mut result = Vec::with_capacity(length as usize);
 
         let seg_count_x2 = n_segments * 2;
         let max_power = if n_segments > 0 {
@@ -165,7 +170,6 @@ impl Cmap {
 
         // Format 4 头部
         result.extend(&0x0004u16.to_be_bytes()); // format
-        let length = 16 + (n_segments * 8); // 16是头部固定部分，8是每个段占用的字节数
         result.extend(&length.to_be_bytes()); // length
         result.extend(&0u16.to_be_bytes()); // language (通常为0)
 

@@ -41,7 +41,7 @@ impl FontData {
     }
 
     /// 解析字体目录
-    fn parse_directory(data: &[u8]) -> Result<HashMap<Tag, TableRecord>, FontError> {
+    pub(crate) fn parse_directory(data: &[u8]) -> Result<HashMap<Tag, TableRecord>, FontError> {
         let mut reader = Reader::new(data);
 
         // 读取 Offset Table
@@ -91,10 +91,10 @@ impl FontData {
     pub fn get_table_bytes(&self, tag: Tag) -> Option<&[u8]> {
         self.table_map.get(&tag).map(|record| {
             // 尝试从缓存获取
-            if let Some(cell) = self.parsed_tables.get(&tag) {
-                if let Some(cached) = cell.get() {
-                    return cached.as_slice();
-                }
+            if let Some(cell) = self.parsed_tables.get(&tag)
+                && let Some(cached) = cell.get()
+            {
+                return cached.as_slice();
             }
 
             // 从原始数据提取并缓存
@@ -115,14 +115,14 @@ impl FontData {
     /// - `Ok(())`: 预加载成功
     /// - `Err(FontError)`: 如果表不存在或缓存失败
     pub fn preload_table(&self, tag: Tag) -> Result<(), FontError> {
-        if let Some(record) = self.table_map.get(&tag) {
-            if let Some(cell) = self.parsed_tables.get(&tag) {
-                let start = record.offset as usize;
-                let end = start + record.length as usize;
-                let data = self.data[start..end].to_vec();
-                cell.set(data)
-                    .map_err(|_| FontError::Generic("Failed to cache table".to_string()))?;
-            }
+        if let Some(record) = self.table_map.get(&tag)
+            && let Some(cell) = self.parsed_tables.get(&tag)
+        {
+            let start = record.offset as usize;
+            let end = start + record.length as usize;
+            let data = self.data[start..end].to_vec();
+            cell.set(data)
+                .map_err(|_| FontError::Generic("Failed to cache table".to_string()))?;
         }
         Ok(())
     }

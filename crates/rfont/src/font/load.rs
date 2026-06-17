@@ -2,21 +2,18 @@ use brotli::Decompressor;
 use flate2::read::ZlibDecoder;
 use rfont_core::tables::glyf::GlyfTable;
 use rfont_core::tables::woff::{WoffHeader, WoffTableDirectoryEntry};
-use rfont_core::tables::woff2::{Woff2Header, Woff2TableDirectoryEntry, WOFF2_KNOWN_TAGS};
+use rfont_core::tables::woff2::{WOFF2_KNOWN_TAGS, Woff2Header, Woff2TableDirectoryEntry};
 use rfont_core::tables::woff2_transform::GlyfDecoder;
-use rfont_core::{calc_sfnt_checksum, pad4, Cmap, Head, Hhea, Hmtx, Loca, Maxp};
+use rfont_core::{Cmap, Head, Hhea, Hmtx, Loca, Maxp, calc_sfnt_checksum, pad4};
 use rfont_types::{
-    FontError, ReadBytes, Reader, TableRecord, Tag, WriteBytes, Writer, SFNT_CHECKSUM_MAGIC,
+    FontError, ReadBytes, Reader, SFNT_CHECKSUM_MAGIC, TableRecord, Tag, WriteBytes, Writer,
 };
 use std::io::Read;
-use tracing::{debug, info, span, Level};
+use tracing::{Level, debug, info, span};
 
 use rfont_types::TABLE_DIR_ENTRY_SIZE;
 
 use crate::font_data::FontData;
-
-// 导出 WOFF2_KNOWN_TAGS 供 detect_format 使用
-pub use rfont_core::tables::woff2::WOFF2_KNOWN_TAGS as CORE_WOFF2_KNOWN_TAGS;
 
 /// 高层字体对象（预加载核心表）
 ///
@@ -42,16 +39,16 @@ pub use rfont_core::tables::woff2::WOFF2_KNOWN_TAGS as CORE_WOFF2_KNOWN_TAGS;
 ///     .unwrap();
 /// ```
 pub struct Font {
-    pub font_data: FontData,
+    pub(crate) font_data: FontData,
 
     // 核心表（预加载）
-    pub head: Head,
-    pub maxp: Maxp,
-    pub hhea: Hhea,
-    pub loca: Loca,
-    pub cmap: Cmap,
-    pub hmtx: Hmtx,
-    pub glyf: GlyfTable,
+    pub(crate) head: Head,
+    pub(crate) maxp: Maxp,
+    pub(crate) hhea: Hhea,
+    pub(crate) loca: Loca,
+    pub(crate) cmap: Cmap,
+    pub(crate) hmtx: Hmtx,
+    pub(crate) glyf: GlyfTable,
 }
 
 impl Font {
@@ -354,6 +351,36 @@ impl Font {
         &self.font_data
     }
 
+    /// 获取 head 表的只读引用
+    pub fn head(&self) -> &Head {
+        &self.head
+    }
+
+    /// 获取 maxp 表的只读引用
+    pub fn maxp(&self) -> &Maxp {
+        &self.maxp
+    }
+
+    /// 获取 hhea 表的只读引用
+    pub fn hhea(&self) -> &Hhea {
+        &self.hhea
+    }
+
+    /// 获取 loca 表的只读引用
+    pub fn loca(&self) -> &Loca {
+        &self.loca
+    }
+
+    /// 获取 cmap 表的只读引用
+    pub fn cmap(&self) -> &Cmap {
+        &self.cmap
+    }
+
+    /// 获取 hmtx 表的只读引用
+    pub fn hmtx(&self) -> &Hmtx {
+        &self.hmtx
+    }
+
     /// 检测字体格式并返回详细信息
     ///
     /// 分析字体数据的头部信息，识别字体格式（TTF、OTF、WOFF、WOFF2），
@@ -559,6 +586,7 @@ impl Font {
 
     /// 检测 WOFF2 格式
     fn detect_woff2_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {
+        use rfont_core::tables::woff2::read_table_directory;
         use rfont_types::{CompressionType, FontFormat};
         let mut reader = Reader::new(data);
 
@@ -570,41 +598,18 @@ impl Font {
         let _reserved = reader.read_u16()?;
         let _total_sfnt_size = reader.read_u32()?;
 
-        // 解析 WOFF2 表目录（简化版本，只收集标签）
-        let mut table_tags = Vec::new();
-        for _ in 0..num_tables {
-            // WOFF2 使用变长编码，这里简化处理
-            // 实际应该按照 WOFF2 规范解析 flag 和 tag
-            let flag = reader.read_u8()?;
-
-            // 根据 flag 确定是否有显式 tag
-            if (flag & 0x3F) == 0x3F {
-                // 需要读取完整的 4 字节 tag
-                let tag_bytes = [
-                    reader.read_u8()?,
-                    reader.read_u8()?,
-                    reader.read_u8()?,
-                    reader.read_u8()?,
-                ];
-                let tag_str = String::from_utf8_lossy(&tag_bytes).to_string();
-                table_tags.push(tag_str);
-            } else {
-                // 从预定义列表中获取 tag
-                let known_index = (flag & 0x3F) as usize;
-                if known_index < CORE_WOFF2_KNOWN_TAGS.len() {
-                    let tag = CORE_WOFF2_KNOWN_TAGS[known_index];
-                    let tag_str = String::from_utf8_lossy(&tag.0).to_string();
-                    table_tags.push(tag_str);
-                }
-            }
-
-            // 跳过剩余字段（简化处理）
-            // 实际应该正确解析变长整数
-            // 这里假设每个条目最多 20 字节
-            for _ in 0..20 {
-                reader.read_u8().ok();
-            }
+        // 跳过 WOFF2 Header 剩余字段（total_compressed_size + version + meta + priv = 24 bytes）
+        for _ in 0..6 {
+            reader.read_u32()?;
         }
+
+        // 使用规范的表目录解析，正确处理 Base128 变长编码
+        let table_entries = read_table_directory(&mut reader, num_tables)?;
+
+        let table_tags: Vec<String> = table_entries
+            .iter()
+            .map(|e| e.tag.as_str().to_string())
+            .collect();
 
         // 判断内部格式
         let format = if flavor == 0x00010000 {
@@ -840,4 +845,147 @@ pub fn assemble_ttf(all_tables: &mut [(Tag, Vec<u8>)]) -> Result<Vec<u8>, FontEr
     font_writer.write_bytes(&table_data)?;
 
     Ok(font_writer.data)
+}
+
+impl Font {
+    /// 获取字体元数据信息
+    ///
+    /// 从已加载的字体表中提取关键元数据，包括字形数量、度量信息、表列表等。
+    ///
+    /// # 返回值
+    /// `FontInfo` 结构体，包含字体的基本信息
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    /// let info = font.get_font_info();
+    /// println!("字形数量: {}", info.glyph_count);
+    /// println!("支持的字符数: {}", info.supported_char_count);
+    /// ```
+    pub fn get_font_info(&self) -> crate::info::FontInfo {
+        use crate::info::{FontInfo, TableInfo};
+
+        let mut info = FontInfo::new();
+
+        // 从 head 表提取信息
+        info.units_per_em = self.head.units_per_em;
+        info.x_min = self.head.x_min;
+        info.y_min = self.head.y_min;
+        info.x_max = self.head.x_max;
+        info.y_max = self.head.y_max;
+
+        // 从 maxp 表提取字形数量
+        info.glyph_count = self.maxp.num_glyphs;
+
+        // 从 hhea 表提取水平度量信息
+        info.number_of_h_metrics = self.hhea.number_of_h_metrics;
+        info.ascender = self.hhea.ascender.0;
+        info.descender = self.hhea.descender.0;
+        info.line_gap = self.hhea.line_gap.0;
+
+        // 提取表列表
+        info.tables = self
+            .font_data
+            .get_table_records()
+            .values()
+            .map(TableInfo::from_record)
+            .collect();
+
+        // 统计支持的字符数量
+        info.supported_char_count = self.cmap.supported_chars_count();
+
+        // 从 name 表提取 family_name, style_name, version
+        if let Some(name_table) = self.get_name_table() {
+            info.family_name = name_table.get_family_name_str();
+            info.style_name = name_table.get_subfamily_name().and_then(|data| {
+                rfont_core::NameTable::decode_utf16_be(data)
+                    .or_else(|| rfont_core::NameTable::decode_utf8(data))
+            });
+            info.version = name_table.get_version().and_then(|data| {
+                rfont_core::NameTable::decode_utf16_be(data)
+                    .or_else(|| rfont_core::NameTable::decode_utf8(data))
+            });
+        }
+
+        info
+    }
+
+    /// 获取所有表的列表
+    ///
+    /// 返回字体中所有表的详细信息（标签、校验和、偏移量、长度）。
+    ///
+    /// # 返回值
+    /// `Vec<TableInfo>` 包含所有表的信息
+    pub fn get_table_list(&self) -> Vec<crate::info::TableInfo> {
+        use crate::info::TableInfo;
+
+        self.font_data
+            .get_table_records()
+            .values()
+            .map(TableInfo::from_record)
+            .collect()
+    }
+
+    /// 检查字体是否支持特定字符
+    ///
+    /// # 参数
+    /// - `unicode`: Unicode 码点
+    ///
+    /// # 返回值
+    /// - `true`: 字体支持该字符
+    /// - `false`: 字体不支持该字符
+    pub fn supports_character(&self, unicode: char) -> bool {
+        self.cmap.get_glyph_id(unicode).is_some()
+    }
+
+    /// 将文本转换为字形 ID 列表
+    ///
+    /// 使用 cmap 表将文本中的每个字符映射到对应的字形 ID。
+    /// 如果字符在字体中不存在，会被跳过。
+    ///
+    /// # 参数
+    /// - `text`: 要转换的文本
+    ///
+    /// # 返回值
+    /// 字形 ID 列表（可能为空，如果文本中没有支持的字符）
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    /// let glyph_ids = font.text_to_glyph_ids("Hello");
+    /// println!("字形 ID: {:?}", glyph_ids);
+    /// ```
+    pub fn text_to_glyph_ids(&self, text: &str) -> Vec<u16> {
+        text.chars()
+            .filter_map(|ch| self.cmap.get_glyph_id(ch))
+            .collect()
+    }
+
+    /// 根据文本获取 GlyphID 列表
+    ///
+    /// 将文本中的每个字符映射到字形 ID。如果字符不存在，返回 0（.notdef）。
+    ///
+    /// # 参数
+    /// - `text`: 要转换的文本
+    ///
+    /// # 返回值
+    /// 字形 ID 列表，长度与文本中的字符数相同
+    pub fn get_glyph_ids_for_text(&self, text: &str) -> Vec<u16> {
+        use tracing::{Level, span};
+
+        let span = span!(
+            Level::TRACE,
+            "get_glyph_ids_for_text",
+            text_len = text.len()
+        );
+        let _enter = span.enter();
+
+        text.chars()
+            .map(|ch| self.cmap.get_glyph_id(ch).map_or(0, |v| v))
+            .collect()
+    }
 }

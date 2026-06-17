@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match Font::load("AlimamaDaoLiTi.ttf") {
         Ok(font) => {
             println!("✅ 字体加载成功！");
-            println!("   字形数量: {}", font.maxp.num_glyphs);
+            println!("   字形数量: {}", font.maxp().num_glyphs);
         }
         Err(FontError::Io(e)) => {
             eprintln!("❌ 文件读取失败: {}", e);

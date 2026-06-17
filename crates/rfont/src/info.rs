@@ -51,9 +51,9 @@ impl TableInfo {
 /// ```
 #[derive(Debug, Clone)]
 pub struct FontInfo {
-    /// 字体家族名称（从 name 表提取，暂为 None）
+    /// 字体家族名称（从 name 表提取）
     pub family_name: Option<String>,
-    /// 字体样式名称（从 name 表提取，暂为 None）
+    /// 字体样式名称（从 name 表提取）
     pub style_name: Option<String>,
     /// 字体版本
     pub version: Option<String>,

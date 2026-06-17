@@ -24,8 +24,8 @@
 //! - WOFF2 metadata
 //! - Variations PS name prefix
 
-use crate::io::{ReadBytes, Reader, WriteBytes, Writer};
 use crate::FontError;
+use crate::io::{ReadBytes, Reader, WriteBytes, Writer};
 
 /// Name table version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -511,7 +511,9 @@ mod tests {
         assert_eq!(writer.data.len(), 12);
         assert_eq!(
             &writer.data,
-            &[0x00, 0x03, 0x00, 0x01, 0x04, 0x09, 0x00, 0x01, 0x00, 0x0A, 0x00, 0x20]
+            &[
+                0x00, 0x03, 0x00, 0x01, 0x04, 0x09, 0x00, 0x01, 0x00, 0x0A, 0x00, 0x20
+            ]
         );
     }
 

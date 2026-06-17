@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use colored::*;
 use rfont::Font;
 use std::path::Path;
-use tracing::{debug, info, span, Level};
+use tracing::{Level, debug, info, span};
 
 pub fn run(font_path: &Path, json: bool, verbose: bool) -> Result<()> {
     let span =
@@ -15,7 +15,7 @@ pub fn run(font_path: &Path, json: bool, verbose: bool) -> Result<()> {
     let font = Font::load(font_path.to_str().unwrap())
         .context(format!("无法加载字体文件: {:?}", font_path))?;
 
-    debug!(glyph_count = font.maxp.num_glyphs, "字体加载成功");
+    debug!(glyph_count = font.maxp().num_glyphs, "字体加载成功");
 
     if json {
         // JSON 输出模式
@@ -103,7 +103,7 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
 }
 
 fn output_json(font: &Font, verbose: bool) -> Result<()> {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     let info = font.get_font_info();
 
@@ -124,10 +124,10 @@ fn output_json(font: &Font, verbose: bool) -> Result<()> {
         // "supported_characters_count": font.get_supported_characters().len(),
     });
 
-    if let Some(version) = &info.version {
-        if let Value::Object(ref mut map) = result {
-            map.insert("version".to_string(), json!(version));
-        }
+    if let Some(version) = &info.version
+        && let Value::Object(ref mut map) = result
+    {
+        map.insert("version".to_string(), json!(version));
     }
 
     if verbose {

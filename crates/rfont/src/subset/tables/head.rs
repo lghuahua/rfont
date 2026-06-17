@@ -1,6 +1,6 @@
 use crate::Font;
 use rfont_core::Head;
-use rfont_types::{FontError, ReadBytes, Reader, Tag, WriteBytes, Writer, HEAD_TABLE_SIZE};
+use rfont_types::{FontError, HEAD_TABLE_SIZE, ReadBytes, Reader, Tag, WriteBytes, Writer};
 
 /// 更新 head 表（包含校验和调整和时间戳）
 pub fn update_head(

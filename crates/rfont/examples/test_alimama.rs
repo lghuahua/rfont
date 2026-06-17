@@ -63,13 +63,13 @@ fn test_font_format(path: &str, format: &str) -> Result<(), Box<dyn std::error::
     println!("✅ {} 格式加载成功！", format);
 
     println!("\n📊 字体信息:");
-    println!("   - 字形数量: {}", font.maxp.num_glyphs);
-    println!("   - Units Per Em: {}", font.head.units_per_em);
+    println!("   - 字形数量: {}", font.maxp().num_glyphs);
+    println!("   - Units Per Em: {}", font.head().units_per_em);
     println!(
         "   - index_to_loc_format: {}",
-        font.head.index_to_loc_format
+        font.head().index_to_loc_format
     );
-    println!("   - Cmap 映射数: {}", font.cmap.supported_chars_count());
+    println!("   - Cmap 映射数: {}", font.cmap().supported_chars_count());
 
     // 测试一些常见汉字
     let test_texts = vec!["阿里妈妈刀隶体", "Hello World", "测试123"];

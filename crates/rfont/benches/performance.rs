@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use rfont::Font;
 use std::time::Duration;
 
@@ -30,7 +30,7 @@ fn benchmark_cmap_lookup(c: &mut Criterion) {
     group.bench_function("without_cache", |b| {
         b.iter(|| {
             for &ch in &test_chars {
-                black_box(font.cmap.get_glyph_id(ch));
+                black_box(font.cmap().get_glyph_id(ch));
             }
         })
     });

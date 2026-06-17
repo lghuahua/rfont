@@ -110,7 +110,8 @@ impl<'a> FontSubsetBuilder<'a> {
     /// ```
     pub fn unicode_range(mut self, start: u32, end: u32) -> Self {
         if self.unicode_ranges.is_none() {
-            self.unicode_ranges = Some(Vec::new());
+            // 预分配容量，假设通常会有 2-4 个范围
+            self.unicode_ranges = Some(Vec::with_capacity(4));
         }
         self.unicode_ranges.as_mut().unwrap().push((start, end));
         self
