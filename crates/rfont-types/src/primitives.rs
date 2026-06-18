@@ -182,9 +182,9 @@ impl WriteBytes for UFWord {
 /// 255UInt16: A variable-length unsigned integer used in WOFF2.
 /// Encoding (per WOFF2 spec):
 /// - 0-252: stored as single byte (value itself)
-/// - 253: followed by u8, actual value = 253 + u8 (range: 253-505)
-/// - 254: followed by u8, actual value = 508 + u8 (range: 508-760)
-/// - 255: followed by u16 (big-endian), actual value = u16 (range: 0-65535)
+/// - 253-505: prefix 255 + u8, actual value = 253 + u8
+/// - 506-761: prefix 254 + u8, actual value = 506 + u8
+/// - 762-65535: prefix 253 + u16 (big-endian), actual value = u16
 ///
 /// This provides efficient encoding for small values while supporting full u16 range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -195,21 +195,21 @@ impl<'a> ReadBytes<'a> for U255 {
         let first_byte = reader.read_u8()?;
 
         let value = match first_byte {
-            253 => {
-                // 253 + next byte (0-252)
+            0..=252 => first_byte as u16,
+            255 => {
+                // kOneMoreByteCode1: value = next_byte + 253 (range: 253-505)
                 let offset = reader.read_u8()?;
                 253 + offset as u16
             }
             254 => {
-                // 508 + next byte (0-252)
+                // kOneMoreByteCode2: value = next_byte + 506 (range: 506-761)
                 let offset = reader.read_u8()?;
-                508 + offset as u16
+                506 + offset as u16
             }
-            255 => {
-                // Full u16 value
+            253 => {
+                // kWordCode: full u16 value (range: 0-65535)
                 reader.read_u16()?
             }
-            0..=252 => first_byte as u16,
         };
 
         Ok(U255(value))
@@ -220,22 +220,22 @@ impl WriteBytes for U255 {
     fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
         let value = self.0;
 
-        if value <= 252 {
-            // Single byte encoding
+        if value < 253 {
+            // Single byte encoding (0-252)
             writer.write_u8(value as u8)
-        } else if value <= 505 {
-            // Two-byte encoding: 253 + offset
+        } else if value < 506 {
+            // Two-byte encoding: 255 + offset (253-505)
             let offset = (value - 253) as u8;
-            writer.write_u8(253)?;
+            writer.write_u8(255)?;
             writer.write_u8(offset)
-        } else if value <= 760 {
-            // Two-byte encoding: 254 + offset
-            let offset = (value - 508) as u8;
+        } else if value < 762 {
+            // Two-byte encoding: 254 + offset (506-761)
+            let offset = (value - 506) as u8;
             writer.write_u8(254)?;
             writer.write_u8(offset)
         } else {
-            // Three-byte encoding: 255 + u16
-            writer.write_u8(255)?;
+            // Three-byte encoding: 253 + u16 (762-65535)
+            writer.write_u8(253)?;
             writer.write_u16(value)
         }
     }
@@ -255,9 +255,9 @@ impl U255 {
     /// Get the encoded size in bytes (1, 2, or 3)
     pub fn encoded_size(&self) -> usize {
         let value = self.0;
-        if value <= 252 {
+        if value < 253 {
             1
-        } else if value <= 760 {
+        } else if value < 762 {
             2
         } else {
             3
@@ -704,64 +704,87 @@ mod tests {
 
     #[test]
     fn test_u255_two_byte_encoding_range1() {
-        // 测试两字节编码：253 + offset (范围 253-505)
+        // 测试两字节编码：255 + offset (范围 253-505)
         let u255 = U255::new(253);
         assert_eq!(u255.value(), 253);
         assert_eq!(u255.encoded_size(), 2);
 
         let mut writer = Writer::new();
         u255.write_to(&mut writer).unwrap();
-        // 253 + 0 = 253
-        assert_eq!(writer.data, vec![253, 0]);
+        // 255 + 0 = 253
+        assert_eq!(writer.data, vec![255, 0]);
 
         // 测试中间值
         let u255_mid = U255::new(300);
         assert_eq!(u255_mid.encoded_size(), 2);
         let mut writer_mid = Writer::new();
         u255_mid.write_to(&mut writer_mid).unwrap();
-        // 253 + 47 = 300
-        assert_eq!(writer_mid.data, vec![253, 47]);
+        // 255 + 47 = 300
+        assert_eq!(writer_mid.data, vec![255, 47]);
+
+        // 测试最大值 505
+        let u255_max = U255::new(505);
+        assert_eq!(u255_max.encoded_size(), 2);
+        let mut writer_max = Writer::new();
+        u255_max.write_to(&mut writer_max).unwrap();
+        // 255 + 252 = 505
+        assert_eq!(writer_max.data, vec![255, 252]);
     }
 
     #[test]
     fn test_u255_two_byte_encoding_range2() {
-        // 测试两字节编码：254 + offset (范围 508-760)
-        let u255 = U255::new(508);
-        assert_eq!(u255.value(), 508);
+        // 测试两字节编码：254 + offset (范围 506-761)
+        let u255 = U255::new(506);
+        assert_eq!(u255.value(), 506);
         assert_eq!(u255.encoded_size(), 2);
 
         let mut writer = Writer::new();
         u255.write_to(&mut writer).unwrap();
-        // 254 + 0 = 508
+        // 254 + 0 = 506
         assert_eq!(writer.data, vec![254, 0]);
 
-        // 测试最大值
-        let u255_max = U255::new(760);
+        // 测试中间值
+        let u255_mid = U255::new(600);
+        assert_eq!(u255_mid.encoded_size(), 2);
+        let mut writer_mid = Writer::new();
+        u255_mid.write_to(&mut writer_mid).unwrap();
+        // 254 + 94 = 600
+        assert_eq!(writer_mid.data, vec![254, 94]);
+
+        // 测试最大值 761
+        let u255_max = U255::new(761);
         assert_eq!(u255_max.encoded_size(), 2);
         let mut writer_max = Writer::new();
         u255_max.write_to(&mut writer_max).unwrap();
-        // 254 + 252 = 760
-        assert_eq!(writer_max.data, vec![254, 252]);
+        // 254 + 255 = 761
+        assert_eq!(writer_max.data, vec![254, 255]);
     }
 
     #[test]
     fn test_u255_three_byte_encoding() {
-        // 测试三字节编码：255 + u16 (范围 > 760)
-        let u255 = U255::new(761);
-        assert_eq!(u255.value(), 761);
+        // 测试三字节编码：253 + u16 (范围 762-65535)
+        let u255 = U255::new(762);
+        assert_eq!(u255.value(), 762);
         assert_eq!(u255.encoded_size(), 3);
 
         let mut writer = Writer::new();
         u255.write_to(&mut writer).unwrap();
-        // 255 + u16(761) = 255 + 0x02F9
-        assert_eq!(writer.data, vec![255, 0x02, 0xF9]);
+        // 253 + u16(762) = 253 + 0x02FA
+        assert_eq!(writer.data, vec![253, 0x02, 0xFA]);
+
+        // 测试典型值 1000
+        let u255_1000 = U255::new(1000);
+        assert_eq!(u255_1000.encoded_size(), 3);
+        let mut writer_1000 = Writer::new();
+        u255_1000.write_to(&mut writer_1000).unwrap();
+        assert_eq!(writer_1000.data, vec![253, 0x03, 0xE8]);
 
         // 测试最大值 65535
         let u255_max = U255::new(65535);
         assert_eq!(u255_max.encoded_size(), 3);
         let mut writer_max = Writer::new();
         u255_max.write_to(&mut writer_max).unwrap();
-        assert_eq!(writer_max.data, vec![255, 0xFF, 0xFF]);
+        assert_eq!(writer_max.data, vec![253, 0xFF, 0xFF]);
     }
 
     #[test]
@@ -775,41 +798,56 @@ mod tests {
 
     #[test]
     fn test_u255_read_two_byte_range1() {
-        // 测试读取两字节值 (253 + offset)
-        let data = vec![253, 0]; // 253 + 0 = 253
+        // 测试读取两字节值 (255 + offset, 范围 253-505)
+        let data = vec![255, 0]; // 255 + 0 = 253
         let mut reader = Reader::new(&data);
         let u255 = U255::read_from(&mut reader).unwrap();
         assert_eq!(u255.value(), 253);
 
-        let data2 = vec![253, 47]; // 253 + 47 = 300
+        let data2 = vec![255, 47]; // 255 + 47 = 300
         let mut reader2 = Reader::new(&data2);
         let u255_2 = U255::read_from(&mut reader2).unwrap();
         assert_eq!(u255_2.value(), 300);
+
+        let data3 = vec![255, 252]; // 255 + 252 = 505
+        let mut reader3 = Reader::new(&data3);
+        let u255_3 = U255::read_from(&mut reader3).unwrap();
+        assert_eq!(u255_3.value(), 505);
     }
 
     #[test]
     fn test_u255_read_two_byte_range2() {
-        // 测试读取两字节值 (254 + offset)
-        let data = vec![254, 0]; // 254 + 0 = 508
+        // 测试读取两字节值 (254 + offset, 范围 506-761)
+        let data = vec![254, 0]; // 254 + 0 = 506
         let mut reader = Reader::new(&data);
         let u255 = U255::read_from(&mut reader).unwrap();
-        assert_eq!(u255.value(), 508);
+        assert_eq!(u255.value(), 506);
 
-        let data2 = vec![254, 252]; // 254 + 252 = 760
+        let data2 = vec![254, 94]; // 254 + 94 = 600
         let mut reader2 = Reader::new(&data2);
         let u255_2 = U255::read_from(&mut reader2).unwrap();
-        assert_eq!(u255_2.value(), 760);
+        assert_eq!(u255_2.value(), 600);
+
+        let data3 = vec![254, 255]; // 254 + 255 = 761
+        let mut reader3 = Reader::new(&data3);
+        let u255_3 = U255::read_from(&mut reader3).unwrap();
+        assert_eq!(u255_3.value(), 761);
     }
 
     #[test]
     fn test_u255_read_three_byte() {
-        // 测试读取三字节值
-        let data = vec![255, 0x02, 0xF9]; // 255 + u16(761)
+        // 测试读取三字节值 (253 + u16, 范围 762-65535)
+        let data = vec![253, 0x02, 0xFA]; // 253 + u16(762)
         let mut reader = Reader::new(&data);
         let u255 = U255::read_from(&mut reader).unwrap();
-        assert_eq!(u255.value(), 761);
+        assert_eq!(u255.value(), 762);
 
-        let data_max = vec![255, 0xFF, 0xFF]; // 65535
+        let data2 = vec![253, 0x03, 0xE8]; // 1000
+        let mut reader2 = Reader::new(&data2);
+        let u255_2 = U255::read_from(&mut reader2).unwrap();
+        assert_eq!(u255_2.value(), 1000);
+
+        let data_max = vec![253, 0xFF, 0xFF]; // 65535
         let mut reader_max = Reader::new(&data_max);
         let u255_max = U255::read_from(&mut reader_max).unwrap();
         assert_eq!(u255_max.value(), 65535);
@@ -819,7 +857,7 @@ mod tests {
     fn test_u255_roundtrip_all_ranges() {
         // 测试所有范围的读写往返
         let test_values = vec![
-            0, 100, 252, 253, 300, 505, 508, 600, 760, 761, 1000, 10000, 65535,
+            0, 100, 252, 253, 300, 505, 506, 600, 761, 762, 1000, 10000, 65535,
         ];
 
         for value in test_values {
@@ -845,34 +883,34 @@ mod tests {
         u252.write_to(&mut writer).unwrap();
         assert_eq!(writer.data, vec![252]);
 
-        // 253: 两字节范围 1 开始
+        // 253: 两字节范围 1 开始 (255 + offset)
         let u253 = U255::new(253);
         let mut writer2 = Writer::new();
         u253.write_to(&mut writer2).unwrap();
-        assert_eq!(writer2.data, vec![253, 0]);
+        assert_eq!(writer2.data, vec![255, 0]);
 
         // 505: 两字节范围 1 结束
         let u505 = U255::new(505);
         let mut writer3 = Writer::new();
         u505.write_to(&mut writer3).unwrap();
-        assert_eq!(writer3.data, vec![253, 252]);
+        assert_eq!(writer3.data, vec![255, 252]);
 
-        // 508: 两字节范围 2 开始
-        let u508 = U255::new(508);
+        // 506: 两字节范围 2 开始 (254 + offset)
+        let u506 = U255::new(506);
         let mut writer4 = Writer::new();
-        u508.write_to(&mut writer4).unwrap();
+        u506.write_to(&mut writer4).unwrap();
         assert_eq!(writer4.data, vec![254, 0]);
 
-        // 760: 两字节范围 2 结束
-        let u760 = U255::new(760);
-        let mut writer5 = Writer::new();
-        u760.write_to(&mut writer5).unwrap();
-        assert_eq!(writer5.data, vec![254, 252]);
-
-        // 761: 三字节开始
+        // 761: 两字节范围 2 结束
         let u761 = U255::new(761);
+        let mut writer5 = Writer::new();
+        u761.write_to(&mut writer5).unwrap();
+        assert_eq!(writer5.data, vec![254, 255]);
+
+        // 762: 三字节开始 (253 + u16)
+        let u762 = U255::new(762);
         let mut writer6 = Writer::new();
-        u761.write_to(&mut writer6).unwrap();
-        assert_eq!(writer6.data, vec![255, 0x02, 0xF9]);
+        u762.write_to(&mut writer6).unwrap();
+        assert_eq!(writer6.data, vec![253, 0x02, 0xFA]);
     }
 }
