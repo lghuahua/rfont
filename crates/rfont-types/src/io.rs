@@ -32,10 +32,11 @@ impl<'a> Reader<'a> {
 
     pub fn read_u8(&mut self) -> Result<u8, FontError> {
         if self.offset + 1 > self.data.len() {
-            return Err(FontError::UnexpectedEndOfData {
-                offset: self.offset,
-                needed: 1,
-            });
+            return Err(FontError::unexpected_end(
+                self.offset,
+                1,
+                "Reader::read_u8",
+            ));
         }
         let v = self.data[self.offset];
         self.offset += 1;
@@ -44,10 +45,11 @@ impl<'a> Reader<'a> {
 
     pub fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], FontError> {
         if self.offset + len > self.data.len() {
-            return Err(FontError::UnexpectedEndOfData {
-                offset: self.offset,
-                needed: len,
-            });
+            return Err(FontError::unexpected_end(
+                self.offset,
+                len,
+                "Reader::read_bytes",
+            ));
         }
         let bytes = &self.data[self.offset..self.offset + len];
         self.offset += len;
@@ -56,10 +58,11 @@ impl<'a> Reader<'a> {
 
     pub fn skip(&mut self, len: usize) -> Result<(), FontError> {
         if self.offset + len > self.data.len() {
-            return Err(FontError::UnexpectedEndOfData {
-                offset: self.offset,
-                needed: len,
-            });
+            return Err(FontError::unexpected_end(
+                self.offset,
+                len,
+                "Reader::skip",
+            ));
         }
         self.offset += len;
         Ok(())
@@ -72,7 +75,7 @@ impl<'a> Reader<'a> {
 
     pub fn read_u16_at(&self, offset: usize) -> Result<u16, FontError> {
         if offset + 2 > self.data.len() {
-            return Err(FontError::UnexpectedEndOfData { offset, needed: 2 });
+            return Err(FontError::unexpected_end(offset, 2, "Reader::read_u16_at"));
         }
         let bytes = &self.data[offset..offset + 2];
         Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
@@ -80,10 +83,11 @@ impl<'a> Reader<'a> {
 
     pub fn read_u32(&mut self) -> Result<u32, FontError> {
         if self.offset + 4 > self.data.len() {
-            return Err(FontError::UnexpectedEndOfData {
-                offset: self.offset,
-                needed: 4,
-            });
+            return Err(FontError::unexpected_end(
+                self.offset,
+                4,
+                "Reader::read_u32",
+            ));
         }
         let v = u32::from_be_bytes([
             self.data[self.offset],

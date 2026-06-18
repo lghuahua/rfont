@@ -80,10 +80,11 @@ impl<'a> GlyfLazyLoader<'a> {
 
         // 边界检查
         if end as usize > self.glyf_data.len() {
-            return Err(FontError::UnexpectedEndOfData {
-                offset: end as usize,
-                needed: 0,
-            });
+            return Err(FontError::unexpected_end(
+                end as usize,
+                0,
+                "GlyfLazyTable::load_glyph_with_raw",
+            ));
         }
 
         let glyph_data = &self.glyf_data[start as usize..end as usize];
@@ -124,10 +125,11 @@ impl<'a> GlyfLazyLoader<'a> {
 
         // 边界检查
         if end as usize > self.glyf_data.len() {
-            return Err(FontError::UnexpectedEndOfData {
-                offset: end as usize,
-                needed: 0,
-            });
+            return Err(FontError::unexpected_end(
+                end as usize,
+                0,
+                "GlyfLazyTable::load_glyph",
+            ));
         }
 
         let glyph_data = &self.glyf_data[start as usize..end as usize];

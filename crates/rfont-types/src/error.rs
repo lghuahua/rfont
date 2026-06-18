@@ -42,8 +42,12 @@ pub enum FontError {
     #[error("Unsupported cmap format: {format}")]
     UnsupportedCmapFormat { format: u16 },
 
-    #[error("Unexpected end of data at offset {offset}, needed {needed} bytes")]
-    UnexpectedEndOfData { offset: usize, needed: usize },
+    #[error("Unexpected end of data at offset {offset}, needed {needed} bytes{context}", context = context.as_ref().map(|c| format!(" (in {})", c)).unwrap_or_default())]
+    UnexpectedEndOfData { 
+        offset: usize, 
+        needed: usize,
+        context: Option<String>,
+    },
 
     #[error("Failed to parse {table} at offset {offset}: {reason}")]
     ParseError {
@@ -77,6 +81,20 @@ impl FontError {
     /// 创建通用错误（向后兼容）
     pub fn new(message: impl Into<String>) -> Self {
         FontError::Generic(message.into())
+    }
+
+    /// 创建带上下文的 UnexpectedEndOfData 错误
+    ///
+    /// # 参数
+    /// - `offset`: 当前偏移量
+    /// - `needed`: 需要的字节数
+    /// - `context`: 错误发生的上下文（如函数名 "Reader::read_u8"）
+    pub fn unexpected_end(offset: usize, needed: usize, context: impl Into<String>) -> Self {
+        FontError::UnexpectedEndOfData {
+            offset,
+            needed,
+            context: Some(context.into()),
+        }
     }
 
     /// 获取错误的恢复建议
@@ -195,6 +213,7 @@ mod tests {
         let err = FontError::UnexpectedEndOfData {
             offset: 100,
             needed: 50,
+            context: None,
         };
 
         let msg = format!("{}", err);
@@ -206,6 +225,40 @@ mod tests {
         assert!(suggestion.unwrap().contains("截断"));
     }
 
+    #[test]
+    fn test_unexpected_end_with_context() {
+        let err = FontError::unexpected_end(100, 50, "Reader::read_u8");
+
+        let msg = format!("{}", err);
+        assert!(msg.contains("100"));
+        assert!(msg.contains("50"));
+        assert!(msg.contains("Reader::read_u8"));
+        
+        // 验证错误消息格式
+        println!("Error message: {}", msg);
+        assert_eq!(
+            msg, 
+            "Unexpected end of data at offset 100, needed 50 bytes (in Reader::read_u8)"
+        );
+    }
+
+    #[test]
+    fn test_unexpected_end_without_context() {
+        let err = FontError::UnexpectedEndOfData {
+            offset: 200,
+            needed: 30,
+            context: None,
+        };
+
+        let msg = format!("{}", err);
+        println!("Error message without context: {}", msg);
+        assert_eq!(
+            msg, 
+            "Unexpected end of data at offset 200, needed 30 bytes"
+        );
+        // 确保没有 "(in ...)" 后缀
+        assert!(!msg.contains("(in"));
+    }
 
     #[test]
     fn test_woff_decompression_error() {
