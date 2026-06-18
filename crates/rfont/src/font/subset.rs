@@ -5,7 +5,7 @@ use tracing::{Level, debug, info, span};
 
 use crate::subset::builder::FontSubsetBuilder;
 use crate::subset::options::SubsetOptions;
-use crate::subset::tables::{cmap, glyf_loca, head, hmtx, maxp, post};
+use crate::subset::tables::{cmap, head, hmtx, maxp, post};
 use rfont_types::FontError;
 
 impl Font {
@@ -204,8 +204,8 @@ impl Font {
 
         info!(glyph_count = subset_glyphs_vec.len(), "开始子集化处理");
 
-        // 1.5. 解析复合字形的依赖关系（使用懒加载）
-        // 只在需要时才解析字形，避免不必要的解析工作
+        // 1.5. 解析复合字形的依赖关系并提取 glyf/loca 数据（优化版本）
+        // 使用 resolve_and_extract 一次性完成依赖解析和数据提取，减少 I/O 操作
         let glyf_data = self
             .font_data
             .get_table_bytes(rfont_types::Tag(*b"glyf"))
@@ -215,19 +215,17 @@ impl Font {
 
         use rfont_core::tables::glyf_lazy::GlyfLazyLoader;
         let loader = GlyfLazyLoader::new(glyf_data, &self.loca.offsets);
-        let resolved_glyphs = loader.resolve_dependencies(&subset_glyphs_vec)?;
+        let (resolved_glyphs, new_loca_data, new_glyf_data) = 
+            loader.resolve_and_extract(&subset_glyphs_vec)?;
 
-        subset_glyphs_vec = resolved_glyphs.into_iter().collect();
-        subset_glyphs_vec.sort();
+        subset_glyphs_vec = resolved_glyphs;
 
         info!(
             resolved_glyph_count = subset_glyphs_vec.len(),
-            "复合字形依赖解析完成"
+            loca_size = new_loca_data.len(),
+            glyf_size = new_glyf_data.len(),
+            "复合字形依赖解析和数据提取完成（优化版本）"
         );
-
-        // 2. 提取 glyf 和 loca 数据
-        let (new_loca_data, new_glyf_data) =
-            glyf_loca::extract_glyf_and_loca(self, &subset_glyphs_vec)?;
 
         // 3. 构建新的 cmap
         let new_cmap_data = cmap::rebuild_cmap(self, &subset_glyphs_vec)?;

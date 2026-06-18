@@ -1,6 +1,6 @@
 use crate::tables::glyf::{GlyfRecord, GlyphData};
 use rfont_types::{FontError, Reader};
-use std::collections::HashSet;
+use std::collections::{HashSet, BTreeMap};
 
 /// 字体中字形数据的懒加载器
 ///
@@ -13,6 +13,15 @@ pub struct GlyfLazyLoader<'a> {
     loca_offsets: &'a [u32],
     /// 缓存已解析的字形记录（可选）
     cache: Option<Vec<Option<GlyfRecord>>>,
+}
+
+/// 字形数据及其原始字节（用于零拷贝优化）
+#[derive(Debug, Clone)]
+pub struct GlyphWithRaw<'a> {
+    /// 解析后的字形记录
+    pub record: GlyfRecord,
+    /// 原始字节数据（零拷贝引用）
+    pub raw_bytes: &'a [u8],
 }
 
 impl<'a> GlyfLazyLoader<'a> {
@@ -40,6 +49,53 @@ impl<'a> GlyfLazyLoader<'a> {
             loca_offsets,
             cache: Some(vec![None; num_glyphs]),
         }
+    }
+
+    /// 解析单个字形并返回原始字节（零拷贝优化）
+    ///
+    /// # 参数
+    /// - `glyph_id`: 字形 ID
+    ///
+    /// # 返回值
+    /// 包含解析记录和原始字节的结构体
+    pub fn load_glyph_with_raw(&self, glyph_id: u16) -> Result<Option<GlyphWithRaw<'_>>, FontError> {
+        // 检查范围
+        if self.loca_offsets.len() < 2 || glyph_id as usize >= self.loca_offsets.len() - 1 {
+            return Ok(None);
+        }
+
+        let start = self.loca_offsets[glyph_id as usize];
+        let end = self.loca_offsets[glyph_id as usize + 1];
+
+        // 空字形
+        if start >= end {
+            return Ok(Some(GlyphWithRaw {
+                record: GlyfRecord {
+                    glyph_id,
+                    data: GlyphData::Empty,
+                },
+                raw_bytes: &[],
+            }));
+        }
+
+        // 边界检查
+        if end as usize > self.glyf_data.len() {
+            return Err(FontError::UnexpectedEndOfData {
+                offset: end as usize,
+                needed: 0,
+            });
+        }
+
+        let glyph_data = &self.glyf_data[start as usize..end as usize];
+        let mut reader = Reader::new(glyph_data);
+
+        // 解析字形
+        let record = GlyfRecord::parse(&mut reader, glyph_id)?;
+        
+        Ok(Some(GlyphWithRaw {
+            record,
+            raw_bytes: glyph_data,
+        }))
     }
 
     /// 解析单个字形（懒加载）
@@ -165,32 +221,124 @@ impl<'a> GlyfLazyLoader<'a> {
         Ok(needed_glyphs)
     }
 
-    /// 解析复合字形的依赖关系（使用缓存版本）
-    pub fn resolve_dependencies_cached(
-        &mut self,
+    /// 一次性解析依赖并提取字形数据（极致优化版本）
+    ///
+    /// 合并了 `resolve_dependencies` 和 `extract_glyf_and_loca` 的功能，
+    /// 在一次遍历中完成所有工作：
+    /// 1. 解析复合字形依赖
+    /// 2. 缓存解析后的字形记录 + 原始字节
+    /// 3. 直接从缓存构建 loca/glyf 表（零拷贝）
+    ///
+    /// # 参数
+    /// - `initial_glyphs`: 初始需要的字形 ID 列表
+    ///
+    /// # 返回值
+    /// - `(Vec<u16>, Vec<u8>, Vec<u8>)`: 
+    ///   - 完整的字形 ID 列表（包含依赖，已排序）
+    ///   - loca 表数据
+    ///   - glyf 表数据
+    ///
+    /// # 性能优势
+    /// - **零重复 I/O**：每个字形只读取一次
+    /// - **解析结果缓存**：可用于后续 WOFF2 转换
+    /// - **提升缓存命中率**：连续访问同一块数据
+    /// - **减少内存分配**：避免中间数据结构
+    pub fn resolve_and_extract(
+        &self,
         initial_glyphs: &[u16],
-    ) -> Result<HashSet<u16>, FontError> {
+    ) -> Result<(Vec<u16>, Vec<u8>, Vec<u8>), FontError> {
+        use std::collections::{HashSet, BTreeMap};
+
         let mut needed_glyphs: HashSet<u16> = initial_glyphs.iter().cloned().collect();
         let mut to_process: Vec<u16> = initial_glyphs.to_vec();
+        
+        // 使用 BTreeMap 缓存解析结果并保持有序
+        let mut parsed_glyphs: BTreeMap<u16, GlyphWithRaw<'_>> = BTreeMap::new();
 
+        // 第一阶段：解析依赖关系并缓存结果（含原始字节）
         while let Some(glyph_id) = to_process.pop() {
-            let record = match self.load_glyph_cached(glyph_id)? {
-                Some(r) => r.clone(), // 需要 clone 以避免借用问题
+            // 跳过已解析的字形
+            if parsed_glyphs.contains_key(&glyph_id) {
+                continue;
+            }
+
+            let glyph_with_raw = match self.load_glyph_with_raw(glyph_id)? {
+                Some(r) => r,
                 None => continue,
             };
 
-            if let GlyphData::Composite(composite) = &record.data {
+            // 如果是复合字形，递归添加组件
+            if let GlyphData::Composite(composite) = &glyph_with_raw.record.data {
                 for component in &composite.components {
                     let component_glyph_index = component.glyph_index;
-
                     if needed_glyphs.insert(component_glyph_index) {
                         to_process.push(component_glyph_index);
                     }
                 }
             }
+
+            // 缓存解析结果 + 原始字节（关键优化：避免二次读取）
+            parsed_glyphs.insert(glyph_id, glyph_with_raw);
         }
 
-        Ok(needed_glyphs)
+        // 第二阶段：直接从缓存的原始字节构建 loca/glyf 表
+        let sorted_glyphs: Vec<u16> = parsed_glyphs.keys().cloned().collect();
+        let (loca_data, glyf_data) = Self::build_tables_from_cached(&parsed_glyphs)?;
+
+        Ok((sorted_glyphs, loca_data, glyf_data))
+    }
+
+    /// 从缓存的字形数据构建 loca 和 glyf 表（零拷贝）
+    ///
+    /// # 参数
+    /// - `cached_glyphs`: 缓存的字形数据（包含原始字节）
+    ///
+    /// # 返回值
+    /// - `(Vec<u8>, Vec<u8>)`: loca 表数据和 glyf 表数据
+    fn build_tables_from_cached(
+        cached_glyphs: &BTreeMap<u16, GlyphWithRaw<'_>>,
+    ) -> Result<(Vec<u8>, Vec<u8>), FontError> {
+        let num_glyphs = cached_glyphs.len();
+        let mut new_loca_offsets = Vec::with_capacity(num_glyphs + 1);
+        let mut new_glyf_data = Vec::new();
+        let mut current_offset = 0u32;
+
+        for (glyph_id, glyph_with_raw) in cached_glyphs {
+            new_loca_offsets.push(current_offset);
+
+            // 跳过 .notdef (glyph_id == 0) 的轮廓数据
+            if *glyph_id == 0 {
+                continue;
+            }
+
+            // 直接使用缓存的原始字节（零拷贝）
+            if !glyph_with_raw.raw_bytes.is_empty() {
+                new_glyf_data.extend_from_slice(glyph_with_raw.raw_bytes);
+                current_offset += glyph_with_raw.raw_bytes.len() as u32;
+            }
+        }
+
+        // 添加最后一个偏移量
+        new_loca_offsets.push(current_offset);
+
+        // 编码 loca 表
+        let loca_data = if new_glyf_data.len() < 65536 {
+            // short format (offset / 2)
+            let mut data = Vec::with_capacity(new_loca_offsets.len() * 2);
+            for &offset in &new_loca_offsets {
+                data.extend_from_slice(&((offset / 2) as u16).to_be_bytes());
+            }
+            data
+        } else {
+            // long format
+            let mut data = Vec::with_capacity(new_loca_offsets.len() * 4);
+            for &offset in &new_loca_offsets {
+                data.extend_from_slice(&offset.to_be_bytes());
+            }
+            data
+        };
+
+        Ok((loca_data, new_glyf_data))
     }
 }
 

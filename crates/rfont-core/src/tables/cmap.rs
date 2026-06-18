@@ -413,7 +413,7 @@ impl Cmap {
                 return Some(*id);
             }
         }
-        info!("No glyph found for char code: {}", code);
+        // info!("No glyph found for char code: {}", code);
         None
     }
     /// 批量查询字形 ID（优化版本）

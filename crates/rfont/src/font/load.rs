@@ -49,6 +49,7 @@ pub struct Font {
     pub(crate) loca: Loca,
     pub(crate) cmap: Cmap,
     pub(crate) hmtx: Hmtx,
+    #[allow(dead_code)] // 保留用于未来可能的优化场景
     pub(crate) glyf: GlyfTable,
 }
 
