@@ -1,5 +1,4 @@
 use rfont::Font;
-use tracing_subscriber;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化 tracing 订阅者

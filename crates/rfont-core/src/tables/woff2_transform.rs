@@ -815,7 +815,7 @@ mod tests {
 
         store_points(&points, false, &mut glyph_writer).unwrap();
         // 应该有标志位 + 坐标数据
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
     }
 
     #[test]
@@ -842,7 +842,7 @@ mod tests {
 
         store_points(&points, false, &mut glyph_writer).unwrap();
         // 应该有标志位 + X 坐标 + Y 坐标数据
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
     }
 
     #[test]
@@ -857,7 +857,7 @@ mod tests {
 
         store_points(&points, true, &mut glyph_writer).unwrap();
         // 应该有数据输出
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
 
         // 验证第一个标志位包含 OVERLAP_SIMPLE
         // 第一个点的 flag 应该是 GLYF_ON_CURVE | OVERLAP_SIMPLE = 0x01 | 0x40 = 0x41
@@ -888,7 +888,7 @@ mod tests {
 
         store_points(&points, false, &mut glyph_writer).unwrap();
         // 大坐标应该能正确处理
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
     }
 
     #[test]
@@ -915,7 +915,7 @@ mod tests {
 
         store_points(&points, false, &mut glyph_writer).unwrap();
         // 相同坐标应该使用压缩标志，输出应该较小
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
     }
 
     #[test]
@@ -947,7 +947,7 @@ mod tests {
 
         store_points(&points, false, &mut glyph_writer).unwrap();
         // RLE 压缩应该正常工作
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
     }
 
     #[test]
@@ -993,7 +993,7 @@ mod tests {
 
         let result = store_points(&points, false, &mut glyph_writer);
         assert!(result.is_ok());
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
     }
 
     #[test]
@@ -1029,7 +1029,7 @@ mod tests {
         let mut glyph_writer = Writer::new();
 
         store_points(&points, false, &mut glyph_writer).unwrap();
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
     }
 
     // ========================================================================
@@ -1073,7 +1073,7 @@ mod tests {
         store_points(&original_points, false, &mut glyph_writer).unwrap();
 
         // 2. 验证输出数据
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
 
         // 3. 验证数据结构：应该有标志位 + X 坐标 + Y 坐标
         // 由于实现细节，我们只验证有数据输出
@@ -1084,7 +1084,7 @@ mod tests {
         // 测试 triplet_decode 和 store_points 的往返
         // 注意：由于两种编码方式不同，这不是严格的往返，而是验证数据一致性
 
-        let _original_points = vec![
+        let _original_points = [
             Point {
                 x: 0,
                 y: 0,
@@ -1119,7 +1119,7 @@ mod tests {
         // 3. 重新编码为 glyf 格式
         let mut glyph_writer = Writer::new();
         store_points(&decoded_points, false, &mut glyph_writer).unwrap();
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
     }
 
     // ========================================================================
@@ -1309,7 +1309,7 @@ mod tests {
     #[test]
     fn test_comprehensive_glyph_conversion() {
         // 模拟一个完整的简单字形转换流程
-        let _original_points = vec![
+        let _original_points = [
             Point {
                 x: 0,
                 y: 0,
@@ -1351,7 +1351,7 @@ mod tests {
         .unwrap();
 
         // 2. 验证输出不为空
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
     }
 
     #[test]
@@ -1374,6 +1374,6 @@ mod tests {
         let mut glyph_writer = Writer::new();
         store_points(&points, false, &mut glyph_writer).unwrap();
 
-        assert!(glyph_writer.data.len() > 0);
+        assert!(!glyph_writer.is_empty());
     }
 }

@@ -13,24 +13,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("❌ 字体加载失败: {}", e);
 
             // 尝试获取底层原因并显示建议
-            if let Some(source) = e.source() {
-                if let Some(font_error) = source.downcast_ref::<FontError>() {
-                    if let Some(suggestion) = font_error.suggestion() {
-                        eprintln!("💡 建议: {}", suggestion);
-                    }
+            if let Some(source) = e.source()
+                && let Some(font_error) = source.downcast_ref::<FontError>()
+            {
+                if let Some(suggestion) = font_error.suggestion() {
+                    eprintln!("💡 建议: {}", suggestion);
+                }
 
-                    // 演示模式匹配具体的错误类型
-                    match font_error {
-                        FontError::Io(io_err) => {
-                            eprintln!("   错误类型: IO 错误 - {}", io_err);
-                        }
-                        FontError::InvalidMagicNumber { expected, actual } => {
-                            eprintln!("   错误类型: 无效的魔数");
-                            eprintln!("   期望: {:#010X}, 实际: {:#010X}", expected, actual);
-                        }
-                        _ => {
-                            eprintln!("   错误类型: {}", font_error);
-                        }
+                // 演示模式匹配具体的错误类型
+                match font_error {
+                    FontError::Io(io_err) => {
+                        eprintln!("   错误类型: IO 错误 - {}", io_err);
+                    }
+                    FontError::InvalidMagicNumber { expected, actual } => {
+                        eprintln!("   错误类型: 无效的魔数");
+                        eprintln!("   期望: {:#010X}, 实际: {:#010X}", expected, actual);
+                    }
+                    _ => {
+                        eprintln!("   错误类型: {}", font_error);
                     }
                 }
             }

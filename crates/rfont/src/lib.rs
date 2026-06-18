@@ -90,8 +90,8 @@ mod tests {
     #[test]
     fn test_cmap_format_selection() {
         // 测试 cmap 格式选择逻辑
-        let bmp_chars = vec!['A', 'B', 'C']; // BMP 字符
-        let non_bmp_chars = vec!['😀']; // 非 BMP 字符 (U+1F600)
+        let bmp_chars = ['A', 'B', 'C']; // BMP 字符
+        let non_bmp_chars = ['😀']; // 非 BMP 字符 (U+1F600)
 
         let has_non_bmp = non_bmp_chars.iter().any(|&c| (c as u32) > 0xFFFF);
         assert!(has_non_bmp);

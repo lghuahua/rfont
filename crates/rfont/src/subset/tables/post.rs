@@ -248,7 +248,7 @@ mod tests {
 
         assert_eq!(info.version, 0x00020000);
         assert_eq!(info.italic_angle, 0);
-        assert_eq!(info.is_fixed_pitch, false);
+        assert!(!info.is_fixed_pitch);
         assert_eq!(info.underline_position, -75);
         assert_eq!(info.underline_thickness, 50);
         assert_eq!(info.min_mem_type42, 0);
