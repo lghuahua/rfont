@@ -33,9 +33,8 @@ pub fn run(
 
     debug!(glyph_count = font.maxp().num_glyphs, "字体加载成功");
     println!("  ✓ 成功加载字体");
-    
-    let font_info = font.get_font_info()
-        .context("获取字体信息失败")?;
+
+    let font_info = font.get_font_info().context("获取字体信息失败")?;
     println!("  字形总数: {}", font_info.glyph_count);
 
     // 收集要包含的字符

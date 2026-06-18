@@ -121,14 +121,14 @@ impl Font {
                 let mut encoder = ZlibEncoder::new(Vec::new(), compression);
                 encoder
                     .write_all(&table_data)
-                    .map_err(|e| FontError::WoffCompressionError { 
-                        message: format!("压缩表数据失败: {}", e) 
+                    .map_err(|e| FontError::WoffCompressionError {
+                        message: format!("压缩表数据失败: {}", e),
                     })?;
-                let result = encoder.finish().map_err(|e| {
-                    FontError::WoffCompressionError { 
-                        message: format!("完成压缩失败: {}", e) 
-                    }
-                })?;
+                let result = encoder
+                    .finish()
+                    .map_err(|e| FontError::WoffCompressionError {
+                        message: format!("完成压缩失败: {}", e),
+                    })?;
 
                 // 如果压缩后反而变大，使用原始数据（不压缩）
                 if result.len() >= table_data.len() {
@@ -455,8 +455,8 @@ impl Font {
                 ..Default::default()
             },
         )
-        .map_err(|e| FontError::Woff2DecompressionError { 
-            message: format!("Brotli 压缩流失败: {:?}", e) 
+        .map_err(|e| FontError::Woff2DecompressionError {
+            message: format!("Brotli 压缩流失败: {:?}", e),
         })?;
 
         let total_compressed_size = compressed_table_stream.len() as u32;

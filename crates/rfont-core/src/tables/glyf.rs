@@ -56,10 +56,10 @@ impl GlyfTable {
     /// - `Err(FontError)`: 偏移量无效
     pub fn slice(&self, start: usize, end: usize) -> Result<Cow<'_, [u8]>, FontError> {
         if start > end || end > self.data.len() {
-            return Err(FontError::InvalidOffset { 
+            return Err(FontError::InvalidOffset {
                 table: "glyf".to_string(),
                 offset: end as u32,
-                max: self.data.len() as u32
+                max: self.data.len() as u32,
             });
         }
         Ok(Cow::Borrowed(&self.data[start..end]))

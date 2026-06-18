@@ -1,6 +1,6 @@
 use rfont_types::{EncodingRecord, FontError, ReadBytes, Reader, WriteBytes};
 use std::collections::HashMap;
-use tracing::{debug, info};
+use tracing::debug;
 /// 唯一标识一个 cmap 子表的键
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CmapSubtableKey {
@@ -151,7 +151,7 @@ impl Cmap {
         id_deltas.push(1);
 
         let n_segments = start_codes.len() as u16;
-        
+
         // 预分配结果向量容量
         let length = 16 + (n_segments * 8); // 16是头部固定部分，8是每个段占用的字节数
         let mut result = Vec::with_capacity(length as usize);

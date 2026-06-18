@@ -32,11 +32,7 @@ impl<'a> Reader<'a> {
 
     pub fn read_u8(&mut self) -> Result<u8, FontError> {
         if self.offset + 1 > self.data.len() {
-            return Err(FontError::unexpected_end(
-                self.offset,
-                1,
-                "Reader::read_u8",
-            ));
+            return Err(FontError::unexpected_end(self.offset, 1, "Reader::read_u8"));
         }
         let v = self.data[self.offset];
         self.offset += 1;
@@ -58,11 +54,7 @@ impl<'a> Reader<'a> {
 
     pub fn skip(&mut self, len: usize) -> Result<(), FontError> {
         if self.offset + len > self.data.len() {
-            return Err(FontError::unexpected_end(
-                self.offset,
-                len,
-                "Reader::skip",
-            ));
+            return Err(FontError::unexpected_end(self.offset, len, "Reader::skip"));
         }
         self.offset += len;
         Ok(())

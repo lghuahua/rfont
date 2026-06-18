@@ -1,6 +1,6 @@
 use crate::tables::glyf::{GlyfRecord, GlyphData};
 use rfont_types::{FontError, Reader};
-use std::collections::{HashSet, BTreeMap};
+use std::collections::{BTreeMap, HashSet};
 
 /// 字体中字形数据的懒加载器
 ///
@@ -58,7 +58,10 @@ impl<'a> GlyfLazyLoader<'a> {
     ///
     /// # 返回值
     /// 包含解析记录和原始字节的结构体
-    pub fn load_glyph_with_raw(&self, glyph_id: u16) -> Result<Option<GlyphWithRaw<'_>>, FontError> {
+    pub fn load_glyph_with_raw(
+        &self,
+        glyph_id: u16,
+    ) -> Result<Option<GlyphWithRaw<'_>>, FontError> {
         // 检查范围
         if self.loca_offsets.len() < 2 || glyph_id as usize >= self.loca_offsets.len() - 1 {
             return Ok(None);
@@ -92,7 +95,7 @@ impl<'a> GlyfLazyLoader<'a> {
 
         // 解析字形
         let record = GlyfRecord::parse(&mut reader, glyph_id)?;
-        
+
         Ok(Some(GlyphWithRaw {
             record,
             raw_bytes: glyph_data,
@@ -235,7 +238,7 @@ impl<'a> GlyfLazyLoader<'a> {
     /// - `initial_glyphs`: 初始需要的字形 ID 列表
     ///
     /// # 返回值
-    /// - `(Vec<u16>, Vec<u8>, Vec<u8>)`: 
+    /// - `(Vec<u16>, Vec<u8>, Vec<u8>)`:
     ///   - 完整的字形 ID 列表（包含依赖，已排序）
     ///   - loca 表数据
     ///   - glyf 表数据
@@ -249,11 +252,11 @@ impl<'a> GlyfLazyLoader<'a> {
         &self,
         initial_glyphs: &[u16],
     ) -> Result<(Vec<u16>, Vec<u8>, Vec<u8>), FontError> {
-        use std::collections::{HashSet, BTreeMap};
+        use std::collections::{BTreeMap, HashSet};
 
         let mut needed_glyphs: HashSet<u16> = initial_glyphs.iter().cloned().collect();
         let mut to_process: Vec<u16> = initial_glyphs.to_vec();
-        
+
         // 使用 BTreeMap 缓存解析结果并保持有序
         let mut parsed_glyphs: BTreeMap<u16, GlyphWithRaw<'_>> = BTreeMap::new();
 

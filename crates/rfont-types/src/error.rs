@@ -43,8 +43,8 @@ pub enum FontError {
     UnsupportedCmapFormat { format: u16 },
 
     #[error("Unexpected end of data at offset {offset}, needed {needed} bytes{context}", context = context.as_ref().map(|c| format!(" (in {})", c)).unwrap_or_default())]
-    UnexpectedEndOfData { 
-        offset: usize, 
+    UnexpectedEndOfData {
+        offset: usize,
         needed: usize,
         context: Option<String>,
     },
@@ -233,11 +233,11 @@ mod tests {
         assert!(msg.contains("100"));
         assert!(msg.contains("50"));
         assert!(msg.contains("Reader::read_u8"));
-        
+
         // 验证错误消息格式
         println!("Error message: {}", msg);
         assert_eq!(
-            msg, 
+            msg,
             "Unexpected end of data at offset 100, needed 50 bytes (in Reader::read_u8)"
         );
     }
@@ -252,10 +252,7 @@ mod tests {
 
         let msg = format!("{}", err);
         println!("Error message without context: {}", msg);
-        assert_eq!(
-            msg, 
-            "Unexpected end of data at offset 200, needed 30 bytes"
-        );
+        assert_eq!(msg, "Unexpected end of data at offset 200, needed 30 bytes");
         // 确保没有 "(in ...)" 后缀
         assert!(!msg.contains("(in"));
     }

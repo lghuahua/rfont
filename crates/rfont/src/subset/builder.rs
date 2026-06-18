@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Context};
 use crate::Font;
+use anyhow::{Context, anyhow};
 use std::collections::HashSet;
 use tracing::debug;
 

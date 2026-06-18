@@ -6,7 +6,10 @@ use rfont_types::FontError;
 /// # 注意
 /// 此函数已被优化版本替代，建议使用 `GlyfLazyLoader::resolve_and_extract()`，
 /// 该方法在一次遍历中同时完成依赖解析和数据提取，性能更优。
-#[deprecated(since = "0.1.0", note = "Use GlyfLazyLoader::resolve_and_extract instead")]
+#[deprecated(
+    since = "0.1.0",
+    note = "Use GlyfLazyLoader::resolve_and_extract instead"
+)]
 #[allow(dead_code)] // 保留用于向后兼容参考
 pub fn extract_glyf_and_loca(
     font: &Font,

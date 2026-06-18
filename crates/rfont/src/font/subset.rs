@@ -215,7 +215,7 @@ impl Font {
 
         use rfont_core::tables::glyf_lazy::GlyfLazyLoader;
         let loader = GlyfLazyLoader::new(glyf_data, &self.loca.offsets);
-        let (resolved_glyphs, new_loca_data, new_glyf_data) = 
+        let (resolved_glyphs, new_loca_data, new_glyf_data) =
             loader.resolve_and_extract(&subset_glyphs_vec)?;
 
         subset_glyphs_vec = resolved_glyphs;

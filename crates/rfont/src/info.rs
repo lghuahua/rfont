@@ -44,7 +44,7 @@ impl TableInfo {
 /// use rfont::Font;
 ///
 /// let font = Font::load("font.ttf").unwrap();
-/// let info = font.get_font_info();
+/// let info = font.get_font_info().unwrap();
 /// println!("字形数量: {}", info.glyph_count);
 /// println!("每 EM 单位: {}", info.units_per_em);
 /// println!("支持字符数: {}", info.supported_char_count);

@@ -30,7 +30,7 @@ use crate::font_data::FontData;
 /// let font = Font::load("font.ttf").unwrap();
 ///
 /// // 获取字体信息
-/// let info = font.get_font_info();
+/// let info = font.get_font_info().unwrap();
 /// println!("字形数量: {}", info.glyph_count);
 ///
 /// // 创建子集
@@ -90,18 +90,15 @@ impl Font {
         // 检查是否为 WOFF2 格式
         if data.len() >= 4 && &data[0..4] == b"wOF2" {
             info!("检测到 WOFF2 格式");
-            Self::load_woff2(&data)
-                .context(format!("解析 WOFF2 字体文件 '{}' 失败", path))
+            Self::load_woff2(&data).context(format!("解析 WOFF2 字体文件 '{}' 失败", path))
         }
         // 检查是否为 WOFF 格式
         else if data.len() >= 4 && &data[0..4] == b"wOFF" {
             info!("检测到 WOFF 格式");
-            Self::load_woff(&data)
-                .context(format!("解析 WOFF 字体文件 '{}' 失败", path))
+            Self::load_woff(&data).context(format!("解析 WOFF 字体文件 '{}' 失败", path))
         } else {
             info!("检测到 TTF/OTF 格式");
-            Self::load_ttf(&data)
-                .context(format!("解析 TTF/OTF 字体文件 '{}' 失败", path))
+            Self::load_ttf(&data).context(format!("解析 TTF/OTF 字体文件 '{}' 失败", path))
         }
     }
 
@@ -409,9 +406,9 @@ impl Font {
     /// ```
     pub fn detect_format(data: &[u8]) -> Result<rfont_types::FontFormatInfo, FontError> {
         if data.len() < 4 {
-            return Err(FontError::InvalidFileFormat { 
+            return Err(FontError::InvalidFileFormat {
                 reason: "数据太短，无法检测格式".to_string(),
-                actual_length: data.len()
+                actual_length: data.len(),
             });
         }
 
@@ -750,10 +747,8 @@ fn woff2_uncomprss(reader: &mut Reader, hdr: &Woff2Header) -> Result<Vec<u8>, Fo
     let mut decompressed_buffer = Vec::with_capacity(hdr.total_sfnt_size as usize);
     decompressor
         .read_to_end(&mut decompressed_buffer)
-        .map_err(|e| {
-            FontError::Woff2DecompressionError { 
-                message: format!("Brotli 解压缩失败: {}", e) 
-            }
+        .map_err(|e| FontError::Woff2DecompressionError {
+            message: format!("Brotli 解压缩失败: {}", e),
         })?;
 
     debug!(
