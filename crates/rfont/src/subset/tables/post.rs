@@ -229,19 +229,6 @@ mod tests {
     }
 
     #[test]
-    fn test_post_v3_passthrough() {
-        let post_v3 = create_test_post_v2();
-        let mut post_v3_modified = post_v3.clone();
-
-        // 修改版本号为 3.0
-        post_v3_modified[0..4].copy_from_slice(&0x00030000u32.to_be_bytes());
-
-        // 创建一个空的 Font
-        // 注意：这个测试需要实际的 Font 实例，所以我们跳过
-        // 实际使用时会在完整的子集化流程中测试
-    }
-
-    #[test]
     fn test_post_header_parsing() {
         let post_v2 = create_test_post_v2();
         let info = parse_post_header(&post_v2).unwrap();

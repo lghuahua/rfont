@@ -36,7 +36,7 @@ pub struct GlyfTable {
 }
 
 impl GlyfTable {
-    /// 从 Vec<u8> 创建（转换为 Rc）
+    /// 从 `Vec<u8>` 创建（转换为 Rc）
     pub fn from_vec(data: Vec<u8>) -> Self {
         Self {
             data: Rc::from(data),

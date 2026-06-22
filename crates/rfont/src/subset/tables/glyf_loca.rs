@@ -69,13 +69,6 @@ pub fn extract_glyf_and_loca(
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_extract_glyf_and_loca_basic() {
-        // 这个测试需要完整的 Font 实例，因此在集成测试中更合适
-        // 这里我们只验证函数签名和返回类型
-        // 实际测试在 lib.rs 的集成测试中进行
-    }
-
-    #[test]
     fn test_loca_encoding_short_format() {
         // 测试 short format (index_to_loc_format = 0)
         let offsets = vec![0u32, 10, 20, 30];

@@ -193,7 +193,6 @@ impl Font {
         );
         let _enter = span.enter();
 
-        use tracing::info;
         // 1. 构建 GlyphID 集合（确保包含 .notdef，即 ID 0）
         let mut subset_glyphs_vec: Vec<u16> = glyph_ids.to_vec();
         if !subset_glyphs_vec.contains(&0) {

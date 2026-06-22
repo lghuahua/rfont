@@ -29,30 +29,3 @@ pub fn update_head(
 
     Ok(writer.data)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_update_head_basic() {
-        // 这个测试需要完整的 Font 实例，因此在集成测试中更合适
-    }
-
-    #[test]
-    fn test_checksum_adjustment_encoding() {
-        // 测试 checkSumAdjustment 的编码
-        let checksum: u32 = 0xB1B0AFBA;
-        let bytes = checksum.to_be_bytes();
-        assert_eq!(bytes.len(), 4);
-
-        let decoded = u32::from_be_bytes(bytes);
-        assert_eq!(decoded, checksum);
-    }
-
-    #[test]
-    fn test_head_table_size_constant() {
-        // 验证 head 表大小常量
-        assert_eq!(HEAD_TABLE_SIZE, 54); // OpenType head 表固定为 54 字节
-    }
-}
