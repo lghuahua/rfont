@@ -6,10 +6,6 @@
 use crate::tables::glyf::{CompositeGlyph, GlyfRecord, GlyphData, SimpleGlyph};
 use rfont_types::{FontError, WriteBytes, Writer};
 
-// ==================== 常量定义 ====================
-
-// ==================== 数据结构 ====================
-
 /// Glyf 编码器
 ///
 /// 将 glyf 表转换为多个独立的流，以提高 Brotli 压缩率。
@@ -370,28 +366,28 @@ pub fn transform_glyf_and_loca(
     // 生成转换后的 glyf 数据
     let transformed_glyf = encoder.to_bytes();
 
-    // 计算原始大小
-    let original_size: usize = glyphs
-        .iter()
-        .map(|g| match &g.data {
-            GlyphData::Empty => 0,
-            GlyphData::Simple(s) => {
-                10 + // header
-            s.end_pts_of_contours.len() * 2 +
-            s.instructions.len() +
-            s.flags.len() +
-            s.x_coordinates.len() * 2 +
-            s.y_coordinates.len() * 2
-            }
-            GlyphData::Composite(c) => {
-                10 + // header
-            c.components.len() * 10 // 简化估计
-            }
-        })
-        .sum();
+    // // 计算原始大小
+    // let original_size: usize = glyphs
+    //     .iter()
+    //     .map(|g| match &g.data {
+    //         GlyphData::Empty => 0,
+    //         GlyphData::Simple(s) => {
+    //             10 + // header
+    //         s.end_pts_of_contours.len() * 2 +
+    //         s.instructions.len() +
+    //         s.flags.len() +
+    //         s.x_coordinates.len() * 2 +
+    //         s.y_coordinates.len() * 2
+    //         }
+    //         GlyphData::Composite(c) => {
+    //             10 + // header
+    //         c.components.len() * 10 // 简化估计
+    //         }
+    //     })
+    //     .sum();
 
     tracing::debug!(
-        original_size = original_size,
+        // original_size = original_size,
         transformed_size = transformed_glyf.len(),
         "glyf 转换完成"
     );

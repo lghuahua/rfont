@@ -3,7 +3,7 @@ use rfont_core::round4;
 use rfont_types::FontError;
 use rfont_types::{Tag, WriteBytes, Writer};
 use std::io::Write;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 impl Font {
     /// 将 TTF 数据转换为 WOFF 格式
@@ -385,18 +385,13 @@ impl Font {
             debug!(glyph_count = loca_offsets.len() - 1, "loca 表解析完成");
 
             // 使用懒加载器解析所有字形
-            let loader = GlyfLazyLoader::new(glyf_data, &loca_offsets);
+            let loader = GlyfLazyLoader::new(glyf_data, &loca_offsets)?;
             let num_glyphs = (loca_offsets.len() - 1) as u16;
 
             let mut all_glyphs = Vec::with_capacity(num_glyphs as usize);
             for glyph_id in 0..num_glyphs {
-                match loader.load_glyph(glyph_id) {
-                    Ok(Some(record)) => all_glyphs.push(record),
-                    Ok(None) => {} // 空字形
-                    Err(e) => {
-                        warn!(glyph_id = glyph_id, error = ?e, "加载字形失败");
-                    }
-                }
+                let record = loader.load_glyph(glyph_id)?;
+                all_glyphs.push(record);
             }
 
             debug!(loaded_glyphs = all_glyphs.len(), "字形加载完成");
