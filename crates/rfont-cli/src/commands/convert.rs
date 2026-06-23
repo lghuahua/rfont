@@ -5,7 +5,12 @@ use rfont::Font;
 use std::path::Path;
 use tracing::{Level, debug, info, span, warn};
 
-pub fn run(input: &Path, output: Option<&Path>, format: &str, compression: Option<u8>) -> Result<()> {
+pub fn run(
+    input: &Path,
+    output: Option<&Path>,
+    format: &str,
+    compression: Option<u8>,
+) -> Result<()> {
     let span = span!(Level::INFO, "convert_command",
                      input = ?input,
                      output = ?output,

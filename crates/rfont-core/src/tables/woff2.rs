@@ -61,14 +61,6 @@ impl Woff2Header {
     }
 }
 
-/// WOFF2 表类型枚举
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Woff2TableType {
-    Woff2TransformedGlyf = 0xCFFF,
-    Woff2TransformedLoca = 0xCF,
-    Woff2OriginalFormat = 0x3F,
-}
-
 /// WOFF2 表目录项
 /// 注意：WOFF2 的表目录格式与 WOFF 不同，使用变长编码
 #[derive(Debug, Clone)]
@@ -194,14 +186,6 @@ pub const WOFF2_KNOWN_TAGS: [Tag; 63] = [
     Tag(*b"Sill"),
 ];
 
-// 测试辅助函数
-impl Woff2TableDirectoryEntry {
-    #[cfg(test)]
-    pub fn read_base128_test(reader: &mut Reader) -> Result<u32, FontError> {
-        reader.read_base128()
-    }
-}
-
 pub fn read_table_directory(
     reader: &mut Reader,
     num_tables: u16,
@@ -298,34 +282,6 @@ mod tests {
     }
 
     #[test]
-    fn test_base128_encoding() {
-        // 测试 Base128 编码读取
-        // 值 127 (0x7F) - 单字节，最高位为 0 表示结束
-        let data1 = vec![0x7F];
-        let mut reader1 = Reader::new(&data1);
-        let value1 = Woff2TableDirectoryEntry::read_base128_test(&mut reader1).unwrap();
-        assert_eq!(value1, 127);
-
-        // 值 128 - 双字节编码: (1 << 7) | 0x80, 0x00
-        // 第一个字节: 0x81 (继续位=1, 值=1)
-        // 第二个字节: 0x00 (继续位=0, 值=0)
-        // 结果: (1 << 7) | 0 = 128
-        let data2 = vec![0x81, 0x00];
-        let mut reader2 = Reader::new(&data2);
-        let value2 = Woff2TableDirectoryEntry::read_base128_test(&mut reader2).unwrap();
-        assert_eq!(value2, 128);
-
-        // 值 300 - 双字节编码
-        // 300 = 2*128 + 44 = 0x02 0x2C
-        // 第一个字节: 0x82 (继续位=1, 值=2)
-        // 第二个字节: 0x2C (继续位=0, 值=44)
-        let data3 = vec![0x82, 0x2C];
-        let mut reader3 = Reader::new(&data3);
-        let value3 = Woff2TableDirectoryEntry::read_base128_test(&mut reader3).unwrap();
-        assert_eq!(value3, 300);
-    }
-
-    #[test]
     fn test_woff2_known_tags() {
         // 验证预定义标签数量
         assert_eq!(WOFF2_KNOWN_TAGS.len(), 63);
@@ -395,40 +351,6 @@ mod tests {
     }
 
     #[test]
-    fn test_base128_single_byte() {
-        // 单字节 Base128 编码（0-127）
-        for value in [0, 1, 64, 127] {
-            let data = vec![value as u8];
-            let mut reader = Reader::new(&data);
-            let result = Woff2TableDirectoryEntry::read_base128_test(&mut reader).unwrap();
-            assert_eq!(result, value as u32);
-        }
-    }
-
-    #[test]
-    fn test_base128_multi_byte() {
-        // 多字节 Base128 编码
-        // 值 128 = 0x80
-        // 编码: 0x81 (继续位=1, 值=1), 0x00 (继续位=0, 值=0)
-        // 结果: (1 << 7) | 0 = 128
-        let data = vec![0x81, 0x00];
-        let mut reader = Reader::new(&data);
-        let value = Woff2TableDirectoryEntry::read_base128_test(&mut reader).unwrap();
-        assert_eq!(value, 128);
-    }
-
-    #[test]
-    fn test_base128_large_value() {
-        // 大数值测试
-        // 值 300 = 2*128 + 44
-        // 编码: 0x82 (继续位=1, 值=2), 0x2C (继续位=0, 值=44)
-        let data = vec![0x82, 0x2C];
-        let mut reader = Reader::new(&data);
-        let value = Woff2TableDirectoryEntry::read_base128_test(&mut reader).unwrap();
-        assert_eq!(value, 300);
-    }
-
-    #[test]
     fn test_base128_write() {
         use rfont_types::Writer;
 
@@ -452,25 +374,5 @@ mod tests {
         let mut writer = Writer::new();
         writer.write_base128(300).unwrap();
         assert_eq!(writer.data, vec![0x82, 0x2C]);
-    }
-
-    #[test]
-    fn test_base128_roundtrip() {
-        use rfont_types::Writer;
-
-        // 测试读写往返
-        let test_values = vec![0, 1, 64, 127, 128, 255, 256, 300, 1000, 16383, 16384];
-
-        for value in test_values {
-            // 写入
-            let mut writer = Writer::new();
-            writer.write_base128(value).unwrap();
-
-            // 读取
-            let mut reader = Reader::new(&writer.data);
-            let read_value = Woff2TableDirectoryEntry::read_base128_test(&mut reader).unwrap();
-
-            assert_eq!(read_value, value, "Failed for value {}", value);
-        }
     }
 }

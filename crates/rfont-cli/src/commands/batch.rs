@@ -75,7 +75,12 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    println!("  压缩级别: {}", args.compression.map(|c| c.to_string()).unwrap_or_else(|| "自动".to_string()));
+    println!(
+        "  压缩级别: {}",
+        args.compression
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "自动".to_string())
+    );
     println!();
 
     // 2. 创建输出目录（如果指定）
