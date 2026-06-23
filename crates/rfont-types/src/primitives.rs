@@ -103,15 +103,6 @@ impl WriteBytes for LONGDATETIME {
 pub struct Tag(pub [u8; 4]);
 
 impl Tag {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
-        if bytes.len() != 4 {
-            return Err("Tag must be exactly 4 bytes");
-        }
-        let mut arr = [0u8; 4];
-        arr.copy_from_slice(bytes);
-        Ok(Tag(arr))
-    }
-
     pub fn as_str(&self) -> &str {
         std::str::from_utf8(&self.0).unwrap_or("")
     }
@@ -358,15 +349,6 @@ mod tests {
     }
 
     #[test]
-    fn test_tag_from_bytes_valid() {
-        let tag = Tag::from_bytes(b"cmap").unwrap();
-        assert_eq!(tag.as_str(), "cmap");
-
-        let tag2 = Tag::from_bytes(b"glyf").unwrap();
-        assert_eq!(tag2.as_str(), "glyf");
-    }
-
-    #[test]
     fn test_tag_write() {
         use crate::io::Writer;
 
@@ -393,13 +375,6 @@ mod tests {
 
         assert_eq!(original, read_tag);
         assert_eq!(read_tag.as_str(), "glyf");
-    }
-
-    #[test]
-    fn test_tag_from_bytes_invalid_length() {
-        assert!(Tag::from_bytes(b"hea").is_err()); // 太短
-        assert!(Tag::from_bytes(b"headx").is_err()); // 太长
-        assert!(Tag::from_bytes(b"").is_err()); // 空
     }
 
     #[test]
