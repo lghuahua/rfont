@@ -1,4 +1,5 @@
 use crate::Font;
+use rfont_core::round4;
 use rfont_types::FontError;
 use rfont_types::{Tag, WriteBytes, Writer};
 use std::io::Write;
@@ -280,15 +281,21 @@ impl Font {
         // 解析 TTF 数据结构（复用 FontData 的目录解析）
         let table_map = crate::font_data::FontData::parse_directory(ttf_data)?;
         let sfnt_version = u32::from_be_bytes([ttf_data[0], ttf_data[1], ttf_data[2], ttf_data[3]]);
-        let num_tables = table_map.len() as u16;
 
         // 按照 WOFF2 规范的顺序对表进行排序
         let predefined_tags = rfont_core::tables::woff2::WOFF2_KNOWN_TAGS;
         let mut sorted_tables: Vec<(Tag, u32, u32)> = table_map
             .values()
-            .map(|r| (r.tag, r.offset, r.length))
+            .filter_map(|r| {
+                // 移除DSIG
+                if r.tag.as_str() == "DSIG" {
+                    None
+                } else {
+                    Some((r.tag, r.offset, r.length))
+                }
+            })
             .collect();
-
+        let num_tables = sorted_tables.len() as u16;
         debug!(num_tables = num_tables, "解析表目录完成");
         sorted_tables.sort_by(|a, b| {
             let a_idx = predefined_tags.iter().position(|t| t == &a.0);
@@ -464,6 +471,7 @@ impl Font {
 
         // 构建 WOFF2 文件
         let mut woff2_writer = Writer::new();
+        let total_sfnt_size = compute_uncompressed_length(&sorted_tables);
 
         // WOFF2 Header (48 bytes)
         let header_offset = woff2_writer.data.len();
@@ -472,7 +480,7 @@ impl Font {
         woff2_writer.write_u32(0)?; // length (稍后回填)
         woff2_writer.write_u16(num_tables)?;
         woff2_writer.write_u16(0)?; // reserved
-        woff2_writer.write_u32(ttf_data.len() as u32)?; // total_sfnt_size
+        woff2_writer.write_u32(total_sfnt_size)?; // total_sfnt_size
         woff2_writer.write_u32(total_compressed_size)?; // total_compressed_size
         woff2_writer.write_u16(1)?; // major_version
         woff2_writer.write_u16(0)?; // minor_version
@@ -545,7 +553,7 @@ impl Font {
             .copy_from_slice(&total_length.to_be_bytes());
 
         debug!(
-            total_sfnt_size = ttf_data.len() as u32,
+            total_sfnt_size = total_sfnt_size,
             total_compressed_size = total_compressed_size,
             woff2_size = total_length,
             "WOFF2 文件生成完成"
@@ -553,4 +561,12 @@ impl Font {
 
         Ok(woff2_writer.data)
     }
+}
+
+fn compute_uncompressed_length(tables: &[(Tag, u32, u32)]) -> u32 {
+    let mut size = 12 + 16 * tables.len() as u32;
+    for (_, _, length) in tables.iter() {
+        size += round4(*length)
+    }
+    size
 }
