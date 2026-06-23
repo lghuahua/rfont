@@ -278,28 +278,20 @@ impl<'a> GlyfDecoder<'a> {
             ));
         }
 
-        // 1. 计算复合字形组件的大小
-        let remaining_composite = &self.composite_reader.data[self.composite_reader.offset..];
-        let (composite_size, have_instructions) = size_of_composite(remaining_composite)?;
-
-        // 2. 读取指令大小（如果有）
-        let mut instruction_size: u16 = 0;
-        if have_instructions {
-            instruction_size = U255::read_from(&mut self.glyph_reader)?.value();
-        }
-
-        // 4. 写入 nContours = 0xFFFF（表示复合字形）
+        // 1. 写入 nContours = 0xFFFF（表示复合字形）
         glyph_writer.write_u16(0xFFFF)?;
 
-        // 5. 写入 bbox
+        // 2. 写入 bbox
         let bbox_data = self.bbox_reader.read_bytes(8)?;
         glyph_writer.write_bytes(bbox_data)?;
 
-        // 6. 复制复合字形组件数据
-        glyph_writer.write_bytes(self.composite_reader.read_bytes(composite_size)?)?;
+        // 3. 扫描复合字形组件，边扫描边写入，推进 reader offset
+        let have_instructions =
+            write_composite_components(&mut self.composite_reader, glyph_writer)?;
 
-        // 7. 写入指令（如果有）
+        // 4. 写入指令（如果有）
         if have_instructions {
+            let instruction_size = U255::read_from(&mut self.glyph_reader)?.value();
             glyph_writer.write_u16(instruction_size)?;
             glyph_writer.write_bytes(
                 self.instruction_reader
@@ -574,62 +566,43 @@ pub fn store_points(
     glyph_writer.write_bytes(&y_writer.data)
 }
 
-/// 计算复合字形组件的大小
-///
-/// 参考 Google woff2 的 SizeOfComposite 函数
-fn size_of_composite(composite_data: &[u8]) -> Result<(usize, bool), FontError> {
-    let mut reader = Reader::new(composite_data);
-    let start_offset = reader.offset;
+/// 扫描复合字形组件，边扫描边写入 writer，推进 reader offset
+/// 直接将组件数据写入 writer，避免中间缓存和二次读取。
+/// 返回是否包含指令。
+fn write_composite_components(reader: &mut Reader, writer: &mut Writer) -> Result<bool, FontError> {
     let mut have_instructions = false;
-
     let mut flags = FLAG_MORE_COMPONENTS;
 
     while (flags & FLAG_MORE_COMPONENTS) != 0 {
-        // 读取 flags
-        if reader.offset + 2 > composite_data.len() {
-            return Err(FontError::Generic(
-                "Composite: failed to read flags".to_string(),
-            ));
-        }
-        flags = u16::from_be_bytes([
-            composite_data[reader.offset],
-            composite_data[reader.offset + 1],
-        ]);
-        reader.offset += 2;
+        let component_start = reader.offset;
 
-        // 检查是否有指令
+        flags = reader.read_u16()?;
+
         if (flags & FLAG_WE_HAVE_INSTRUCTIONS) != 0 {
             have_instructions = true;
         }
 
-        // 计算参数大小
-        let mut arg_size: usize = 2; // glyph index (always 2 bytes)
+        reader.skip(2)?; // glyph index
 
-        if (flags & FLAG_ARG_1_AND_2_ARE_WORDS) != 0 {
-            arg_size += 4; // arg1 (i16) + arg2 (i16)
+        let arg_size = if (flags & FLAG_ARG_1_AND_2_ARE_WORDS) != 0 {
+            4 // arg1 (i16) + arg2 (i16)
         } else {
-            arg_size += 2; // arg1 (i8) + arg2 (i8)
-        }
+            2 // arg1 (i8) + arg2 (i8)
+        };
+        reader.skip(arg_size)?;
 
         if (flags & FLAG_WE_HAVE_A_SCALE) != 0 {
-            arg_size += 2; // scale (F2Dot14)
+            reader.skip(2)?; // scale (F2Dot14)
         } else if (flags & FLAG_WE_HAVE_AN_X_AND_Y_SCALE) != 0 {
-            arg_size += 4; // xScale + yScale
+            reader.skip(4)?; // xScale + yScale
         } else if (flags & FLAG_WE_HAVE_A_TWO_BY_TWO) != 0 {
-            arg_size += 8; // 2x2 matrix
+            reader.skip(8)?; // 2x2 matrix
         }
 
-        // 跳过参数
-        if reader.offset + arg_size > composite_data.len() {
-            return Err(FontError::Generic(
-                "Composite: failed to skip args".to_string(),
-            ));
-        }
-        reader.offset += arg_size;
+        writer.write_bytes(&reader.data[component_start..reader.offset])?;
     }
 
-    let size = reader.offset - start_offset;
-    Ok((size, have_instructions))
+    Ok(have_instructions)
 }
 /// 构建 loca 表
 fn build_loca_table(loca_values: &[u32], index_format: u16) -> Vec<u8> {
@@ -1196,11 +1169,11 @@ mod tests {
     }
 
     // ========================================================================
-    // SizeOfComposite 测试
+    // WriteCompositeComponents 测试
     // ========================================================================
 
     #[test]
-    fn test_size_of_composite_simple() {
+    fn test_write_composite_components_simple() {
         // 单个组件，无缩放，无指令
         let composite_data = vec![
             0x00, 0x00, // flags: no MORE_COMPONENTS, no instructions
@@ -1208,13 +1181,17 @@ mod tests {
             0x00, 0x00, // arg1 = 0, arg2 = 0 (bytes)
         ];
 
-        let (size, have_instructions) = size_of_composite(&composite_data).unwrap();
-        assert_eq!(size, 6);
+        let mut reader = Reader::new(&composite_data);
+        let mut writer = Writer::new();
+        let have_instructions = write_composite_components(&mut reader, &mut writer).unwrap();
         assert!(!have_instructions);
+        assert_eq!(writer.data.len(), 6);
+        assert_eq!(&writer.data, &composite_data[..]);
+        assert_eq!(reader.offset, 6);
     }
 
     #[test]
-    fn test_size_of_composite_with_instructions() {
+    fn test_write_composite_components_with_instructions() {
         // 有指令标志
         let composite_data = vec![
             0x01, 0x00, // flags: WE_HAVE_INSTRUCTIONS
@@ -1222,13 +1199,17 @@ mod tests {
             0x00, 0x00, // arg1 = 0, arg2 = 0
         ];
 
-        let (size, have_instructions) = size_of_composite(&composite_data).unwrap();
-        assert_eq!(size, 6);
+        let mut reader = Reader::new(&composite_data);
+        let mut writer = Writer::new();
+        let have_instructions = write_composite_components(&mut reader, &mut writer).unwrap();
         assert!(have_instructions);
+        assert_eq!(writer.data.len(), 6);
+        assert_eq!(&writer.data, &composite_data[..]);
+        assert_eq!(reader.offset, 6);
     }
 
     #[test]
-    fn test_size_of_composite_multiple_components() {
+    fn test_write_composite_components_multiple_components() {
         // 多个组件
         let composite_data = vec![
             0x00, 0x20, // flags: MORE_COMPONENTS
@@ -1239,13 +1220,17 @@ mod tests {
             0x00, 0x00, // arg1 = 0, arg2 = 0
         ];
 
-        let (size, have_instructions) = size_of_composite(&composite_data).unwrap();
-        assert_eq!(size, 12);
+        let mut reader = Reader::new(&composite_data);
+        let mut writer = Writer::new();
+        let have_instructions = write_composite_components(&mut reader, &mut writer).unwrap();
         assert!(!have_instructions);
+        assert_eq!(writer.data.len(), 12);
+        assert_eq!(&writer.data, &composite_data[..]);
+        assert_eq!(reader.offset, 12);
     }
 
     #[test]
-    fn test_size_of_composite_with_words_args() {
+    fn test_write_composite_components_with_words_args() {
         // 使用 word 参数的组件
         let composite_data = vec![
             0x00, 0x01, // flags: ARG_1_AND_2_ARE_WORDS
@@ -1254,13 +1239,17 @@ mod tests {
             0x00, 0xC8, // arg2 = 200 (2 bytes)
         ];
 
-        let (size, have_instructions) = size_of_composite(&composite_data).unwrap();
-        assert_eq!(size, 8); // 2 + 2 + 2 + 2 = 8
+        let mut reader = Reader::new(&composite_data);
+        let mut writer = Writer::new();
+        let have_instructions = write_composite_components(&mut reader, &mut writer).unwrap();
         assert!(!have_instructions);
+        assert_eq!(writer.data.len(), 8); // 2 + 2 + 2 + 2 = 8
+        assert_eq!(&writer.data, &composite_data[..]);
+        assert_eq!(reader.offset, 8);
     }
 
     #[test]
-    fn test_size_of_composite_with_scale() {
+    fn test_write_composite_components_with_scale() {
         // 有缩放因子的组件
         let composite_data = vec![
             0x00, 0x08, // flags: WE_HAVE_A_SCALE
@@ -1269,9 +1258,13 @@ mod tests {
             0x40, 0x00, // scale = 0.5 (F2Dot14)
         ];
 
-        let (size, have_instructions) = size_of_composite(&composite_data).unwrap();
-        assert_eq!(size, 8);
+        let mut reader = Reader::new(&composite_data);
+        let mut writer = Writer::new();
+        let have_instructions = write_composite_components(&mut reader, &mut writer).unwrap();
         assert!(!have_instructions);
+        assert_eq!(writer.data.len(), 8);
+        assert_eq!(&writer.data, &composite_data[..]);
+        assert_eq!(reader.offset, 8);
     }
 
     // ========================================================================
