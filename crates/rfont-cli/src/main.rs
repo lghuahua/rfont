@@ -106,9 +106,9 @@ enum Commands {
         #[arg(long, default_value = "ttf")]
         format: String,
 
-        /// WOFF 压缩级别（0-9）
-        #[arg(long, default_value = "6")]
-        compression: u8,
+        /// WOFF/WOFF2 压缩级别（WOFF: 0-9, WOFF2: 0-11，不指定则按格式自动选择最优值）
+        #[arg(long)]
+        compression: Option<u8>,
     },
 
     /// 转换字体格式
@@ -124,9 +124,9 @@ enum Commands {
         #[arg(short, long)]
         format: String,
 
-        /// WOFF/WOFF2 压缩级别（0-9，仅用于 WOFF/WOFF2 输出）
-        #[arg(long, default_value = "6")]
-        compression: u8,
+        /// WOFF/WOFF2 压缩级别（WOFF: 0-9, WOFF2: 0-11，不指定则按格式自动选择最优值）
+        #[arg(long)]
+        compression: Option<u8>,
     },
 
     /// 批量处理字体文件
@@ -152,9 +152,9 @@ enum BatchCommands {
         #[arg(short, long)]
         output_dir: Option<PathBuf>,
 
-        /// WOFF/WOFF2 压缩级别（0-9）
-        #[arg(long, default_value = "6")]
-        compression: u8,
+        /// WOFF/WOFF2 压缩级别（WOFF: 0-9, WOFF2: 0-11，不指定则按格式自动选择最优值）
+        #[arg(long)]
+        compression: Option<u8>,
 
         /// 覆盖已存在的文件
         #[arg(long)]

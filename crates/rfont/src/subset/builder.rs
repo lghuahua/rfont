@@ -145,17 +145,17 @@ impl<'a> FontSubsetBuilder<'a> {
         self
     }
 
-    /// 设置 WOFF 压缩级别（0-9）
+    /// 设置压缩级别
     ///
-    /// 仅在输出格式为 WOFF 时有效。更高的压缩级别会产生更小的文件，但需要更长的处理时间。
+    /// 仅在输出格式为 WOFF/WOFF2 时有效。更高的压缩级别会产生更小的文件，但需要更长的处理时间。
     ///
     /// # 参数
-    /// - `level`: 压缩级别（0-9），超过 9 会被截断为 9
+    /// - `level`: 压缩级别（WOFF: 0-9, WOFF2: 0-11），由调用方负责范围校验
     ///
     /// # 返回值
     /// 更新后的 Builder（支持链式调用）
     pub fn compression_level(mut self, level: u8) -> Self {
-        self.options.compression_level = level.min(9);
+        self.options.compression_level = level;
         self
     }
 

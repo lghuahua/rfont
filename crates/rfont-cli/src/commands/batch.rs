@@ -11,7 +11,7 @@ pub struct BatchConvertArgs {
     pub pattern: String,             // 文件匹配模式（如 *.ttf）
     pub formats: Vec<String>,        // 目标格式列表（woff/woff2/ttf）
     pub output_dir: Option<PathBuf>, // 输出目录
-    pub compression: u8,             // 压缩级别
+    pub compression: Option<u8>,     // 压缩级别（不指定则按格式自动选择最优值）
     pub overwrite: bool,             // 是否覆盖已存在的文件
     #[cfg(feature = "parallel")]
     pub jobs: Option<usize>, // 并行任务数
@@ -31,7 +31,7 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
     let span = span!(Level::INFO, "batch_convert_command",
                      pattern = args.pattern,
                      formats = ?args.formats,
-                     compression = args.compression,
+                     compression = ?args.compression,
                      overwrite = args.overwrite);
     let _enter = span.enter();
 
@@ -75,7 +75,7 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    println!("  压缩级别: {}", args.compression);
+    println!("  压缩级别: {}", args.compression.map(|c| c.to_string()).unwrap_or_else(|| "自动".to_string()));
     println!();
 
     // 2. 创建输出目录（如果指定）
@@ -193,7 +193,7 @@ fn convert_single_file(
     input_path: &Path,
     format: &str,
     output_dir: &Option<PathBuf>,
-    compression: u8,
+    compression: Option<u8>,
     overwrite: bool,
     progress: &ProgressBar,
 ) -> ConvertResult {
@@ -281,9 +281,12 @@ fn convert_single_file(
 }
 
 /// 执行格式转换
-fn perform_conversion(font: &Font, format: &str, compression: u8) -> Result<Vec<u8>> {
+fn perform_conversion(font: &Font, format: &str, compression: Option<u8>) -> Result<Vec<u8>> {
     let font_info = font.get_font_info().context("获取字体信息失败")?;
     let all_glyph_ids: Vec<u16> = (0..font_info.glyph_count).collect();
+
+    // 根据格式解析压缩级别
+    let compression = super::resolve_compression(format, compression);
 
     let data = font
         .subset_builder()
@@ -421,7 +424,7 @@ fn process_files_sequential(
     files: &[PathBuf],
     formats: &[String],
     output_dir: &Option<PathBuf>,
-    compression: u8,
+    compression: Option<u8>,
     overwrite: bool,
     multi_progress: &MultiProgress,
     overall_progress: &ProgressBar,
@@ -474,7 +477,7 @@ fn process_files_parallel(
     files: &[PathBuf],
     formats: &[String],
     output_dir: &Option<PathBuf>,
-    compression: u8,
+    compression: Option<u8>,
     overwrite: bool,
     multi_progress: &MultiProgress,
     overall_progress: &ProgressBar,
@@ -526,7 +529,7 @@ fn convert_single_file_simple(
     input_path: &Path,
     format: &str,
     output_dir: &Option<PathBuf>,
-    compression: u8,
+    compression: Option<u8>,
     overwrite: bool,
 ) -> ConvertResult {
     let original_size = std::fs::metadata(input_path).unwrap().len();

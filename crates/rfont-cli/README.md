@@ -91,7 +91,7 @@ rfont info AlimamaDaoLiTi.ttf --json | jq '.glyph_count'
 - `--range <RANGE>`: Unicode 范围（例如：U+4E00-U+9FFF），可多次使用
 - `--strip-post-names`: 优化 post 表（移除字形名称，减小文件大小）
 - `--format <FORMAT>`: 输出格式（ttf 或 woff，默认：ttf）
-- `--compression <LEVEL>`: WOFF 压缩级别（0-9，默认：6）
+- `--compression <LEVEL>`: WOFF: 0-9, WOFF2: 0-11，仅在使用 WOFF/WOFF2 格式时有效
 
 **示例：**
 ```bash
@@ -124,7 +124,7 @@ rfont subset font.ttf \
 **选项：**
 - `-o, --output <OUTPUT>`: 输出文件路径（可选，默认为 `{name}_converted.{ext}`）
 - `-f, --format <FORMAT>`: 目标格式（ttf 或 woff，必需）
-- `--compression <LEVEL>`: WOFF 压缩级别（0-9，默认：6）
+- `--compression <LEVEL>`: WOFF: 0-9, WOFF2: 0-11，仅在使用 WOFF/WOFF2 格式时有效
 
 **示例：**
 ```bash

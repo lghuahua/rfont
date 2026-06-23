@@ -13,13 +13,13 @@ pub fn run(
     ranges: &[String],
     strip_post_names: bool,
     format: &str,
-    compression: u8,
+    compression: Option<u8>,
 ) -> Result<()> {
-    let span = span!(Level::INFO, "subset_command", 
-                     input = ?input, 
+    let span = span!(Level::INFO, "subset_command",
+                     input = ?input,
                      output = ?output,
                      format = format,
-                     compression = compression);
+                     compression = ?compression);
     let _enter = span.enter();
 
     debug!("开始字体子集化处理");
@@ -98,6 +98,10 @@ pub fn run(
         debug!("启用 post 表优化（移除字形名称）");
         builder = builder.strip_glyph_names(true);
     }
+
+    // 根据格式解析压缩级别
+    let compression = super::resolve_compression(format, compression);
+    debug!(compression_level = compression, "压缩级别已解析");
 
     if format == "woff" {
         debug!(compression_level = compression, "启用 WOFF 压缩");

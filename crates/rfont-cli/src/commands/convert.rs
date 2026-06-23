@@ -5,12 +5,12 @@ use rfont::Font;
 use std::path::Path;
 use tracing::{Level, debug, info, span, warn};
 
-pub fn run(input: &Path, output: Option<&Path>, format: &str, compression: u8) -> Result<()> {
-    let span = span!(Level::INFO, "convert_command", 
-                     input = ?input, 
+pub fn run(input: &Path, output: Option<&Path>, format: &str, compression: Option<u8>) -> Result<()> {
+    let span = span!(Level::INFO, "convert_command",
+                     input = ?input,
                      output = ?output,
                      format = format,
-                     compression = compression);
+                     compression = ?compression);
     let _enter = span.enter();
 
     debug!("开始字体格式转换");
@@ -24,6 +24,10 @@ pub fn run(input: &Path, output: Option<&Path>, format: &str, compression: u8) -
             format
         ));
     }
+
+    // 根据格式解析压缩级别
+    let compression = super::resolve_compression(&format, compression);
+    debug!(compression_level = compression, "压缩级别已解析");
 
     debug!(target_format = format, "目标格式验证通过");
 

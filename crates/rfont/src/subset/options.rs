@@ -28,7 +28,7 @@ pub struct SubsetOptions {
     pub optimize_post_table: bool,
     /// 是否移除字形名称
     pub strip_glyph_names: bool,
-    /// WOFF 压缩级别（0-9，仅在使用 WOFF 格式时有效）
+    /// 压缩级别（WOFF: 0-9, WOFF2: 0-11，仅在使用 WOFF/WOFF2 格式时有效）
     pub compression_level: u8,
     /// 是否保留 hinting 数据
     pub keep_hinting: bool,
