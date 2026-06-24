@@ -7,6 +7,67 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-24
+
+### Added
+
+- 更新压缩级别参数，支持 WOFF2 格式并优化相关文档
+- *(woff2)* 优化 WOFF2 转换，移除 DSIG 表并计算未压缩长度
+- *(glyf)* 优化字形加载和依赖解析，添加零拷贝支持
+- 增强字体信息获取，添加错误上下文处理，优化错误类型
+- *(glyf)* 优化GlyfTable结构，使用Rc<[u8]>实现零拷贝，减少内存拷贝
+- *(rfont)* 添加WOFF/WOFF2转换功能并优化字体加载性能
+- *(rfont-core)* 重构GlyfDecoder以支持WOFF2格式转换
+- 更新子集文件扩展名逻辑，支持woff2格式
+- 优化WOFF2文件生成逻辑，移除多余计算并简化代码
+- 移除调试输出，优化代码整洁性
+- *(glyf)* 添加GlyfTable结构及其slice方法，优化glyf和loca数据提取
+- *(cmap)* 添加基于代码点的字形ID获取方法并优化API
+- *(rfont-types)* 移除chrono依赖并优化LONGDATETIME实现
+- *(glyf_transform)* 优化边界框位图大小计算
+- *(rfont)* 添加u32向上对齐到4的倍数功能并应用于WOFF2子集化
+- *(cmap)* 重构cmap表实现以支持多子表处理
+- *(font)* 实现WOFF2表排序和字体子集化优化
+- 添加字体name表信息显示功能
+- *(glyf)* 添加CompositeGlyph和CompositeComponent的WriteBytes实现，优化复合字形数据写入
+- *(font)* 实现WOFF2字体加载和子集化功能
+- *(subset)* 支持WOFF及WOFF2格式压缩
+- *(convert)* 优化WOFF2转换实现
+- *(rfont-core)* 添加glyf表变换功能和Writer类型支持
+- *(io)* 添加Reader和Writer的长度获取方法及255 ushort写入功能
+- *(rfont-types)* 添加WOFF2专用的U255变长整数类型
+- *(rfont-core)* 更新WOFF2预定义标签列表
+- Implement Base128 encoding and decoding in Reader and Writer
+- *(font)* 添加字形懒加载功能以优化子集化处理
+- *(glyf)* 实现Glyf表字形数据的完整解析和序列化
+
+### Changed
+
+- *(woff2)* 移除不必要的 WOFF2 表类型枚举及相关测试,格式化代码
+- *(glyf)* 优化 GlyfLazyLoader，简化字形加载逻辑并增强错误处理
+- *(tag)* 移除 Tag 结构体的 from_bytes 方法及相关测试
+- *(woff2)* 重构复合字形组件处理，优化数据写入逻辑
+- *(error)* 添加上下文信息到UnexpectedEndOfData错误，优化错误处理
+- 优化代码格式和性能改进
+- *(rfont)* 重构模块结构并更新依赖引用
+
+### Fixed
+
+- *(rfont-types)* 修复U255编解码中的字节值映射错误
+- *(font)* 修复WOFF2解压缩中head表偏移计算错误
+- 修复解析和重构功能
+- 调整模块导入顺序以提高可读性
+- *(font)* 修复WOFF字体子集化中的表压缩和校验和计算问题
+
+### Style
+
+- 优化代码注释和格式，移除冗余测试代码
+- 统一错误处理和上下文信息，优化代码格式
+
+### Testing
+
+- 优化测试断言，使用 is_empty() 替代数据长度检查
+
 ## [0.1.0] - 2026-05-12
 
 ### Added
