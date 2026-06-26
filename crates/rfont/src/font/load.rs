@@ -1,7 +1,6 @@
 use anyhow::Context;
 use brotli::Decompressor;
 use flate2::read::ZlibDecoder;
-use rfont_core::tables::glyf::GlyfTable;
 use rfont_core::tables::woff::{WoffHeader, WoffTableDirectoryEntry};
 use rfont_core::tables::woff2::{WOFF2_KNOWN_TAGS, Woff2Header, Woff2TableDirectoryEntry};
 use rfont_core::tables::woff2_transform::GlyfDecoder;
@@ -49,8 +48,6 @@ pub struct Font {
     pub(crate) loca: Loca,
     pub(crate) cmap: Cmap,
     pub(crate) hmtx: Hmtx,
-    #[allow(dead_code)] // 保留用于未来可能的优化场景
-    pub(crate) glyf: GlyfTable,
 }
 
 impl Font {
@@ -161,14 +158,6 @@ impl Font {
             maxp.num_glyphs,
         )?;
         debug!(metrics_count = hmtx.metrics.len(), "Hmtx 表解析完成");
-        let glyf_bytes =
-            font_data
-                .get_table_bytes(Tag(*b"glyf"))
-                .ok_or(FontError::TableNotFound {
-                    tag: "glyf".to_string(),
-                })?;
-        // 使用 from_vec 转换为 Rc，避免额外拷贝
-        let glyf = GlyfTable::from_vec(glyf_bytes.to_vec());
 
         Ok(Font {
             font_data,
@@ -178,7 +167,6 @@ impl Font {
             loca,
             cmap,
             hmtx,
-            glyf,
         })
     }
 

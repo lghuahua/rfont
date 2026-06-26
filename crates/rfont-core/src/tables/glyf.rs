@@ -1,6 +1,4 @@
 use rfont_types::{FontError, Reader, WriteBytes, Writer};
-use std::borrow::Cow;
-use std::rc::Rc;
 
 // ==================== Glyf 表标志位常量 ====================
 // 参考 OpenType 规范和 woff2 项目 glyph.cc
@@ -27,44 +25,6 @@ pub const USE_MY_METRICS: u16 = 0x0200; // bit 9: 使用我的度量
 pub const OVERLAP_COMPOUND: u16 = 0x0400; // bit 10: 复合字形重叠
 pub const SCALED_COMPONENT_OFFSET: u16 = 0x0800; // bit 11: 缩放的组件偏移
 pub const UNSCALED_COMPONENT_OFFSET: u16 = 0x1000; // bit 12: 未缩放的组件偏移
-
-/// Glyf 表数据（零拷贝优化）
-///
-/// 使用 `Rc<[u8]>` 共享原始数据所有权，避免不必要的内存拷贝。
-pub struct GlyfTable {
-    pub data: Rc<[u8]>,
-}
-
-impl GlyfTable {
-    /// 从 `Vec<u8>` 创建（转换为 Rc）
-    pub fn from_vec(data: Vec<u8>) -> Self {
-        Self {
-            data: Rc::from(data),
-        }
-    }
-
-    /// 获取字形数据的切片（零拷贝）
-    ///
-    /// 返回 `Cow<[u8]>`，借用原始数据而非拷贝。
-    ///
-    /// # 参数
-    /// - `start`: 起始偏移量
-    /// - `end`: 结束偏移量
-    ///
-    /// # 返回值
-    /// - `Ok(Cow<[u8]>)`: 字形数据切片
-    /// - `Err(FontError)`: 偏移量无效
-    pub fn slice(&self, start: usize, end: usize) -> Result<Cow<'_, [u8]>, FontError> {
-        if start > end || end > self.data.len() {
-            return Err(FontError::InvalidOffset {
-                table: "glyf".to_string(),
-                offset: end as u32,
-                max: self.data.len() as u32,
-            });
-        }
-        Ok(Cow::Borrowed(&self.data[start..end]))
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct GlyfRecord {
