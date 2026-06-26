@@ -556,6 +556,42 @@ impl Font {
 
         Ok(woff2_writer.data)
     }
+
+    /// 直接转换字体格式（不提取字形，保持所有字形）
+    ///
+    /// 此方法用于纯粹的格式转换，不会丢失任何字形数据。
+    /// 与子集化不同，此方法会保留字体中的所有字形。
+    ///
+    /// # 参数
+    /// - `output_format`: 输出格式 ("ttf", "woff", "woff2")
+    /// - `compression_level`: 压缩级别（WOFF: 0-9, WOFF2: 0-11, TTF: 忽略）
+    ///
+    /// # 返回值
+    /// - `Ok(Vec<u8>)`: 转换后的字体数据
+    /// - `Err(FontError)`: 转换失败时的错误信息
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// let font = Font::load("font.ttf").unwrap();
+    /// let woff2_data = font.convert_format("woff2", 11).unwrap();
+    /// ```
+    pub fn convert_format(
+        &self,
+        output_format: &str,
+        compression_level: u8,
+    ) -> Result<Vec<u8>, FontError> {
+        // 直接使用 Font 对象中已加载的字体数据
+        let ttf_data = self.font_data.as_bytes();
+
+        match output_format.to_lowercase().as_str() {
+            "ttf" => Ok(ttf_data.to_vec()),
+            "woff" => self.convert_to_woff(ttf_data, compression_level),
+            "woff2" => self.convert_to_woff2(ttf_data, compression_level),
+            _ => Err(FontError::Generic(format!("不支持的输出格式：{}", output_format))),
+        }
+    }
 }
 
 fn compute_uncompressed_length(tables: &[(Tag, u32, u32)]) -> u32 {

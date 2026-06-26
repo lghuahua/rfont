@@ -68,28 +68,9 @@ pub fn run(
         "开始格式转换"
     );
 
-    let font_info = font.get_font_info().context("获取字体信息失败")?;
-    let converted_data = if format == "woff" {
-        // TTF → WOFF：使用所有字形 ID
-        let all_glyph_ids: Vec<u16> = (0..font_info.glyph_count as u16).collect();
-        font.subset_builder()
-            .glyph_ids(all_glyph_ids)
-            .output_format("woff")
-            .compression_level(compression)
-            .build()
-            .context("转换为 WOFF 失败")?
-    } else if format == "woff2" {
-        // TTF → WOFF2：使用所有字形 ID
-        font.convert_to_woff2(font.font_data().as_bytes(), compression)?
-    } else {
-        // WOFF/WOFF2 → TTF（或其他情况）
-        let all_glyph_ids: Vec<u16> = (0..font_info.glyph_count as u16).collect();
-        font.subset_builder()
-            .glyph_ids(all_glyph_ids)
-            .output_format("ttf")
-            .build()
-            .context("转换为 TTF 失败")?
-    };
+    let converted_data = font
+        .convert_format(&format, compression)
+        .context("格式转换失败")?;
 
     debug!(converted_size = converted_data.len(), "转换完成");
     progress.inc(80);
