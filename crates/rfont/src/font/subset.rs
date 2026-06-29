@@ -213,15 +213,14 @@ impl Font {
 
         use rfont_core::tables::glyf_lazy::GlyfLazyLoader;
         let loader = GlyfLazyLoader::new(glyf_data, &self.loca.offsets)?;
-        let (resolved_glyphs, new_loca_data, new_glyf_data) =
-            loader.resolve_and_extract(&subset_glyphs_vec)?;
+        let result = loader.resolve_and_extract(&subset_glyphs_vec)?;
 
-        subset_glyphs_vec = resolved_glyphs;
+        subset_glyphs_vec = result.glyph_ids;
 
         info!(
             resolved_glyph_count = subset_glyphs_vec.len(),
-            loca_size = new_loca_data.len(),
-            glyf_size = new_glyf_data.len(),
+            loca_size = result.loca_data.len(),
+            glyf_size = result.glyf_data.len(),
             "复合字形依赖解析和数据提取完成"
         );
 
@@ -235,7 +234,7 @@ impl Font {
         let new_maxp_data = maxp::update_maxp(self, subset_glyphs_vec.len() as u16)?;
 
         // 6. 更新 head（校验和、修改时间等）- 暂时传入 0，稍后在 assemble_ttf 中更新
-        let index_to_loc_format: u16 = if new_glyf_data.len() < 65536 { 0 } else { 1 };
+        let index_to_loc_format: u16 = if result.glyf_data.len() < 65536 { 0 } else { 1 };
         let new_head_data = head::update_head(self, 0, index_to_loc_format, true)?;
 
         // 7. 复制其他不变的表（name, os2, post 等）
@@ -258,8 +257,8 @@ impl Font {
         debug!(table = "cmap", size = new_cmap_data.len());
         debug!(table = "hhea", size = hhea_data.len());
         debug!(table = "hmtx", size = new_hmtx_data.len());
-        debug!(table = "loca", size = new_loca_data.len());
-        debug!(table = "glyf", size = new_glyf_data.len());
+        debug!(table = "loca", size = result.loca_data.len());
+        debug!(table = "glyf", size = result.glyf_data.len());
 
         let mut all_tables = vec![
             (Tag(*b"head"), new_head_data),
@@ -267,8 +266,8 @@ impl Font {
             (Tag(*b"cmap"), new_cmap_data),
             (Tag(*b"hhea"), hhea_data),
             (Tag(*b"hmtx"), new_hmtx_data),
-            (Tag(*b"loca"), new_loca_data),
-            (Tag(*b"glyf"), new_glyf_data),
+            (Tag(*b"loca"), result.loca_data),
+            (Tag(*b"glyf"), result.glyf_data),
         ];
         for (tag, data) in other_tables {
             debug!(table = ?tag, size = data.len(), "其他表");

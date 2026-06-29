@@ -2,6 +2,15 @@ use crate::tables::glyf::{CompositeGlyph, GlyfRecord, GlyphData};
 use rfont_types::{FontError, Reader, WriteBytes, Writer};
 use std::collections::{HashMap, HashSet};
 
+pub struct GlyfExtractionResult {
+    /// 完整的字形 ID 列表（包含依赖，已排序）
+    pub glyph_ids: Vec<u16>,
+    /// loca 表数据
+    pub loca_data: Vec<u8>,
+    /// glyf 表数据
+    pub glyf_data: Vec<u8>,
+}
+
 /// 字体中字形数据的懒加载器
 ///
 /// 这个结构提供了按需解析字形的能力，避免一次性加载所有字形到内存。
@@ -243,14 +252,14 @@ impl<'a> GlyfLazyLoader<'a> {
     /// - `initial_glyphs`: 初始需要的字形 ID 列表
     ///
     /// # 返回值
-    /// - `(Vec<u16>, Vec<u8>, Vec<u8>)`:
+    /// - `GlyfExtractionResult`:
     ///   - 完整的字形 ID 列表（包含依赖，已排序）
     ///   - loca 表数据
     ///   - glyf 表数据
     pub fn resolve_and_extract(
         &self,
         initial_glyphs: &[u16],
-    ) -> Result<(Vec<u16>, Vec<u8>, Vec<u8>), FontError> {
+    ) -> Result<GlyfExtractionResult, FontError> {
         // 步骤 1: 解析依赖关系（BFS）
         let (needed_glyphs, mut composite_glyphs) = self.resolve_dependencies(initial_glyphs)?;
         let mut sorted_glyphs: Vec<u16> = needed_glyphs.into_iter().collect();
@@ -325,7 +334,11 @@ impl<'a> GlyfLazyLoader<'a> {
             data
         };
 
-        Ok((sorted_glyphs, loca_data, new_glyf_data))
+        Ok(GlyfExtractionResult {
+            glyph_ids: sorted_glyphs,
+            loca_data,
+            glyf_data: new_glyf_data,
+        })
     }
 }
 
@@ -555,11 +568,11 @@ mod tests {
         let loader = GlyfLazyLoader::new(&glyf_data, &loca_offsets).expect("创建加载器失败");
 
         // 解析 glyph 3 的依赖，应该包含 1, 2, 3
-        let (resolved_glyphs, _loca_data, new_glyf_data) =
+        let result =
             loader.resolve_and_extract(&[3]).expect("提取失败");
 
         // 排序后应该是 [1, 2, 3]
-        assert_eq!(resolved_glyphs, vec![1, 2, 3]);
+        assert_eq!(result.glyph_ids, vec![1, 2, 3]);
 
         // 新字体中的字形 ID 映射:
         // 新 glyph 0 = 旧 1
@@ -571,7 +584,7 @@ mod tests {
 
         // 由于我们重映射了组件引用，新 glyph 2 的组件应该是 [0, 1]
         // 这里我们验证新 glyf_data 的长度是否合理
-        assert!(!new_glyf_data.is_empty());
+        assert!(!result.glyf_data.is_empty());
 
         // 更详细的验证需要解析新 glyf 数据，这里先做基本检查
         // 如果组件重映射正确，测试应该通过

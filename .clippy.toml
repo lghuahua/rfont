@@ -1,8 +1,3 @@
 # Clippy 配置文件
 # https://rust-lang.github.io/rust-clippy/master/index.html
 
-# 允许函数参数数量限制（某些复杂函数需要更多参数）
-too-many-arguments-threshold = 9
-
-# 允许的类型复杂度
-type-complexity-threshold = 300
