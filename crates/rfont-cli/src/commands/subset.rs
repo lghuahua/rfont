@@ -9,7 +9,6 @@ pub fn run(
     input: &Path,
     output: Option<&Path>,
     text: Option<&str>,
-    text_file: Option<&Path>,
     ranges: &[String],
     strip_post_names: bool,
     format: &str,
@@ -41,16 +40,8 @@ pub fn run(
     let mut all_text = String::new();
 
     if let Some(t) = text {
-        debug!(text_length = t.len(), "添加直接指定的文本");
+        debug!(text_length = t.len(), "添加文本");
         all_text.push_str(t);
-    }
-
-    if let Some(file_path) = text_file {
-        debug!(path = ?file_path, "从文件读取文本");
-        let content = std::fs::read_to_string(file_path)
-            .context(format!("无法读取文本文件: {:?}", file_path))?;
-        debug!(content_length = content.len(), "文件读取成功");
-        all_text.push_str(&content);
     }
 
     // 解析 Unicode 范围

@@ -1,5 +1,6 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use tracing::debug;
 use std::path::PathBuf;
 
 mod commands;
@@ -191,11 +192,25 @@ fn main() -> Result<()> {
             format,
             compression,
         } => {
+            // 合并 text 和 text_file 为一个文本源
+            let text_source = match (text, text_file) {
+                (Some(t), None) => Some(t),
+                (t, Some(file_path)) => {
+                    let text = t.map_or("".to_string(), |t| t);
+                    // 从文件读取内容
+                    debug!(path = ?file_path, "从文件读取文本");
+                    let content = std::fs::read_to_string(&file_path)
+                        .context(format!("无法读取文本文件: {:?}", file_path))?;
+                    debug!(content_length = content.len(), "文件读取成功");
+                    Some(format!("{}{}", text, content))
+                }
+                (None, None) => None,
+            };
+
             commands::subset::run(
                 &input,
                 output.as_deref(),
-                text.as_deref(),
-                text_file.as_deref(),
+                text_source.as_deref(),
                 &ranges,
                 strip_post_names,
                 &format,
