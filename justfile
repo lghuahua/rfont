@@ -9,27 +9,32 @@ default:
 
 # ==================== 开发工作流 ====================
 
-# 快速开始 - 格式化、检查、测试
+# 快速开始 - 格式化、检查、测试（自动修复格式）
 dev:
     just fmt
-    just check
+    just clippy-fix
     just test
 
-# 提交前检查
-pre-commit:
+# 代码质量检查（不修改代码，用于 CI/预提交）
+check:
     just fmt-check
     just clippy-strict
     just test-fast
+
+# 全面检查（包含完整测试，用于推送前）
+check-all:
+    just fmt-check
+    just clippy-strict
+    just test
+    @echo "✅ 所有检查通过"
 
 # ==================== Git 操作 ====================
 
 # 推送前全面检查
 push-check:
     @echo "🔍 开始推送前检查..."
-    just fmt-check
-    just clippy-strict
-    just test
-    @echo "✅ 所有检查通过，可以安全推送"
+    just check-all
+    @echo "✅ 可以安全推送"
 
 # 推送到远程仓库（带检查）
 push:
@@ -45,7 +50,7 @@ push-force:
     @echo "⚠️  警告：即将执行强制推送！"
     @echo "这会覆盖远程历史，请确保你了解后果。"
     @echo ""
-    just push-check
+    just check-all
     @echo ""
     @read -p "确认强制推送？(yes/no): " confirm && [ "$${confirm}" = "yes" ]
     git push --force
@@ -54,7 +59,7 @@ push-force:
 # 推送到指定分支
 push-branch branch:
     @echo "🚀 推送到分支: {{branch}}"
-    just push-check
+    just check-all
     git push origin {{branch}}
     @echo "✅ 推送到 {{branch}} 成功"
 
@@ -144,17 +149,23 @@ doc-check:
 
 # ==================== 构建 ====================
 
-# Debug 构建
+# Debug 构建（不包含桌面应用）
 build:
     cargo build --workspace
 
-# Release 构建
+# Release 构建（不包含桌面应用）
 build-release:
     cargo build --release --workspace
 
 # 只构建 CLI 工具
+alias cli := build-cli
 build-cli:
     cargo build --release -p rfont-cli
+
+# 构建完整的桌面应用（前端 + 后端）
+alias app := build-desktop
+build-desktop:
+    cd rfont-desktop && pnpm tauri build
 
 # 清理构建产物
 clean:
@@ -180,9 +191,7 @@ changelog-preview:
 
 # 预发布检查
 pre-release-check:
-    just fmt-check
-    just clippy-strict
-    just test
+    just check-all
     just coverage-summary
     @echo "✅ 所有检查通过，可以发布"
 
@@ -229,9 +238,7 @@ examples:
 
 # 模拟 CI 检查
 ci-check:
-    just fmt-check
-    just clippy-strict
-    just test-fast
+    just check
     just doc-check
     @echo "✅ CI 检查全部通过"
 
@@ -242,8 +249,9 @@ help:
     @echo "rfont 项目管理工具 (just)"
     @echo ""
     @echo "📦 开发工作流:"
-    @echo "  just dev              - 格式化、检查、测试"
-    @echo "  just pre-commit       - 提交前检查"
+    @echo "  just dev              - 格式化、修复、测试（自动修复）"
+    @echo "  just check            - 代码质量检查（快速，用于 CI）"
+    @echo "  just check-all        - 全面检查（完整测试，用于推送）"
     @echo ""
     @echo "🔍 代码质量:"
     @echo "  just fmt              - 格式化代码"
@@ -265,9 +273,10 @@ help:
     @echo "  just doc-open         - 构建并打开文档"
     @echo ""
     @echo "🔧 构建:"
-    @echo "  just build            - Debug 构建"
-    @echo "  just build-release    - Release 构建"
-    @echo "  just build-cli        - 只构建 CLI"
+    @echo "  just build                  - Debug 构建（不含桌面应用）"
+    @echo "  just build-release          - Release 构建（不含桌面应用）"
+    @echo "  just build-cli              - 只构建 CLI"
+    @echo "  just build-desktop          - 构建完整桌面应用（前端+后端）"
     @echo ""
     @echo "📋 CHANGELOG:"
     @echo "  just changelog        - 生成 CHANGELOG"
