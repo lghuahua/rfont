@@ -20,7 +20,7 @@ publish = false
 
 # Commit 和 tag 消息模板
 tag-message = "Release v{{version}}"
-tag-name = "v{{version}}"
+tag-name = "{{crate_name}}-v{{version}}"
 
 # Workspace 配置
 # 自动升级依赖包的版本

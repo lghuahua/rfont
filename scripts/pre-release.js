@@ -30,6 +30,17 @@ function getCrateRoot() {
         // 检查是否是 workspace 成员
         const cargoContent = fs.readFileSync(currentCargoToml, 'utf-8');
         if (!cargoContent.includes('[workspace]')) {
+            // 特殊处理：如果当前目录是 src-tauri，向上查找父目录
+            // 用于 rfont-desktop 项目（路径：rfont-desktop/src-tauri）
+            const relativePath = path.relative(PROJECT_ROOT, CURRENT_DIR);
+            if (relativePath.endsWith('src-tauri')) {
+                const parentDir = path.dirname(CURRENT_DIR);
+                // 验证父目录是否有 Cargo.toml（虽然不是 workspace）
+                // 或者父目录是项目根目录的合理位置
+                if (fs.existsSync(parentDir)) {
+                    return parentDir;  // 返回父目录（如 rfont-desktop/）
+                }
+            }
             return CURRENT_DIR;
         }
     }

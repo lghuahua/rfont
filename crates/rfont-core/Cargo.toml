@@ -15,3 +15,7 @@ font_macros = { path = "../rfont-macros" }
 encoding_rs = { workspace = true }
 lru = { workspace = true }
 brotli = { workspace = true }
+
+[package.metadata.release]
+tag = false
+shared-version = "core"

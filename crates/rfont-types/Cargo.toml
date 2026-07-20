@@ -11,3 +11,7 @@ publish = false  # 不发布到 crates.io，作为内部依赖
 [dependencies]
 font_macros = { path = "../rfont-macros" }
 thiserror = { workspace = true }
+
+[package.metadata.release]
+tag = false
+shared-version = "core"
