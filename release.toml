@@ -5,8 +5,7 @@
 allow-branch = ["main"]
 
 pre-release-hook = [
-    "bash", "-c", 
-    "cd \"$(git rev-parse --show-toplevel)\" && bash scripts/pre-release.sh"
+    "node", "../../scripts/pre-release.js"
 ]
 
 # 不签名 commit 和 tag
