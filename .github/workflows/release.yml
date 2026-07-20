@@ -3,20 +3,74 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'rfont-cli-v*'
+      - 'rfont-desktop-v*'
 
 # 设置 workflow 权限
 permissions:
   contents: write  # 允许创建 Release 和上传文件
 
+# 提取版本号和环境变量
 env:
   CARGO_TERM_COLOR: always
+  CLI_TAG_PATTERN: 'rfont-cli-v'
+  DESKTOP_TAG_PATTERN: 'rfont-desktop-v'
 
 jobs:
+  # 判断是否需要构建 CLI
+  check-cli:
+    name: Check if CLI needs build
+    runs-on: ubuntu-latest
+    outputs:
+      should-build: ${{ steps.check.outputs.should_build }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Check tag
+        id: check
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == rfont-cli-v* ]]; then
+            VERSION=${TAG#rfont-cli-v}
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "Detected CLI tag: $TAG, version: $VERSION"
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "version=" >> $GITHUB_OUTPUT
+            echo "Not a CLI tag: $TAG"
+          fi
+
+  # 判断是否需要构建 Desktop
+  check-desktop:
+    name: Check if Desktop needs build
+    runs-on: ubuntu-latest
+    outputs:
+      should-build: ${{ steps.check.outputs.should_build }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Check tag
+        id: check
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == rfont-desktop-v* ]]; then
+            VERSION=${TAG#rfont-desktop-v}
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "Detected Desktop tag: $TAG, version: $VERSION"
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "version=" >> $GITHUB_OUTPUT
+            echo "Not a Desktop tag: $TAG"
+          fi
+
   # 构建和发布 CLI 工具
   build-cli:
     name: Build CLI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    needs: check-cli
+    
+    # 只在需要构建 CLI 时才执行
+    if: needs.check-cli.outputs.should-build == 'true'
     
     strategy:
       matrix:
@@ -32,7 +86,7 @@ jobs:
             artifact_name: rfont-cli-macos
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -61,7 +115,7 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/rfont dist/
           cd dist
-          tar czf ../${{ matrix.artifact_name }}.tar.gz rfont
+          tar czf ../${{ matrix.artifact_name }}-${{ needs.check-cli.outputs.version }}.tar.gz rfont
       
       - name: Package binary (Windows)
         if: runner.os == 'Windows'
@@ -70,18 +124,22 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist
           Copy-Item "target/${{ matrix.target }}/release/rfont.exe" -Destination "dist/"
           Set-Location dist
-          Compress-Archive -Path rfont.exe -DestinationPath "../${{ matrix.artifact_name }}.zip"
+          Compress-Archive -Path rfont.exe -DestinationPath "../${{ matrix.artifact_name }}-${{ needs.check-cli.outputs.version }}.zip"
       
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}.*
+          path: ${{ matrix.artifact_name }}-*
 
   # 构建桌面应用
   build-desktop:
     name: Build Desktop (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
+    needs: check-desktop
+    
+    # 只在需要构建 Desktop 时才执行
+    if: needs.check-desktop.outputs.should-build == 'true'
     
     strategy:
       fail-fast: false
@@ -92,23 +150,22 @@ jobs:
           - platform: macos
             os: macos-latest
           - platform: linux
-            os: ubuntu-22.04
+            os: ubuntu-latest
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
+        uses: actions/checkout@v6
       
       - name: Install pnpm
         uses: pnpm/action-setup@v6
         with:
           version: 10
           run_install: false
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
       
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -117,11 +174,31 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rfont-desktop/src-tauri -> target"
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libxdo-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev 
+      
+      - name: Install macOS system dependencies
+        if: matrix.platform == 'macos'
+        run: |
+          brew update
+          brew install pkg-config gtk+3
       
       - name: Install frontend dependencies
-        run: |
-          cd rfont-desktop
-          pnpm install
+        working-directory: rfont-desktop
+        run: pnpm install
       
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
@@ -129,70 +206,169 @@ jobs:
           projectPath: rfont-desktop
           args: --verbose
       
-      - name: Package desktop app
+      - name: Package desktop app (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $version = "${{ needs.check-desktop.outputs.version }}"
+          $exePath = "target\release\rfont-desktop.exe"
+          
+          # 检查文件是否存在
+          if (-not (Test-Path $exePath)) {
+            Write-Error "Expected executable not found at: $exePath"
+            exit 1
+          }
+          
+          # 创建目标目录
+          New-Item -ItemType Directory -Force -Path "rfont-desktop\src-tauri\target" | Out-Null
+          
+          # 构建目标文件名
+          $dest = Join-Path -Path "rfont-desktop\src-tauri\target" -ChildPath "rfont-desktop-windows-$version.zip"
+          
+          # 压缩文件
+          Compress-Archive -Path $exePath -DestinationPath $dest -Force
+          
+          Write-Host "Successfully created $dest from $exePath"
+
+      - name: Package desktop app (macOS)
+        if: matrix.platform == 'macos'
         shell: bash
         run: |
-          BUNDLE_DIR="rfont-desktop/src-tauri/target/release/bundle"
-          APP_NAME="rfont-desktop"
+          VERSION="${{ needs.check-desktop.outputs.version }}"
+          APP_PATH="target/release/bundle/macos/rfont-desktop.app"
           
-          if [ "${{ matrix.platform }}" = "windows" ]; then
-            # Windows: 压缩 .exe
-            cd "$BUNDLE_DIR/app"
-            7z a -tzip "../../../${APP_NAME}-windows.zip" "${APP_NAME}.exe"
-          elif [ "${{ matrix.platform }}" = "macos" ]; then
-            # macOS: 压缩 .app 目录
-            cd "$BUNDLE_DIR/app"
-            zip -r "../../../${APP_NAME}-macos.zip" "${APP_NAME}.app"
-          elif [ "${{ matrix.platform }}" = "linux" ]; then
-            # Linux: 压缩二进制文件
-            cd "$BUNDLE_DIR/app"
-            zip "../../../${APP_NAME}-linux.zip" "${APP_NAME}"
+          # 检查文件是否存在
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Error: Expected app bundle not found at: $APP_PATH"
+            exit 1
           fi
+          
+          # 创建目标目录
+          mkdir -p rfont-desktop/src-tauri/target
+          
+          # 构建目标文件名
+          DEST="${GITHUB_WORKSPACE}/rfont-desktop/src-tauri/target/rfont-desktop-macos-${VERSION}.zip"
+          
+          # 压缩文件
+          zip -r "$DEST" "$APP_PATH"
+          
+          echo "Successfully created $DEST from $APP_PATH"
+
+      - name: Package desktop app (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          VERSION="${{ needs.check-desktop.outputs.version }}"
+          echo "Searching for linux binary or bundle in rfont-desktop/src-tauri/target/release/bundle, rfont-desktop/target/release/bundle, and target/release/bundle..."
+          BINARY=$(find rfont-desktop/src-tauri/target/release/bundle rfont-desktop/target/release/bundle target/release/bundle -type f \( -name "rfont-desktop" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) -print -quit 2>/dev/null || true)
+          if [ -z "$BINARY" ]; then
+            BINARY=$(find rfont-desktop/src-tauri/target/release rfont-desktop/target/release target/release -type f -name "rfont-desktop" -print -quit 2>/dev/null || true)
+          fi
+          if [ -z "$BINARY" ]; then echo "No linux binary or bundle found"; exit 1; fi
+          mkdir -p rfont-desktop/src-tauri/target
+          DEST="${GITHUB_WORKSPACE}/rfont-desktop/src-tauri/target/rfont-desktop-linux-${VERSION}.zip"
+          zip -j "$DEST" "$BINARY"
+          echo "Created $DEST"
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rfont-desktop-${{ matrix.platform }}
           path: |
-            rfont-desktop/src-tauri/target/*-windows.zip
-            rfont-desktop/src-tauri/target/*-macos.zip
-            rfont-desktop/src-tauri/target/*-linux.zip
+            rfont-desktop/src-tauri/target/*-windows-*.zip
+            rfont-desktop/src-tauri/target/*-macos-*.zip
+            rfont-desktop/src-tauri/target/*-linux-*.zip
           retention-days: 30
           if-no-files-found: error
 
-  # 创建 GitHub Release（等待 CLI 和桌面应用都构建完成）
+  # 创建 GitHub Release
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-cli, build-desktop]
+    needs: [check-cli, check-desktop, build-cli, build-desktop]
+    
+    # 只有当至少有一个构建任务完成时才执行
+    if: |
+      always() &&
+      (needs.check-cli.outputs.should-build == 'true' || needs.check-desktop.outputs.should-build == 'true') &&
+      (needs.build-cli.result == 'success' || needs.build-desktop.result == 'success')
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      
+      - name: Determine release type
+        id: release_type
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == rfont-cli-v* ]]; then
+            echo "type=cli" >> $GITHUB_OUTPUT
+            echo "title=CLI Tool $TAG"
+          elif [[ "$TAG" == rfont-desktop-v* ]]; then
+            echo "type=desktop" >> $GITHUB_OUTPUT
+            echo "title=Desktop App $TAG"
+          else
+            echo "type=unknown" >> $GITHUB_OUTPUT
+          fi
       
       - name: Download CLI artifacts
+        if: needs.check-cli.outputs.should-build == 'true'
         uses: actions/download-artifact@v4
         with:
           path: cli-artifacts
       
       - name: Download desktop artifacts
+        if: needs.check-desktop.outputs.should-build == 'true'
         uses: actions/download-artifact@v4
         with:
           path: desktop-artifacts
       
       - name: Display CLI structure
+        if: needs.check-cli.outputs.should-build == 'true'
         run: ls -R cli-artifacts
       
       - name: Display Desktop structure
+        if: needs.check-desktop.outputs.should-build == 'true'
         run: ls -R desktop-artifacts
       
-      - name: Create Release with CLI and Desktop
+      - name: Build release body
+        id: build_body
+        run: |
+          BODY="## Release ${{ github.ref_name }}\n\n"
+          
+          if [[ "${{ github.ref_name }}" == rfont-cli-v* ]]; then
+            BODY+="### Changelog\n\n- [CLI Changelog](https://github.com/${{ github.repository }}/blob/main/crates/rfont-cli/CHANGELOG.md)\n\n"
+          fi
+          
+          if [[ "${{ github.ref_name }}" == rfont-desktop-v* ]]; then
+            BODY+="### Changelog\n\n- [Desktop Changelog](https://github.com/${{ github.repository }}/blob/main/rfont-desktop/CHANGELOG.md)\n\n"
+          fi
+          
+          if [[ "${{ needs.check-cli.outputs.should-build }}" == "true" ]]; then
+            BODY+="### CLI Tool\n\n- Download the latest CLI binary for your platform\n\n"
+          fi
+          
+          if [[ "${{ needs.check-desktop.outputs.should-build }}" == "true" ]]; then
+            BODY+="### Desktop Application\n\n- Download the installer for your operating system\n\n"
+          fi
+          
+          # 移除末尾多余的换行（可选）
+          BODY="${BODY%\\n\\n}"
+          
+          # 关键：将组装好的 body 写入 GITHUB_OUTPUT
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            cli-artifacts/**/*.tar.gz
-            cli-artifacts/**/*.zip
-            desktop-artifacts/**/*.zip
-          body_path: CHANGELOG.md
+            ${{ needs.check-cli.outputs.should-build == 'true' && 'cli-artifacts/**/*.tar.gz' || '' }}
+            ${{ needs.check-cli.outputs.should-build == 'true' && 'cli-artifacts/**/*.zip' || '' }}
+            ${{ needs.check-desktop.outputs.should-build == 'true' && 'desktop-artifacts/**/*.zip' || '' }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ steps.release_type.outputs.title }}
+          body: ${{ steps.build_body.outputs.body }}
           draft: false
           prerelease: false
           generate_release_notes: false

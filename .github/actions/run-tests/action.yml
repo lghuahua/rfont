@@ -12,9 +12,26 @@ inputs:
     required: false
     default: 'false'
 
+  exclude-packages:
+    description: 'Workspace packages to exclude from cargo commands'
+    required: false
+    default: ''
+
 runs:
   using: 'composite'
   steps:
+    - id: set_exclude_args
+      name: Set exclude args
+      shell: bash
+      run: |
+        EXCLUDE_ARGS=""
+        if [ -n "${INPUT_EXCLUDE_PACKAGES}" ]; then
+          for pkg in ${INPUT_EXCLUDE_PACKAGES}; do
+            EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude $pkg"
+          done
+        fi
+        echo "EXCLUDE_ARGS=$EXCLUDE_ARGS" >> $GITHUB_OUTPUT
+
     - name: Check formatting
       if: inputs.run-fmt == 'true'
       shell: bash
@@ -23,17 +40,17 @@ runs:
     - name: Run clippy (lib and bins)
       if: inputs.run-clippy == 'true'
       shell: bash
-      run: cargo clippy --workspace --lib --bins -- -D warnings
+      run: cargo clippy --workspace ${{ steps.set_exclude_args.outputs.EXCLUDE_ARGS }} --lib --bins -- -D warnings
     
     - name: Run clippy (tests and benches)
       if: inputs.run-clippy == 'true'
       shell: bash
-      run: cargo clippy --workspace --tests --benches -- -W clippy::all
+      run: cargo clippy --workspace ${{ steps.set_exclude_args.outputs.EXCLUDE_ARGS }} --tests --benches -- -W clippy::all
     
     - name: Run tests
       shell: bash
-      run: cargo test --workspace --verbose
+      run: cargo test --workspace ${{ steps.set_exclude_args.outputs.EXCLUDE_ARGS }} --verbose
     
     - name: Build release
       shell: bash
-      run: cargo build --release --workspace
+      run: cargo build --release --workspace ${{ steps.set_exclude_args.outputs.EXCLUDE_ARGS }}
