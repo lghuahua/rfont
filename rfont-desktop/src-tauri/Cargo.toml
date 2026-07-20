@@ -7,8 +7,6 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/lghuahua/rfont"
 
-# 此包不在 workspace 中，有独立的构建流程
-[workspace]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
