@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
-    "font_macros",
-    "crates/rfont-types",
-    "crates/rfont-core",
-    "crates/rfont",
-    "crates/rfont-cli"
+    "crates/*",
 ]
+
+[workspace.package]
+version = "0.2.0"
+
 
 # Workspace 级别的依赖管理，统一版本控制
 [workspace.dependencies]

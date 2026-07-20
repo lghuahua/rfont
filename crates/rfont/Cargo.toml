@@ -1,6 +1,6 @@
 [package]
 name = "rfont"
-version = "0.2.0"
+version.workspace = true
 edition = "2024"
 description = "高性能字体子集化和转换库，支持 TTF/WOFF/WOFF2 格式"
 authors = ["lghuahua"]

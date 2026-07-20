@@ -1,6 +1,6 @@
 [package]
 name = "font_macros"
-version = "0.2.0"
+version.workspace = true
 edition = "2024"
 description = "字体库的 proc-macro 宏定义"
 authors = ["lghuahua"]
