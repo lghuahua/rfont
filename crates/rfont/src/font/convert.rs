@@ -589,7 +589,10 @@ impl Font {
             "ttf" => Ok(ttf_data.to_vec()),
             "woff" => self.convert_to_woff(ttf_data, compression_level),
             "woff2" => self.convert_to_woff2(ttf_data, compression_level),
-            _ => Err(FontError::Generic(format!("不支持的输出格式：{}", output_format))),
+            _ => Err(FontError::Generic(format!(
+                "不支持的输出格式：{}",
+                output_format
+            ))),
         }
     }
 }

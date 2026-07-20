@@ -3,8 +3,7 @@ use rfont::Font;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::State;
-use tracing::{error, info, warn};
-
+use tracing::{error, info};
 
 /// 应用状态
 struct AppState {
@@ -91,7 +90,10 @@ async fn subset_font(
     output_format: String,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<String, String> {
-    info!("Subsetting/converting font with text: '{}', format: {}", text, output_format);
+    info!(
+        "Subsetting/converting font with text: '{}', format: {}",
+        text, output_format
+    );
 
     let app_state = state.lock().unwrap();
 
@@ -118,25 +120,31 @@ async fn subset_font(
     } else {
         info!("Subsetting font for text: {}", text);
         let glyph_ids = font.get_glyph_ids_for_text(&text);
-        
+
         if glyph_ids.is_empty() {
             return Err("No glyphs found for the specified text".to_string());
         }
-        
-        let mut options = rfont::SubsetOptions::default();
-        options.output_format = output_format.clone();
-        
+
+        let mut options = rfont::SubsetOptions {
+            output_format: output_format.clone(),
+            ..Default::default()
+        };
+
         match output_format.as_str() {
             "woff" => options.compression_level = 9,
             "woff2" => options.compression_level = 11,
             _ => options.compression_level = 0,
         }
-        
+
         font.subset_with_options(&glyph_ids, &options)
     };
     match result {
         Ok(font_data) => {
-            info!("Output font size: {} bytes, format: {}", font_data.len(), output_format);
+            info!(
+                "Output font size: {} bytes, format: {}",
+                font_data.len(),
+                output_format
+            );
 
             if font_data.len() < 12 {
                 error!("Font data too small: {} bytes", font_data.len());

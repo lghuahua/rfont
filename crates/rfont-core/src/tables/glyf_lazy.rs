@@ -568,8 +568,7 @@ mod tests {
         let loader = GlyfLazyLoader::new(&glyf_data, &loca_offsets).expect("创建加载器失败");
 
         // 解析 glyph 3 的依赖，应该包含 1, 2, 3
-        let result =
-            loader.resolve_and_extract(&[3]).expect("提取失败");
+        let result = loader.resolve_and_extract(&[3]).expect("提取失败");
 
         // 排序后应该是 [1, 2, 3]
         assert_eq!(result.glyph_ids, vec![1, 2, 3]);
