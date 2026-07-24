@@ -236,6 +236,8 @@ jobs:
         run: |
           VERSION="${{ needs.check-desktop.outputs.version }}"
           APP_PATH="target/release/bundle/macos/rfont-desktop.app"
+          APP_DIR="$(dirname "$APP_PATH")"
+          APP_BUNDLE="$(basename "$APP_PATH")"
           
           # 检查文件是否存在
           if [ ! -d "$APP_PATH" ]; then
@@ -249,8 +251,11 @@ jobs:
           # 构建目标文件名
           DEST="${GITHUB_WORKSPACE}/rfont-desktop/src-tauri/target/rfont-desktop-macos-${VERSION}.zip"
           
-          # 压缩文件
-          zip -r "$DEST" "$APP_PATH"
+          # 从应用包所在目录打包，确保压缩包根目录直接是 rfont-desktop.app
+          (
+            cd "$APP_DIR"
+            zip -r "$DEST" "$APP_BUNDLE"
+          )
           
           echo "Successfully created $DEST from $APP_PATH"
 
@@ -259,16 +264,21 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ needs.check-desktop.outputs.version }}"
-          echo "Searching for linux binary or bundle in rfont-desktop/src-tauri/target/release/bundle, rfont-desktop/target/release/bundle, and target/release/bundle..."
-          BINARY=$(find rfont-desktop/src-tauri/target/release/bundle rfont-desktop/target/release/bundle target/release/bundle -type f \( -name "rfont-desktop" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) -print -quit 2>/dev/null || true)
-          if [ -z "$BINARY" ]; then
-            BINARY=$(find rfont-desktop/src-tauri/target/release rfont-desktop/target/release target/release -type f -name "rfont-desktop" -print -quit 2>/dev/null || true)
-          fi
-          if [ -z "$BINARY" ]; then echo "No linux binary or bundle found"; exit 1; fi
+          BINARY_PATH="${GITHUB_WORKSPACE}/target/release/rfont-desktop"
           mkdir -p rfont-desktop/src-tauri/target
           DEST="${GITHUB_WORKSPACE}/rfont-desktop/src-tauri/target/rfont-desktop-linux-${VERSION}.zip"
-          zip -j "$DEST" "$BINARY"
-          echo "Created $DEST"
+
+          if [ ! -f "$BINARY_PATH" ]; then
+            echo "Expected binary not found at: $BINARY_PATH"
+            exit 1
+          fi
+
+          (
+            cd "$(dirname "$BINARY_PATH")"
+            zip -j "$DEST" "$(basename "$BINARY_PATH")"
+          )
+
+          echo "Created $DEST from $BINARY_PATH"
       
       - name: Upload artifact
         uses: actions/upload-artifact@v7
