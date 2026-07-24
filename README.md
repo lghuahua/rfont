@@ -8,7 +8,7 @@
 
 ## 功能特性
 
-- ✅ **多格式支持**：支持 TrueType (TTF)、OpenType (OTF/CFF)、WOFF 和 WOFF2
+- ✅ **多格式支持**：支持 TrueType (TTF)、WOFF 和 WOFF2
 - ✅ **智能子集化**：根据指定文字生成精简的字体文件，大幅减小体积
 - ✅ **格式转换**：在 TTF、WOFF、WOFF2 之间互相转换
 - ✅ **批量处理**：支持批量转换多个字体文件
@@ -154,26 +154,9 @@ RUST_LOG=error rfont subset font.ttf --text "Hello"
 ### 支持的格式
 
 #### TTF (TrueType Font)
-- 直接解析 SFNT 结构
-- 完整支持简单字形和复合字形
-
 #### WOFF (Web Open Font Format)
-- 自动检测 "wOFF" 签名
-- 使用 flate2 解压缩 zlib 数据
-- 转换为标准 SFNT 结构后处理
-
 #### WOFF2 (Web Open Font Format 2)
-- 自动检测 "wOF2" 签名
-- 使用 brotli 解压缩（更高压缩率）
-- 支持可变字体（Variable Fonts）
-- 表目录使用变长编码优化
 
-### 性能优势
-
-- **速度快**：Rust 编译，零运行时开销
-- **内存低**：流式处理，不需要加载整个字体到内存
-- **体积小**：智能子集化，通常可减少 95%+ 的体积
-- **兼容好**：生成的字体符合 OpenType 规范，浏览器完美支持
 
 ## 开发
 
@@ -212,17 +195,10 @@ just pre-commit
 # 生成覆盖率报告
 just coverage-html
 
-# 构建文档
-just doc-open
-
-# 推送到远程仓库（带检查）
-just push
-
 # 查看帮助
 just help
 ```
 
-详细使用说明请参考 [JUST_USAGE_GUIDE.md](JUST_USAGE_GUIDE.md)。
 
 ### 手动构建
 
@@ -253,10 +229,6 @@ MIT
 本项目使用 GitHub Actions 实现自动化 CI/CD：
 
 - **CI**: 多平台测试、代码质量检查、覆盖率报告
-- **CD**: 自动生成 CHANGELOG、构建多平台 CLI、创建 GitHub Release
-
-详细配置请参考 [CICD_GUIDE.md](CICD_GUIDE.md)。
+- **CD**: 构建多平台 CLI、和桌面应用。创建 GitHub Release
 
 ---
-
-*最后更新: 2026-05-08*
