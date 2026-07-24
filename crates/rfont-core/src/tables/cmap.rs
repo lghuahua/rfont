@@ -406,7 +406,7 @@ impl Cmap {
     /// 获取字形 ID
     pub fn get_glyph_id_by_code(&self, code: u32) -> Option<u16> {
         // 直接查找 unicode_map
-        for (_key, map) in self.subtables.iter() {
+        for map in self.subtables.values() {
             if let Some(id) = map.get(&code)
                 && *id > 0
             {
@@ -425,7 +425,7 @@ impl Cmap {
         let mut chars = Vec::new();
         let mut iter = self.subtables.iter();
         if let Some((_, map)) = iter.next() {
-            for (char_code, _glyph_id) in map.iter() {
+            for char_code in map.keys() {
                 chars.push(char::from_u32(*char_code).unwrap());
             }
         }
