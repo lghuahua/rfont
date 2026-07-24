@@ -12,6 +12,7 @@ tarpaulin-report.json
 lcov.info
 *.profraw
 *.profdata
+.coverage_*
 
 # Test output files
 test_*.ttf
