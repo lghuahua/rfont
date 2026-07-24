@@ -1,0 +1,38 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.3.0] - 2026-07-20
+
+### Added
+
+- *(release)* 配置多包版本管理策略
+
+### Changed
+
+- 优化日志导入和格式化输出
+- *(workspace)* 统一版本管理和重构宏包结构
+- *(glyf)* 重构字形提取逻辑，使用 GlyfExtractionResult 结构体简化返回值
+- *(convert)* 添加直接转换字体格式的方法，简化格式转换逻辑
+- *(glyf)* 移除 GlyfTable 结构体及相关方法，优化代码结构并删除过时的 glyf_loca 模块
+
+
+
+
+### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
