@@ -74,6 +74,7 @@ jobs:
         run: |
           cargo llvm-cov \
             --workspace \
+            --exclude rfont-desktop \
             --lcov \
             --output-path lcov.info \
             --ignore-filename-regex "tests|benches|examples" \

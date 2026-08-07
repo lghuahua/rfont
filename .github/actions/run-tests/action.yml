@@ -25,8 +25,8 @@ runs:
       shell: bash
       run: |
         EXCLUDE_ARGS=""
-        if [ -n "${INPUT_EXCLUDE_PACKAGES}" ]; then
-          for pkg in ${INPUT_EXCLUDE_PACKAGES}; do
+        if [ -n "${{ inputs.exclude-packages }}" ]; then
+          for pkg in ${{ inputs.exclude-packages }}; do
             EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude $pkg"
           done
         fi
