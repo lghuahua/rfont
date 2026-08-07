@@ -169,7 +169,8 @@ rfont/
 │   ├── rfont-core/       # 表解析和序列化逻辑
 │   ├── rfont/            # 高层 API 和子集化逻辑
 │   └── rfont-cli/        # 命令行工具
-└── font_macros/          # 自定义过程宏
+│   └── font-macros/      # 自定义过程宏
+└── rfont-desktop/        # 桌面应用程序
 ```
 
 ### 使用 Just 管理项目
@@ -224,11 +225,5 @@ cargo fmt --all
 
 MIT
 
-## CI/CD
-
-本项目使用 GitHub Actions 实现自动化 CI/CD：
-
-- **CI**: 多平台测试、代码质量检查、覆盖率报告
-- **CD**: 构建多平台 CLI、和桌面应用。创建 GitHub Release
 
 ---
