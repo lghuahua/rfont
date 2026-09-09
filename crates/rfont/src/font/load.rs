@@ -99,6 +99,45 @@ impl Font {
         }
     }
 
+    /// 从内存字节加载字体（支持 TTF、WOFF 和 WOFF2）
+    ///
+    /// 与 [`Font::load`] 不同，此方法不依赖文件系统，直接解析传入的字节数据，
+    /// 适用于 WASM、网络传输、内嵌字节等没有文件路径的场景。
+    ///
+    /// 自动检测格式：`wOF2` → WOFF2，`wOFF` → WOFF，其余按 TTF/OTF 解析。
+    ///
+    /// # 参数
+    /// - `data`: 完整的字体文件字节
+    ///
+    /// # 返回值
+    /// - `Ok(Font)`: 成功加载的字体对象
+    /// - `Err(FontError)`: 解析失败时的错误信息
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use rfont::Font;
+    ///
+    /// # let data: Vec<u8> = Vec::new();
+    /// let font = Font::from_bytes(&data).expect("无法解析字体");
+    /// ```
+    pub fn from_bytes(data: &[u8]) -> Result<Self, FontError> {
+        let span = span!(Level::INFO, "font_from_bytes", size = data.len());
+        let _enter = span.enter();
+
+        info!("开始从字节加载字体");
+
+        if data.len() >= 4 && &data[0..4] == b"wOF2" {
+            debug!("检测到 WOFF2 格式");
+            Self::load_woff2(data)
+        } else if data.len() >= 4 && &data[0..4] == b"wOFF" {
+            debug!("检测到 WOFF 格式");
+            Self::load_woff(data)
+        } else {
+            debug!("检测到 TTF/OTF 格式");
+            Self::load_ttf(data)
+        }
+    }
+
     /// 加载 TTF 格式字体（预加载核心表）
     fn load_ttf(data: &[u8]) -> Result<Self, FontError> {
         let span = span!(Level::DEBUG, "load_ttf");
