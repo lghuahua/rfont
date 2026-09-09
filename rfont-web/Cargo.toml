@@ -1,0 +1,29 @@
+[package]
+name = "rfont-web"
+version.workspace = true
+edition = "2024"
+description = "rfont 的 WebAssembly 绑定，用于浏览器端字体子集化与格式转换"
+license = "MIT"
+repository = "https://github.com/lghuahua/rfont"
+publish = false
+
+[lib]
+# cdylib 供 wasm-pack 生成 .wasm；rlib 便于单元测试与被其它 crate 复用
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rfont = { path = "../crates/rfont" }
+wasm-bindgen = { version = "=0.2.128", default-features = false, features = ["std"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { workspace = true }
+
+[package.metadata.wasm-pack.profile.release]
+# 关闭 wasm-opt：wasm-pack 0.13 内置的 binaryen 117 过旧，处理本项目 wasm 时
+# 会在 Precompute 优化 pass 崩溃（UNREACHABLE at Precompute.cpp:838），与本 crate 代码无关。
+# 产物已由 Rust release profile（opt-level=3, lto, codegen-units=1, strip）充分优化，
+# 跳过 wasm-opt 不影响正确性。待 wasm-pack 升级内置 binaryen 后，可改回：
+# wasm-opt = ["-O", "--enable-bulk-memory", "--enable-sign-ext", "--enable-mutable-globals", "--enable-nontrapping-float-to-int"]
+wasm-opt = false
+
+[profile.release]
+lto = true
