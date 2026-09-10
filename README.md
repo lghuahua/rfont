@@ -3,8 +3,16 @@
 [![CI](https://github.com/lghuahua/rfont/actions/workflows/ci.yml/badge.svg)](https://github.com/lghuahua/rfont/actions/workflows/ci.yml)
 [![Release](https://github.com/lghuahua/rfont/actions/workflows/release.yml/badge.svg)](https://github.com/lghuahua/rfont/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE-MIT)
+[![Web Demo](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E4%BD%93%E9%AA%8C-Web%20Demo-brightgreen)](https://lghuahua.github.io/rfont/)
+[![Deploy Web](https://github.com/lghuahua/rfont/actions/workflows/deploy-web.yml/badge.svg)](https://github.com/lghuahua/rfont/actions/workflows/deploy-web.yml)
 
 一个基于 Rust 开发的高性能字体子集化和转换命令行工具，支持 TTF、WOFF 和 WOFF2 格式。
+
+## 在线体验
+
+无需安装，直接在浏览器中体验字体信息查看、格式转换与子集化（基于本项目编译的 WebAssembly，字体文件仅在本地浏览器处理，不会上传到服务器）：
+
+👉 **https://lghuahua.github.io/rfont/**
 
 ## 功能特性
 
@@ -170,7 +178,8 @@ rfont/
 │   ├── rfont/            # 高层 API 和子集化逻辑
 │   └── rfont-cli/        # 命令行工具
 │   └── font-macros/      # 自定义过程宏
-└── rfont-desktop/        # 桌面应用程序
+├── rfont-desktop/        # 桌面应用程序（Tauri）
+└── rfont-web/            # WASM 绑定 + Web 前端（www），部署到 GitHub Pages
 ```
 
 ### 使用 Just 管理项目
@@ -207,6 +216,9 @@ just help
 # 构建 CLI 工具
 cargo build --release -p rfont-cli
 
+# 构建 Web（WASM + 前端生产包，需要 wasm-pack 与 pnpm）
+just build-web
+
 # 运行测试
 cargo test --workspace
 
@@ -214,6 +226,23 @@ cargo test --workspace
 cargo clippy --workspace
 cargo fmt --all
 ```
+
+### Web 在线体验（rfont-web）
+
+`rfont-web` 将核心库编译为 WebAssembly，配合 `rfont-web/www` 下的 Vue 前端提供浏览器端在线体验，部署在 GitHub Pages。字体文件仅在本地浏览器处理，不会上传服务器。
+
+```bash
+# 本地开发（构建 WASM 并启动 dev server）
+just web-dev
+
+# 生产构建与本地预览
+just build-web
+just web-preview
+```
+
+推送到 `main` 且改动 `crates/**` 或 `rfont-web/**` 时，`deploy-web.yml` 会自动构建并发布到 GitHub Pages。
+
+> 首次使用需在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**。
 
 ### 依赖
 

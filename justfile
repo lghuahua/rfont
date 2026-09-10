@@ -167,6 +167,24 @@ alias app := build-desktop
 build-desktop:
     cd rfont-desktop && pnpm tauri build
 
+# ==================== Web (WASM + 前端) ====================
+
+# 构建 WASM 产物（release，输出到 rfont-web/www/pkg）
+build-wasm:
+    wasm-pack build rfont-web --target web --out-dir www/pkg --release
+
+# 构建 Web 前端生产包（依赖 build-wasm，输出到 rfont-web/www/dist）
+build-web: build-wasm
+    cd rfont-web/www && pnpm install && pnpm build
+
+# 本地开发：先构建 WASM，再启动前端 dev server（http://localhost:5173/rfont/）
+web-dev: build-wasm
+    cd rfont-web/www && pnpm install && pnpm dev
+
+# 本地预览生产构建
+web-preview: build-web
+    cd rfont-web/www && pnpm preview
+
 # 清理构建产物
 clean:
     cargo clean
@@ -277,6 +295,12 @@ help:
     @echo "  just build-release          - Release 构建（不含桌面应用）"
     @echo "  just build-cli              - 只构建 CLI"
     @echo "  just build-desktop          - 构建完整桌面应用（前端+后端）"
+    @echo ""
+    @echo "🌐 Web（在线体验，WASM + 前端）:"
+    @echo "  just build-wasm             - 构建 WASM 产物（www/pkg）"
+    @echo "  just build-web              - 构建前端生产包（含 WASM）"
+    @echo "  just web-dev                - 本地开发（dev server）"
+    @echo "  just web-preview            - 预览生产构建"
     @echo ""
     @echo "📋 CHANGELOG:"
     @echo "  just changelog        - 生成 CHANGELOG"
