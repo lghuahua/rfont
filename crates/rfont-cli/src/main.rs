@@ -196,7 +196,7 @@ fn main() -> Result<()> {
             let text_source = match (text, text_file) {
                 (Some(t), None) => Some(t),
                 (t, Some(file_path)) => {
-                    let text = t.map_or("".to_string(), |t| t);
+                    let text = t.unwrap_or("".to_string());
                     // 从文件读取内容
                     debug!(path = ?file_path, "从文件读取文本");
                     let content = std::fs::read_to_string(&file_path)

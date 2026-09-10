@@ -349,7 +349,7 @@ impl Font {
             let entry = Woff2TableDirectoryEntry::read_from(&mut reader, &WOFF2_KNOWN_TAGS)?;
             debug!(tag = ?entry.tag, orig_length = entry.orig_length, transform_length = entry.transform_length);
 
-            transform_size += entry.transform_length.map_or(entry.orig_length, |x| x);
+            transform_size += entry.transform_length.unwrap_or(entry.orig_length);
             table_entries.push(entry);
         }
 
@@ -1017,7 +1017,7 @@ impl Font {
         let _enter = span.enter();
 
         text.chars()
-            .map(|ch| self.cmap.get_glyph_id(ch).map_or(0, |v| v))
+            .map(|ch| self.cmap.get_glyph_id(ch).unwrap_or(0))
             .collect()
     }
 }
