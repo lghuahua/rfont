@@ -1,0 +1,87 @@
+name: Deploy Web
+
+# 将 rfont-web（WASM + 前端）构建并发布到 GitHub Pages
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'rfont-web/**'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch: # 允许手动触发
+
+# 部署到 GitHub Pages 所需权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只允许一个部署，且不取消进行中的部署，保证发布原子性
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # 构建：编译 WASM -> 构建前端 -> 上传 Pages 产物
+  build:
+    name: Build WASM & Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust (wasm32)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "wasm-web"
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WASM
+        run: wasm-pack build rfont-web --target web --out-dir www/pkg --release
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: rfont-web/www/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: rfont-web/www
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: rfont-web/www
+        run: pnpm build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: rfont-web/www/dist
+
+  # 部署：将上传的产物发布到 GitHub Pages
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

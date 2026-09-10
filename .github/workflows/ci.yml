@@ -100,3 +100,24 @@ jobs:
         run: cargo doc --workspace --no-deps --document-private-items
         env:
           RUSTDOCFLAGS: -D warnings
+
+  # WASM 编译冒烟检查（确保 rfont-web 能编到 wasm32，不部署）
+  wasm-check:
+    name: WASM Build Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust (wasm32)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "wasm-web"
+
+      - name: Check WASM build
+        run: cargo build -p rfont-web --target wasm32-unknown-unknown --release
