@@ -1,5 +1,7 @@
 /// 字体格式枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum FontFormat {
     /// TrueType 字体 (TTF)
     Ttf,

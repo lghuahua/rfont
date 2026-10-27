@@ -7,6 +7,7 @@ use crate::font_data::FontData;
 ///
 /// 包含字体中单个表的元数据，从 TableRecord 转换而来。
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TableInfo {
     /// 表标签（如 "head", "cmap"）
     pub tag: String,
@@ -34,6 +35,7 @@ impl TableInfo {
 ///
 /// 同一名称可能以多个平台/语言记录存在，前端可按需筛选展示。
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct NameEntry {
     /// 平台 ID（0=Unicode，1=Macintosh，3=Windows）
     pub platform_id: u16,
@@ -63,6 +65,7 @@ pub struct NameEntry {
 /// println!("字体家族: {:?}", info.family);
 /// ```
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FontInfo {
     /// 字体容器格式（TTF / OTF / WOFF / WOFF2）
     pub format: FontFormat,

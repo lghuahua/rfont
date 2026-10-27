@@ -20,7 +20,7 @@ pub fn run(font_path: &Path, json: bool, verbose: bool) -> Result<()> {
     if json {
         // JSON 输出模式
         debug!("使用 JSON 输出模式");
-        output_json(&font, verbose)?;
+        output_json(&font)?;
     } else {
         // 人类可读输出模式
         debug!("使用人类可读输出模式");
@@ -103,62 +103,9 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
     Ok(())
 }
 
-fn output_json(font: &Font, verbose: bool) -> Result<()> {
-    use serde_json::{Value, json};
-
+fn output_json(font: &Font) -> Result<()> {
     let info = font.get_font_info().context("获取字体信息失败")?;
-
-    let mut result = json!({
-        "format": info.format.to_string(),
-        "glyph_count": info.glyph_count,
-        "units_per_em": info.units_per_em,
-        "bbox": {
-            "x_min": info.bbox.0,
-            "y_min": info.bbox.1,
-            "x_max": info.bbox.2,
-            "y_max": info.bbox.3,
-        },
-        "horizontal_metrics": {
-            "ascender": info.ascender,
-            "descender": info.descender,
-            "line_gap": info.line_gap,
-        },
-        "family": info.family,
-        "subfamily": info.subfamily,
-        "designer": info.designer,
-        "manufacturer": info.manufacturer,
-        "copyright": info.copyright,
-        "postscript_name": info.postscript_name,
-        "supported_char_count": info.supported_char_count,
-    });
-
-    if let Some(version) = &info.version
-        && let Value::Object(ref mut map) = result
-    {
-        map.insert("version".to_string(), json!(version));
-    }
-
-    if verbose {
-        let tables = font.get_table_list();
-        let tables_json: Vec<Value> = tables
-            .iter()
-            .map(|t| {
-                json!({
-                    "tag": t.tag,
-                    "offset": t.offset,
-                    "length": t.length,
-                    "checksum": format!("0x{:08X}", t.checksum),
-                })
-            })
-            .collect();
-
-        if let Value::Object(ref mut map) = result {
-            map.insert("tables".to_string(), json!(tables_json));
-        }
-    }
-
-    let json_str = serde_json::to_string_pretty(&result)?;
-    println!("{}", json_str);
+    println!("{}", serde_json::to_string_pretty(&info)?);
 
     Ok(())
 }

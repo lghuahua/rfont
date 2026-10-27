@@ -8,47 +8,11 @@
 //! 前端用 `try/catch` 捕获即可。
 
 use rfont::{Font, OutputFormat, SubsetOptions};
-use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 /// 将任意实现了 `Display` 的错误转换成可抛给 JS 的 `JsValue`。
 fn to_js_error<E: std::fmt::Display>(e: E) -> JsValue {
     JsValue::from_str(&e.to_string())
-}
-
-/// 单个字体表的信息（序列化给 JS）。
-#[derive(Serialize)]
-pub struct TableInfoJs {
-    /// 表标签（如 "head"、"cmap"）
-    pub tag: String,
-    /// 校验和
-    pub checksum: u32,
-    /// 偏移量
-    pub offset: u32,
-    /// 长度（字节）
-    pub length: u32,
-}
-
-/// 字体基本信息（序列化给 JS）。
-///
-/// 字段与 [`rfont::FontInfo`] 对应，通过 `font_info` 返回 JSON 字符串，
-/// 前端 `JSON.parse` 后使用。
-#[derive(Serialize)]
-pub struct FontInfoJs {
-    pub format: String,
-    pub family: Option<String>,
-    pub subfamily: Option<String>,
-    pub version: Option<String>,
-    pub designer: Option<String>,
-    pub copyright: Option<String>,
-    pub glyph_count: u16,
-    pub units_per_em: u16,
-    pub supported_char_count: usize,
-    pub ascender: i16,
-    pub descender: i16,
-    pub line_gap: i16,
-    pub bbox: (i16, i16, i16, i16),
-    pub tables: Vec<TableInfoJs>,
 }
 
 /// 读取字体信息，返回 JSON 字符串。
@@ -57,40 +21,13 @@ pub struct FontInfoJs {
 /// - `data`: 字体文件字节（TTF / WOFF / WOFF2）
 ///
 /// # 返回
-/// - `Ok(String)`: [`FontInfoJs`] 的 JSON 序列化结果
+/// - `Ok(String)`: [`rfont::FontInfo`] 的 JSON 序列化结果
 /// - `Err(JsValue)`: 解析失败时的错误信息
 #[wasm_bindgen]
 pub fn font_info(data: &[u8]) -> Result<String, JsValue> {
     let font = Font::from_bytes(data).map_err(to_js_error)?;
     let info = font.get_font_info().map_err(to_js_error)?;
-
-    let js = FontInfoJs {
-        format: info.format.to_string(),
-        family: info.family,
-        subfamily: info.subfamily,
-        version: info.version,
-        designer: info.designer,
-        copyright: info.copyright,
-        glyph_count: info.glyph_count,
-        units_per_em: info.units_per_em,
-        supported_char_count: info.supported_char_count,
-        ascender: info.ascender,
-        descender: info.descender,
-        line_gap: info.line_gap,
-        bbox: info.bbox,
-        tables: info
-            .tables
-            .iter()
-            .map(|t| TableInfoJs {
-                tag: t.tag.clone(),
-                checksum: t.checksum,
-                offset: t.offset,
-                length: t.length,
-            })
-            .collect(),
-    };
-
-    serde_json::to_string(&js).map_err(to_js_error)
+    serde_json::to_string(&info).map_err(to_js_error)
 }
 
 /// 纯格式转换（保留字体中的全部字形，不做子集化）。

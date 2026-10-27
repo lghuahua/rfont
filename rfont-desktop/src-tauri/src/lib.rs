@@ -60,24 +60,12 @@ async fn read_font_as_base64(path: String) -> Result<String, String> {
 
 /// 获取字体信息
 #[tauri::command]
-async fn get_font_info(state: State<'_, Mutex<AppState>>) -> Result<serde_json::Value, String> {
+async fn get_font_info(state: State<'_, Mutex<AppState>>) -> Result<rfont::FontInfo, String> {
     let app_state = state.lock().unwrap();
 
     if let Some(ref font) = app_state.font {
-        match font.get_font_info() {
-            Ok(info) => {
-                let json = serde_json::json!({
-                    "format": info.format.to_string(),
-                    "family": info.family.unwrap_or_default(),
-                    "subfamily": info.subfamily.unwrap_or_default(),
-                    "version": info.version.unwrap_or_default(),
-                    "units_per_em": info.units_per_em,
-                    "glyph_count": info.glyph_count,
-                });
-                Ok(json)
-            }
-            Err(e) => Err(format!("Failed to get font info: {}", e)),
-        }
+        font.get_font_info()
+            .map_err(|e| format!("Failed to get font info: {}", e))
     } else {
         Err("No font loaded".to_string())
     }

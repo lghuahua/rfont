@@ -14,6 +14,7 @@ version = "0.3.0"
 [workspace.dependencies]
 # 核心依赖
 thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 encoding_rs = "0.8.33"
 lru = "0.12"
 brotli = "6.0"

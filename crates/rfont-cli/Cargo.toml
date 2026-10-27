@@ -14,7 +14,7 @@ name = "rfont"
 path = "src/main.rs"
 
 [dependencies]
-rfont = { path = "../rfont" }
+rfont = { path = "../rfont", features = ["serde"] }
 clap = { workspace = true }
 colored = { workspace = true }
 indicatif = { workspace = true }

@@ -28,7 +28,7 @@ serde_json = "1"
 base64 = "0.22"
 
 # rfont 核心库
-rfont = { path = "../../crates/rfont" }
+rfont = { path = "../../crates/rfont", features = ["serde"] }
 
 # 日志依赖
 tracing = "0.1"
