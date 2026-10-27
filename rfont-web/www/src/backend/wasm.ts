@@ -25,7 +25,7 @@ let initPromise: Promise<void> | null = null;
 /// 初始化 WASM 模块（幂等，仅首次真正加载）。
 export function initWasm(): Promise<void> {
   if (!initPromise) {
-    initPromise = init();
+    initPromise = init().then(() => undefined);
   }
   return initPromise;
 }

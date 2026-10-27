@@ -64,13 +64,18 @@ impl WriteBytes for EncodingRecord {
 pub struct LONGDATETIME(i64);
 
 impl LONGDATETIME {
+    /// 从 Unix 时间戳（秒）创建
+    pub fn from_unix_seconds(seconds: i64) -> Self {
+        Self(seconds + MAC_TO_UNIX_OFFSET)
+    }
+
     /// 从 SystemTime 创建
     pub fn from_system_time(time: SystemTime) -> Self {
         let unix_seconds = match time.duration_since(UNIX_EPOCH) {
             Ok(d) => d.as_secs() as i64,
             Err(e) => -(e.duration().as_secs() as i64),
         };
-        Self(unix_seconds + MAC_TO_UNIX_OFFSET)
+        Self::from_unix_seconds(unix_seconds)
     }
     /// 获取原始秒数
     pub fn as_seconds(self) -> i64 {
@@ -260,6 +265,18 @@ impl U255 {
 mod tests {
     use super::*;
     use crate::io::Reader;
+
+    #[test]
+    fn test_longdatetime_from_unix_seconds() {
+        assert_eq!(
+            LONGDATETIME::from_unix_seconds(0).as_seconds(),
+            MAC_TO_UNIX_OFFSET
+        );
+        assert_eq!(
+            LONGDATETIME::from_unix_seconds(1_700_000_000).as_seconds() - 1_700_000_000,
+            MAC_TO_UNIX_OFFSET
+        );
+    }
 
     #[test]
     fn test_tag_creation() {

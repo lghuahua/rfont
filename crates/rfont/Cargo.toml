@@ -21,6 +21,9 @@ rayon = { workspace = true, optional = true }
 anyhow = { workspace = true }
 serde = { workspace = true, optional = true }
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+js-sys = "0.3"
+
 [features]
 default = []
 parallel = ["dep:rayon"]
