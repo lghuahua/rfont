@@ -14,7 +14,7 @@
         <div class="flex-col">
           <div class="upload-zone flex-col flex-center" @click="selectFontFile">
             <div class="file-types flex-middle">
-              <div class="type-text">选择字体文件，支持 TTF、WOFF、WOFF2</div>
+              <div class="type-text">选择字体文件，支持 TTF、TTC、WOFF、WOFF2</div>
             </div>
             <!-- 显示当前选择的文件名 -->
             <div v-if="fileName" class="selected-file">
@@ -22,7 +22,7 @@
             </div>
           </div>
           <!-- 浏览器文件选择（替代 Tauri 的 open 对话框） -->
-          <input ref="fileInput" type="file" accept=".ttf,.otf,.woff,.woff2"
+          <input ref="fileInput" type="file" accept=".ttf,.otf,.ttc,.woff,.woff2"
             style="display: none" @change="onFileChange" />
         </div>
 
@@ -78,6 +78,16 @@
             <span class="font-meta">{{ glyphCount }} 字形</span>
             <span class="divider">·</span>
             <span class="font-size">{{ originalSize }}</span>
+          </div>
+
+          <!-- 字面选择：仅字体集合包含多个字面时出现 -->
+          <div v-if="faces.length > 1" class="face-row flex-middle gap-8">
+            <span class="face-label">字面</span>
+            <Select v-model:value="selectedFace" size="small" class="face-select" @change="onFaceChange">
+              <SelectOption v-for="face in faces" :key="face.index" :value="face.index">
+                {{ faceLabel(face) }}
+              </SelectOption>
+            </Select>
           </div>
 
           <!-- 字体详情：默认折叠，避免挤占预览区 -->
@@ -143,13 +153,18 @@ import {
   detailRows,
   downloadBytes,
   errText,
+  faceLabel,
   formatLabel,
   generateFont,
+  getFaceBytes,
   getFontInfo,
   languageLabel,
+  listFaces,
   mimeFor,
   nameIdLabel,
   platformLabel,
+  revokeFontUrl,
+  type FaceSummary,
   type FontFormat,
   type FontInfo,
 } from "./backend";
@@ -171,6 +186,8 @@ const fontDataUrl = ref("");     // 预览用 Blob URL
 const fontSize = ref(16);
 const fontBytes = ref<Uint8Array | null>(null); // 原始字体字节
 const fileInput = ref<HTMLInputElement | null>(null);
+const faces = ref<FaceSummary[]>([]);  // 字体集合中的字面
+const selectedFace = ref(0);            // 当前字面索引
 
 // 计算按钮文字
 const buttonText = computed(() =>
@@ -232,17 +249,11 @@ async function loadFile(file: File) {
     fontBytes.value = bytes;
     fileName.value = file.name;
 
-    // 信息：调用 WASM 解析，展示内容全部来自解析结果
-    const info = getFontInfo(bytes);
-    fontInfo.value = info;
-    fontFormat.value = info.format;
-    fontName.value = info.family || info.typographic_family || info.full_name || file.name;
-    fontType.value = formatLabel(info.format);
-    glyphCount.value = info.glyph_count;
-    originalSize.value = `${(bytes.byteLength / 1024).toFixed(2)} KB`;
+    // 字体集合：列出所有字面，默认选中第一个
+    faces.value = listFaces(bytes);
+    selectedFace.value = 0;
 
-    // 预览：直接用原始字体字节生成 Blob URL（无需 WASM）
-    fontDataUrl.value = createFontUrl(bytes, file.name);
+    applyFace();
   } catch (err) {
     message.error(`加载字体失败：${errText(err)}`);
     resetFontState();
@@ -251,7 +262,41 @@ async function loadFile(file: File) {
   }
 }
 
+/// 按当前字面刷新信息与预览。
+function applyFace() {
+  const bytes = fontBytes.value;
+  if (!bytes) {
+    return;
+  }
+
+  const info = getFontInfo(bytes, selectedFace.value);
+  fontInfo.value = info;
+  fontFormat.value = info.format;
+  fontName.value = info.family || info.typographic_family || info.full_name || fileName.value;
+  fontType.value = formatLabel(info.format);
+  glyphCount.value = info.glyph_count;
+
+  // 预览：使用当前字面的独立字体字节
+  const faceBytes = getFaceBytes(bytes, selectedFace.value);
+  revokeFontUrl(fontDataUrl.value);
+  fontDataUrl.value = createFontUrl(faceBytes, info.format);
+  originalSize.value = `${(faceBytes.byteLength / 1024).toFixed(2)} KB`;
+}
+
+/// 切换字面：刷新信息与预览。
+function onFaceChange() {
+  loading.value = true;
+  try {
+    applyFace();
+  } catch (err) {
+    message.error(`切换字面失败：${errText(err)}`);
+  } finally {
+    loading.value = false;
+  }
+}
+
 function resetFontState() {
+  revokeFontUrl(fontDataUrl.value);
   fontBytes.value = null;
   fileName.value = "";
   fontName.value = "";
@@ -261,6 +306,8 @@ function resetFontState() {
   glyphCount.value = 0;
   originalSize.value = "";
   fontDataUrl.value = "";
+  faces.value = [];
+  selectedFace.value = 0;
 }
 
 function handleGenerate() {
@@ -278,7 +325,7 @@ function handleGenerate() {
     );
     const outName = `${base}.${fmt}`;
 
-    const bytes = generateFont(fontBytes.value, textContent.value.trim(), fmt);
+    const bytes = generateFont(fontBytes.value, textContent.value.trim(), fmt, selectedFace.value);
     downloadBytes(bytes, outName, mimeFor(fmt));
 
     message.success(`已生成 ${outName}（${(bytes.byteLength / 1024).toFixed(2)} KB）`);
@@ -561,6 +608,22 @@ body,
 .font-meta-line {
   flex-wrap: wrap;
   row-gap: 2px;
+}
+
+/* Face selector (only shown for multi-face collections) */
+.face-row {
+  margin-top: 2px;
+}
+
+.face-label {
+  font-size: 12px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.face-select {
+  min-width: 220px;
+  max-width: 100%;
 }
 
 /* Font details (collapsed by default) */

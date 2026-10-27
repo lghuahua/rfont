@@ -14,7 +14,7 @@
         <div class="flex-col">
           <div class="upload-zone flex-col flex-center" @click="selectFontFile">
             <div class="file-types flex-middle">
-              <div class="type-text">选择字体文件，支持 TTF、WOFF、WOFF2</div>
+              <div class="type-text">选择字体文件，支持 TTF、TTC、WOFF、WOFF2</div>
             </div>
             <!-- 显示当前选择的文件名 -->
             <div v-if="fileName" class="selected-file">
@@ -75,6 +75,16 @@
             <span class="font-meta">{{ glyphCount }} 字形</span>
             <span class="divider">·</span>
             <span class="font-size">{{ originalSize }}</span>
+          </div>
+
+          <!-- 字面选择：仅字体集合包含多个字面时出现 -->
+          <div v-if="faces.length > 1" class="face-row flex-middle gap-8">
+            <span class="face-label">字面</span>
+            <Select v-model:value="selectedFace" size="small" class="face-select" @change="onFaceChange">
+              <SelectOption v-for="face in faces" :key="face.index" :value="face.index">
+                {{ faceLabel(face) }}
+              </SelectOption>
+            </Select>
           </div>
 
           <!-- 字体详情：默认折叠，避免挤占预览区 -->
@@ -140,10 +150,12 @@ import { message } from "ant-design-vue";
 import {
   cssFormat,
   detailRows,
+  faceLabel,
   formatLabel,
   languageLabel,
   nameIdLabel,
   platformLabel,
+  type FaceSummary,
   type FontFormat,
   type FontInfo,
 } from "./fontInfo";
@@ -164,6 +176,8 @@ const originalSize = ref<string>("");
 const loading = ref<boolean>(false);
 const fontDataUrl = ref<string>("");
 const fontSize = ref<number>(16);
+const faces = ref<FaceSummary[]>([]);  // 字体集合中的字面
+const selectedFace = ref<number>(0);   // 当前字面索引
 
 // 计算按钮文字
 const buttonText = computed(() => {
@@ -226,7 +240,7 @@ async function selectFontFile() {
       multiple: false,
       filters: [{
         name: 'Font Files',
-        extensions: ['ttf', 'otf', 'woff', 'woff2']
+        extensions: ['ttf', 'otf', 'ttc', 'woff', 'woff2']
       }]
     });
 
@@ -243,6 +257,10 @@ async function selectFontFile() {
         message.error(`加载字体失败：${errorMsg}`);
         return;
       }
+
+      // 字体集合：列出所有字面
+      faces.value = await invoke<FaceSummary[]>("list_faces");
+      selectedFace.value = 0;
 
       // 然后加载字体用于预览
       await loadFont(filePath);
@@ -262,7 +280,10 @@ async function loadFont(path: string) {
   loading.value = true;
 
   try {
-    const base64Data = await invoke<string>("read_font_as_base64", { path });
+    const base64Data = await invoke<string>("read_font_as_base64", {
+      path,
+      face: selectedFace.value
+    });
 
     const info = await invoke<FontInfo>("get_font_info");
     fontInfo.value = info;
@@ -271,7 +292,7 @@ async function loadFont(path: string) {
     fontType.value = formatLabel(info.format);
     glyphCount.value = info.glyph_count || 0;
 
-    // 预览直接用原始字节，MIME 取自解析出的容器格式
+    // 预览直接用字面字节，MIME 取自解析出的容器格式
     fontDataUrl.value = `data:font/${info.format};base64,${base64Data}`;
 
     const fileSize = (base64Data.length * 3 / 4 / 1024).toFixed(2);
@@ -285,6 +306,26 @@ async function loadFont(path: string) {
     fontFormat.value = null;
     glyphCount.value = 0;
     originalSize.value = '';
+  } finally {
+    loading.value = false;
+  }
+}
+
+
+/// 切换字面：通知后端切换当前字面并刷新信息与预览。
+async function onFaceChange() {
+  if (!fontPath.value) {
+    return;
+  }
+
+  loading.value = true;
+
+  try {
+    await invoke<void>("select_face", { index: selectedFace.value });
+    await loadFont(fontPath.value);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    message.error(`切换字面失败：${errorMsg}`);
   } finally {
     loading.value = false;
   }
@@ -622,6 +663,22 @@ body,
 .font-meta-line {
   flex-wrap: wrap;
   row-gap: 2px;
+}
+
+/* Face selector (only shown for multi-face collections) */
+.face-row {
+  margin-top: 2px;
+}
+
+.face-label {
+  font-size: 12px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.face-select {
+  min-width: 220px;
+  max-width: 100%;
 }
 
 /* Font details (collapsed by default) */

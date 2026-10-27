@@ -5,12 +5,17 @@
 // 使上层业务代码不受 wasm-bindgen 生成类型细节（如 Uint8Array 泛型）的影响。
 import init, * as wasm from "../../pkg/rfont_web.js";
 
-export const font_info = wasm.font_info as unknown as (data: Uint8Array) => string;
+export const font_info = wasm.font_info as unknown as (data: Uint8Array, face: number) => string;
+
+export const list_faces = wasm.list_faces as unknown as (data: Uint8Array) => string;
+
+export const face_bytes = wasm.face_bytes as unknown as (data: Uint8Array, face: number) => Uint8Array;
 
 export const convert = wasm.convert as unknown as (
   data: Uint8Array,
   format: string,
   compression_level: number,
+  face: number,
 ) => Uint8Array;
 
 export const subset = wasm.subset as unknown as (
@@ -18,6 +23,7 @@ export const subset = wasm.subset as unknown as (
   text: string,
   format: string,
   compression_level: number,
+  face: number,
 ) => Uint8Array;
 
 let initPromise: Promise<void> | null = null;

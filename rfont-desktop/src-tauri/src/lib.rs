@@ -1,5 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-use rfont::Font;
+use rfont::{FaceSummary, Font, FontCollection};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -7,15 +7,22 @@ use tracing::{error, info};
 
 /// 应用状态
 struct AppState {
+    /// 当前选中的字面
     font: Option<Arc<Font>>,
+    /// 字体集合（TTC/OTC），非集合文件为 None
+    collection: Option<Arc<FontCollection>>,
     current_font_path: Option<PathBuf>,
+    /// 当前字面在集合中的索引
+    selected_face: usize,
 }
 
 impl AppState {
     fn new() -> Self {
         Self {
             font: None,
+            collection: None,
             current_font_path: None,
+            selected_face: 0,
         }
     }
 }
@@ -27,35 +34,86 @@ async fn load_font(path: String, state: State<'_, Mutex<AppState>>) -> Result<St
 
     let font_path = PathBuf::from(&path);
 
-    // 验证字体是否可以加载
-    match Font::load(&path) {
-        Ok(font) => {
-            let mut app_state = state.lock().unwrap();
-            app_state.current_font_path = Some(font_path);
-            app_state.font = Some(Arc::new(font));
-            info!("Font loaded successfully");
-            Ok("Font loaded successfully".to_string())
-        }
-        Err(e) => {
-            error!("Failed to load font: {}", e);
-            Err(format!("Failed to load font: {}", e))
-        }
+    let data = std::fs::read(&font_path).map_err(|e| format!("Failed to read font file: {}", e))?;
+
+    let (collection, font) = if FontCollection::is_collection(&data) {
+        let collection =
+            FontCollection::from_bytes(data).map_err(|e| format!("Failed to load font: {}", e))?;
+        let font = collection
+            .face(0)
+            .map_err(|e| format!("Failed to load font: {}", e))?;
+        (Some(Arc::new(collection)), Arc::new(font))
+    } else {
+        let font = Font::from_bytes(&data).map_err(|e| format!("Failed to load font: {}", e))?;
+        (None, Arc::new(font))
+    };
+
+    let mut app_state = state.lock().unwrap();
+    app_state.current_font_path = Some(font_path);
+    app_state.collection = collection;
+    app_state.font = Some(font);
+    app_state.selected_face = 0;
+
+    info!("Font loaded successfully");
+    Ok("Font loaded successfully".to_string())
+}
+
+/// 列出字体集合中的字面；非集合文件返回空列表
+#[tauri::command]
+async fn list_faces(state: State<'_, Mutex<AppState>>) -> Result<Vec<FaceSummary>, String> {
+    let app_state = state.lock().unwrap();
+
+    match app_state.collection {
+        Some(ref collection) => collection
+            .faces()
+            .map_err(|e| format!("Failed to list faces: {}", e)),
+        None => Ok(Vec::new()),
     }
 }
 
-/// 读取字体文件为 base64
+/// 切换当前字面
 #[tauri::command]
-async fn read_font_as_base64(path: String) -> Result<String, String> {
-    use base64::{engine::general_purpose, Engine as _};
-    use std::fs;
+async fn select_face(index: usize, state: State<'_, Mutex<AppState>>) -> Result<(), String> {
+    let mut app_state = state.lock().unwrap();
 
-    match fs::read(&path) {
-        Ok(data) => {
-            let base64_data = general_purpose::STANDARD.encode(&data);
-            Ok(base64_data)
-        }
-        Err(e) => Err(format!("Failed to read font file: {}", e)),
-    }
+    let collection = app_state
+        .collection
+        .as_ref()
+        .ok_or_else(|| "Current font is not a collection".to_string())?;
+
+    let font = collection
+        .face(index)
+        .map_err(|e| format!("Failed to select face: {}", e))?;
+
+    app_state.font = Some(Arc::new(font));
+    app_state.selected_face = index;
+
+    info!("Selected face index: {}", index);
+    Ok(())
+}
+
+/// 读取字体文件为 base64
+///
+/// 字体集合按 `face` 提取对应字面的独立字体字节，否则返回整个文件内容。
+#[tauri::command]
+async fn read_font_as_base64(path: String, face: usize) -> Result<String, String> {
+    use base64::{engine::general_purpose, Engine as _};
+
+    let data = std::fs::read(&path).map_err(|e| format!("Failed to read font file: {}", e))?;
+
+    let bytes = if FontCollection::is_collection(&data) {
+        let collection = FontCollection::from_bytes(data)
+            .map_err(|e| format!("Failed to read font file: {}", e))?;
+        collection
+            .face_bytes(face)
+            .map_err(|e| format!("Failed to extract face: {}", e))?
+    } else if face == 0 {
+        data
+    } else {
+        return Err(format!("Face index {} out of range", face));
+    };
+
+    Ok(general_purpose::STANDARD.encode(&bytes))
 }
 
 /// 获取字体信息
@@ -91,7 +149,10 @@ async fn subset_font(
         Arc::clone(font)
     } else if let Some(ref path) = app_state.current_font_path {
         // 如果没有加载，才重新加载
-        Arc::new(Font::load(path).map_err(|e| format!("Failed to load font: {}", e))?)
+        Arc::new(
+            Font::load_with_face(path, app_state.selected_face)
+                .map_err(|e| format!("Failed to load font: {}", e))?,
+        )
     } else {
         return Err("No font loaded".to_string());
     };
@@ -194,7 +255,9 @@ pub fn run() {
             load_font,
             get_font_info,
             subset_font,
-            read_font_as_base64
+            read_font_as_base64,
+            list_faces,
+            select_face
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -49,6 +49,12 @@ pub enum FontError {
     #[error("Unsupported cmap format: {format}")]
     UnsupportedCmapFormat { format: u16 },
 
+    #[error("No glyphs found for the specified text")]
+    NoGlyphsFound,
+
+    #[error("Unsupported output format: {format}")]
+    UnsupportedOutputFormat { format: String },
+
     #[error("Unexpected end of data at offset {offset}, needed {needed} bytes{context}", context = context.as_ref().map(|c| format!(" (in {})", c)).unwrap_or_default())]
     UnexpectedEndOfData {
         offset: usize,
@@ -130,6 +136,8 @@ impl FontError {
             }
             FontError::UnexpectedEndOfData { .. } => Some("文件被截断或不完整，请确保文件完整下载"),
             FontError::TableTooShort { .. } => Some("字体表长度不足，文件可能已损坏"),
+            FontError::NoGlyphsFound => Some("请确认输入的文字在该字体中存在对应字形"),
+            FontError::UnsupportedOutputFormat { .. } => Some("支持的输出格式为 ttf、woff、woff2"),
             FontError::TtcInvalid { .. } => Some("TTC 文件头或字面偏移无效，文件可能已损坏"),
             FontError::FaceIndexOutOfRange { count, .. } => Some(match *count {
                 0 => "该集合没有可用字面",

@@ -49,6 +49,17 @@ export interface FontInfo {
   tables: TableInfo[];
 }
 
+/// 字体集合中单个字面的摘要（与 Rust 端 `rfont::FaceSummary` 对应）。
+export interface FaceSummary {
+  index: number;
+  format: FontFormat;
+  family: string | null;
+  subfamily: string | null;
+  full_name: string | null;
+  postscript_name: string | null;
+  glyph_count: number;
+}
+
 const FORMAT_LABELS: Record<FontFormat, string> = {
   ttf: "TrueType",
   otf: "OpenType",
@@ -71,6 +82,16 @@ const CSS_FORMATS: Record<FontFormat, string> = {
 /// `@font-face` 的 format() 提示值。
 export function cssFormat(format: FontFormat): string {
   return CSS_FORMATS[format] ?? "truetype";
+}
+
+/// 字面在选择器中的展示文案：序号 + 名称。
+export function faceLabel(face: FaceSummary): string {
+  const name =
+    face.full_name ||
+    [face.family, face.subfamily].filter(Boolean).join(" ") ||
+    face.postscript_name ||
+    "未命名字面";
+  return `${face.index + 1}. ${name}`;
 }
 
 const NAME_ID_LABELS: Record<number, string> = {
