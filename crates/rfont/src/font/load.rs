@@ -931,14 +931,8 @@ impl Font {
         // 从 name 表提取 family_name, style_name, version
         if let Some(name_table) = self.get_name_table() {
             info.family_name = name_table.get_family_name_str();
-            info.style_name = name_table.get_subfamily_name().and_then(|data| {
-                rfont_core::NameTable::decode_utf16_be(data)
-                    .or_else(|| rfont_core::NameTable::decode_utf8(data))
-            });
-            info.version = name_table.get_version().and_then(|data| {
-                rfont_core::NameTable::decode_utf16_be(data)
-                    .or_else(|| rfont_core::NameTable::decode_utf8(data))
-            });
+            info.style_name = name_table.get_subfamily_name_str();
+            info.version = name_table.get_version_str();
         }
 
         Ok(info)

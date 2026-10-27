@@ -21,8 +21,7 @@
 //! - Compatible full name
 //! - Sample text
 //! - PostScript CID findfont name
-//! - WOFF2 metadata
-//! - Variations PS name prefix
+//! - WWS family/subfamily name
 
 use crate::FontError;
 use crate::io::{ReadBytes, Reader, WriteBytes, Writer};
@@ -222,10 +221,10 @@ pub enum NameId {
     SampleText,
     /// PostScript CID findfont name
     PostScriptCID,
-    /// WOFF2 metadata
-    Woff2Metadata,
-    /// Variations PS name prefix
-    VariationsPSNamePrefix,
+    /// WWS family name
+    WwsFamily,
+    /// WWS subfamily name
+    WwsSubfamily,
     /// Custom name ID
     Custom(u16),
 }
@@ -254,8 +253,8 @@ impl From<u16> for NameId {
             18 => NameId::CompatibleFull,
             19 => NameId::SampleText,
             20 => NameId::PostScriptCID,
-            21 => NameId::Woff2Metadata,
-            22 => NameId::VariationsPSNamePrefix,
+            21 => NameId::WwsFamily,
+            22 => NameId::WwsSubfamily,
             _ => NameId::Custom(v),
         }
     }
@@ -285,8 +284,8 @@ impl From<NameId> for u16 {
             NameId::CompatibleFull => 18,
             NameId::SampleText => 19,
             NameId::PostScriptCID => 20,
-            NameId::Woff2Metadata => 21,
-            NameId::VariationsPSNamePrefix => 22,
+            NameId::WwsFamily => 21,
+            NameId::WwsSubfamily => 22,
             NameId::Custom(v) => v,
         }
     }
@@ -327,6 +326,29 @@ impl WriteBytes for NameRecord {
     }
 }
 
+/// A language tag record (name table version 1 only).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LangTagRecord {
+    pub length: u16,
+    pub offset: u16,
+}
+
+impl ReadBytes<'_> for LangTagRecord {
+    fn read_from(reader: &mut Reader<'_>) -> Result<Self, FontError> {
+        Ok(LangTagRecord {
+            length: reader.read_u16()?,
+            offset: reader.read_u16()?,
+        })
+    }
+}
+
+impl WriteBytes for LangTagRecord {
+    fn write_to(&self, writer: &mut Writer) -> Result<(), FontError> {
+        writer.write_u16(self.length)?;
+        writer.write_u16(self.offset)
+    }
+}
+
 /// The name table containing font metadata.
 #[derive(Debug, Clone)]
 pub struct Name {
@@ -334,6 +356,7 @@ pub struct Name {
     pub count: u16,
     pub string_offset: u16,
     pub records: Vec<NameRecord>,
+    pub lang_tag_records: Vec<LangTagRecord>,
     pub strings: Vec<u8>,
 }
 
@@ -387,6 +410,17 @@ impl<'a> ReadBytes<'a> for Name {
             records.push(NameRecord::read_from(reader)?);
         }
 
+        let lang_tag_records = if version == NameVersion::V1 {
+            let lang_tag_count = reader.read_u16()?;
+            let mut tags = Vec::with_capacity(lang_tag_count as usize);
+            for _ in 0..lang_tag_count {
+                tags.push(LangTagRecord::read_from(reader)?);
+            }
+            tags
+        } else {
+            Vec::new()
+        };
+
         // Read string data
         let string_start = string_offset as usize;
         if string_start > reader.len() {
@@ -396,7 +430,14 @@ impl<'a> ReadBytes<'a> for Name {
                 max: reader.len() as u32,
             });
         }
-
+        if string_start < reader.offset {
+            return Err(FontError::InvalidOffset {
+                table: "name".to_string(),
+                offset: string_offset as u32,
+                max: reader.offset as u32,
+            });
+        }
+        reader.offset = string_start;
         let strings = reader.read_bytes(reader.len() - string_start)?.to_vec();
 
         Ok(Name {
@@ -404,6 +445,7 @@ impl<'a> ReadBytes<'a> for Name {
             count,
             string_offset,
             records,
+            lang_tag_records,
             strings,
         })
     }
@@ -420,15 +462,26 @@ impl WriteBytes for Name {
         writer.write_u16(version)?;
 
         // Write count
-        writer.write_u16(self.count)?;
+        let count = self.records.len() as u16;
+        writer.write_u16(count)?;
 
-        // Calculate string offset (header + records)
-        let string_offset = 6 + self.count as usize * 12;
+        // Calculate string offset (header + records + version 1 language tags)
+        let mut string_offset = 6 + count as usize * 12;
+        if self.version == NameVersion::V1 {
+            string_offset += 2 + self.lang_tag_records.len() * 4;
+        }
         writer.write_u16(string_offset as u16)?;
 
         // Write records
         for record in &self.records {
             record.write_to(writer)?;
+        }
+
+        if self.version == NameVersion::V1 {
+            writer.write_u16(self.lang_tag_records.len() as u16)?;
+            for tag in &self.lang_tag_records {
+                tag.write_to(writer)?;
+            }
         }
 
         // Write string data
@@ -644,6 +697,7 @@ mod tests {
                 length: 4,
                 offset: 0,
             }],
+            lang_tag_records: Vec::new(),
             strings: b"Test".to_vec(),
         };
 
@@ -652,6 +706,46 @@ mod tests {
 
         // Should be 16 bytes: 6 (header) + 12 (record) + 4 (string)
         assert_eq!(writer.data.len(), 22);
+    }
+
+    #[test]
+    fn test_name_v1_lang_tags_roundtrip() {
+        use crate::io::Writer;
+
+        let original = Name {
+            version: NameVersion::V1,
+            count: 1,
+            string_offset: 0,
+            records: vec![NameRecord {
+                platform_id: 3,
+                encoding_id: 1,
+                language_id: 0x0409,
+                name_id: 1,
+                length: 4,
+                offset: 0,
+            }],
+            lang_tag_records: vec![LangTagRecord {
+                length: 3,
+                offset: 4,
+            }],
+            strings: b"Testen\0".to_vec(),
+        };
+
+        let mut writer = Writer::new();
+        original.write_to(&mut writer).unwrap();
+
+        // header + one record + lang tag count + one lang tag record
+        assert_eq!(&writer.data[4..6], &24u16.to_be_bytes());
+
+        let mut reader = Reader::new(&writer.data);
+        let restored = Name::read_from(&mut reader).unwrap();
+
+        assert_eq!(restored.version, NameVersion::V1);
+        assert_eq!(restored.string_offset, 24);
+        assert_eq!(restored.lang_tag_records.len(), 1);
+        assert_eq!(restored.lang_tag_records[0].length, 3);
+        assert_eq!(restored.lang_tag_records[0].offset, 4);
+        assert_eq!(restored.strings, original.strings);
     }
 
     #[test]
@@ -680,6 +774,7 @@ mod tests {
                     offset: 5,
                 },
             ],
+            lang_tag_records: Vec::new(),
             strings: b"FamilyPostSC".to_vec(),
         };
 
