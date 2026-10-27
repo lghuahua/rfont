@@ -471,6 +471,27 @@ mod tests {
     }
 
     #[test]
+    fn test_fword_read() {
+        let data = vec![0x03, 0xA8]; // 936
+        let mut reader = Reader::new(&data);
+        let fword = FWord::read_from(&mut reader).unwrap();
+        assert_eq!(fword.0, 936);
+
+        let data = vec![0xFE, 0xFC]; // -260
+        let mut reader = Reader::new(&data);
+        let fword = FWord::read_from(&mut reader).unwrap();
+        assert_eq!(fword.0, -260);
+    }
+
+    #[test]
+    fn test_ufword_read() {
+        let data = vec![0x03, 0xA8]; // 936
+        let mut reader = Reader::new(&data);
+        let ufword = UFWord::read_from(&mut reader).unwrap();
+        assert_eq!(ufword.0, 936);
+    }
+
+    #[test]
     fn test_fword_write() {
         use crate::io::Writer;
 

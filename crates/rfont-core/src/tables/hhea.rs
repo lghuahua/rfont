@@ -30,8 +30,23 @@ mod tests {
 
     #[test]
     fn test_hhea_parsing() {
-        // 暂时跳过，因为 derive macro 对包装类型的处理需要进一步调试
-        // 实际使用中通过真实字体文件验证
+        let mut data = vec![0x00; 36];
+        data[0..4].copy_from_slice(&0x0001_0000u32.to_be_bytes()); // version
+        data[4..6].copy_from_slice(&936i16.to_be_bytes()); // ascender
+        data[6..8].copy_from_slice(&(-260i16).to_be_bytes()); // descender
+        data[8..10].copy_from_slice(&0i16.to_be_bytes()); // line_gap
+        data[10..12].copy_from_slice(&1000u16.to_be_bytes()); // advance_width_max
+        data[34..36].copy_from_slice(&7044u16.to_be_bytes()); // number_of_h_metrics
+
+        let mut reader = Reader::new(&data);
+        let hhea = Hhea::read_from(&mut reader).unwrap();
+
+        assert_eq!(hhea.version, 0x0001_0000);
+        assert_eq!(hhea.ascender.0, 936);
+        assert_eq!(hhea.descender.0, -260);
+        assert_eq!(hhea.line_gap.0, 0);
+        assert_eq!(hhea.advance_width_max.0, 1000);
+        assert_eq!(hhea.number_of_h_metrics, 7044);
     }
 
     #[test]

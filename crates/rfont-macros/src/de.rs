@@ -41,9 +41,15 @@ pub fn impl_de_derive(input: &mut DeriveInput) -> TokenStream {
                             quote! { #ident { #(#names,)* } }
                         }
                         Fields::Unnamed(_) => {
-                            let indices: Vec<_> =
-                                (0..d.fields.len()).map(syn::Index::from).collect();
-                            quote! { #ident(#(#indices),*) }
+                            let vars: Vec<_> = (0..d.fields.len())
+                                .map(|index| {
+                                    syn::Ident::new(
+                                        &format!("_field_{}", index),
+                                        proc_macro2::Span::call_site(),
+                                    )
+                                })
+                                .collect();
+                            quote! { #ident(#(#vars),*) }
                         }
                         Fields::Unit => {
                             quote! { #ident }
