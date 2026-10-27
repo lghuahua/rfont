@@ -5,15 +5,25 @@ use rfont::Font;
 use std::path::Path;
 use tracing::{Level, debug, info, span, warn};
 
-pub fn run(
-    input: &Path,
-    output: Option<&Path>,
-    text: Option<&str>,
-    ranges: &[String],
-    strip_post_names: bool,
-    format: &str,
-    compression: Option<u8>,
-) -> Result<()> {
+/// 子集化请求参数，避免 `run` 的参数列表过长。
+pub struct SubsetRequest<'a> {
+    pub text: Option<&'a str>,
+    pub ranges: &'a [String],
+    pub keep_hinting: bool,
+    pub keep_post_names: bool,
+    pub format: &'a str,
+    pub compression: Option<u8>,
+}
+
+pub fn run(input: &Path, output: Option<&Path>, request: SubsetRequest<'_>) -> Result<()> {
+    let SubsetRequest {
+        text,
+        ranges,
+        keep_hinting,
+        keep_post_names,
+        format,
+        compression,
+    } = request;
     let span = span!(Level::INFO, "subset_command",
                      input = ?input,
                      output = ?output,
@@ -79,15 +89,19 @@ pub fn run(
 
     // 执行子集化
     debug!(
-        strip_post_names = strip_post_names,
+        keep_hinting = keep_hinting,
+        keep_post_names = keep_post_names,
         format = format,
         "配置子集化选项"
     );
     let mut builder = font.subset_builder().text(&all_text);
 
-    if strip_post_names {
-        debug!("启用 post 表优化（移除字形名称）");
-        builder = builder.strip_glyph_names(true);
+    if keep_hinting {
+        builder = builder.keep_hinting(true);
+    }
+
+    if keep_post_names {
+        builder = builder.optimize_post(false).strip_glyph_names(false);
     }
 
     // 根据格式解析压缩级别

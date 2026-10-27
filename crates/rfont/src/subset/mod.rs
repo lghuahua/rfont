@@ -3,4 +3,4 @@ pub mod options;
 pub mod tables;
 
 pub use builder::FontSubsetBuilder;
-pub use options::SubsetOptions;
+pub use options::{OutputFormat, SubsetOptions};

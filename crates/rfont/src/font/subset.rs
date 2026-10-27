@@ -1,12 +1,31 @@
 use crate::Font;
 use crate::font::load::assemble_ttf;
+use rfont_core::Loca;
 use rfont_types::Tag;
 use tracing::{Level, debug, info, span};
 
 use crate::subset::builder::FontSubsetBuilder;
-use crate::subset::options::SubsetOptions;
-use crate::subset::tables::{cmap, head, hmtx, maxp, post};
-use rfont_types::FontError;
+use crate::subset::options::{OutputFormat, SubsetOptions};
+use crate::subset::tables::{cmap, glyf_hint, head, hmtx, maxp, os2, post};
+use rfont_types::{FontError, Reader};
+use std::collections::HashSet;
+
+/// 子集化时始终重建的表
+const REBUILT_TABLES: &[Tag] = &[
+    Tag(*b"head"),
+    Tag(*b"maxp"),
+    Tag(*b"cmap"),
+    Tag(*b"hhea"),
+    Tag(*b"hmtx"),
+    Tag(*b"loca"),
+    Tag(*b"glyf"),
+    Tag(*b"name"),
+    Tag(*b"OS/2"),
+    Tag(*b"post"),
+];
+
+/// 仅在保留 hinting 时复制的表
+const HINTING_TABLES: &[Tag] = &[Tag(*b"cvt "), Tag(*b"fpgm"), Tag(*b"prep"), Tag(*b"gasp")];
 
 impl Font {
     /// 流式字形迭代器：逐字形处理，减少内存峰值
@@ -153,21 +172,19 @@ impl Font {
         use tracing::debug;
         debug!(
             glyph_count = glyph_ids.len(),
-            format = options.output_format,
+            format = %options.output_format,
+            keep_hinting = options.keep_hinting,
             "开始子集化"
         );
 
         // 执行核心子集化逻辑
-        let subset_data = self.subset_and_serialize(glyph_ids)?;
+        let subset_data = self.subset_and_serialize_with_options(glyph_ids, options)?;
 
         // 根据输出格式处理
-        match options.output_format.as_str() {
-            "woff" => self.convert_to_woff(&subset_data, options.compression_level),
-            "woff2" => self.convert_to_woff2(&subset_data, options.compression_level),
-            _ => {
-                // 默认返回 TTF
-                Ok(subset_data)
-            }
+        match options.output_format {
+            OutputFormat::Woff => self.convert_to_woff(&subset_data, options.compression_level),
+            OutputFormat::Woff2 => self.convert_to_woff2(&subset_data, options.compression_level),
+            OutputFormat::Ttf => Ok(subset_data),
         }
     }
 
@@ -186,6 +203,15 @@ impl Font {
     /// # 注意
     /// 此方法会自动包含 .notdef (glyph 0)，并对字形 ID 进行排序和去重。
     pub fn subset_and_serialize(&self, glyph_ids: &[u16]) -> Result<Vec<u8>, FontError> {
+        self.subset_and_serialize_with_options(glyph_ids, &SubsetOptions::default())
+    }
+
+    /// 按显式配置执行子集化与序列化
+    fn subset_and_serialize_with_options(
+        &self,
+        glyph_ids: &[u16],
+        options: &SubsetOptions,
+    ) -> Result<Vec<u8>, FontError> {
         let span = span!(
             Level::INFO,
             "subset_and_serialize",
@@ -224,22 +250,34 @@ impl Font {
             "复合字形依赖解析和数据提取完成"
         );
 
-        // 3. 构建新的 cmap
+        // 2. 按需移除 glyph 指令并重建 loca
+        let (glyf_data, loca_data, index_to_loc_format) = if options.keep_hinting {
+            let format = if result.glyf_data.len() < 65536 { 0 } else { 1 };
+            (result.glyf_data, result.loca_data, format)
+        } else {
+            let format = if result.glyf_data.len() < 65536 { 0 } else { 1 };
+            let original_loca = Loca::read_from(
+                &mut Reader::new(&result.loca_data),
+                format,
+                subset_glyphs_vec.len() as u16,
+            )?;
+            let (stripped_glyf, offsets) =
+                glyf_hint::strip_hinting_from_glyf(&result.glyf_data, &original_loca.offsets)?;
+            let format = if stripped_glyf.len() < 65536 { 0 } else { 1 };
+            (stripped_glyf, glyf_hint::encode_loca(&offsets), format)
+        };
+
+        // 3. 计算子集覆盖的码位，用于更新 OS/2
+        let codepoints = self.subset_codepoints(&subset_glyphs_vec);
+
+        // 4. 重建核心表
         let new_cmap_data = cmap::rebuild_cmap(self, &subset_glyphs_vec)?;
-
-        // 4. 构建新的 hmtx
         let new_hmtx_data = hmtx::rebuild_hmtx(self, &subset_glyphs_vec)?;
-
-        // 5. 更新 maxp
         let new_maxp_data = maxp::update_maxp(self, subset_glyphs_vec.len() as u16)?;
+        let new_head_data = head::update_head(self, index_to_loc_format)?;
 
-        // 6. 更新 head（校验和、修改时间等）- 暂时传入 0，稍后在 assemble_ttf 中更新
-        let index_to_loc_format: u16 = if result.glyf_data.len() < 65536 { 0 } else { 1 };
-        let new_head_data = head::update_head(self, 0, index_to_loc_format, true)?;
-
-        // 7. 复制其他不变的表（name, os2, post 等）
-        let num_glyphs_subset = subset_glyphs_vec.len() as u16;
-        let mut other_tables = self.copy_unchanged_tables(num_glyphs_subset)?;
+        // 5. 重建辅助表（name/os2/post/hhea，以及可选 hinting 表）
+        let mut other_tables = self.rebuild_aux_tables(&subset_glyphs_vec, &codepoints, options)?;
 
         // 从 other_tables 中提取 hhea
         let hhea_data = other_tables
@@ -257,8 +295,8 @@ impl Font {
         debug!(table = "cmap", size = new_cmap_data.len());
         debug!(table = "hhea", size = hhea_data.len());
         debug!(table = "hmtx", size = new_hmtx_data.len());
-        debug!(table = "loca", size = result.loca_data.len());
-        debug!(table = "glyf", size = result.glyf_data.len());
+        debug!(table = "loca", size = loca_data.len());
+        debug!(table = "glyf", size = glyf_data.len());
 
         let mut all_tables = vec![
             (Tag(*b"head"), new_head_data),
@@ -266,8 +304,8 @@ impl Font {
             (Tag(*b"cmap"), new_cmap_data),
             (Tag(*b"hhea"), hhea_data),
             (Tag(*b"hmtx"), new_hmtx_data),
-            (Tag(*b"loca"), result.loca_data),
-            (Tag(*b"glyf"), result.glyf_data),
+            (Tag(*b"loca"), loca_data),
+            (Tag(*b"glyf"), glyf_data),
         ];
         for (tag, data) in other_tables {
             debug!(table = ?tag, size = data.len(), "其他表");
@@ -285,21 +323,45 @@ impl Font {
         Ok(final_font)
     }
 
-    /// 复制其他不变的表
-    fn copy_unchanged_tables(
+    /// 收集子集字形在首选 cmap 子表中对应的码位
+    fn subset_codepoints(&self, subset_glyphs: &[u16]) -> Vec<u32> {
+        let subset_set: HashSet<u16> = subset_glyphs.iter().copied().collect();
+        let Some((_, map)) = self.cmap.preferred_subtable() else {
+            return Vec::new();
+        };
+
+        map.iter()
+            .filter(|(_, glyph_id)| subset_set.contains(glyph_id))
+            .map(|(code, _)| *code)
+            .collect()
+    }
+
+    /// 重建随子集变化的辅助表
+    ///
+    /// 布局类表（GSUB/GPOS/GDEF/kern 等）不在保留列表中，会被显式丢弃：
+    /// 子集化后字形 ID 重新编号，直接复制这些表会留下错误引用。
+    fn rebuild_aux_tables(
         &self,
-        num_glyphs_subset: u16,
+        subset_glyphs: &[u16],
+        codepoints: &[u32],
+        options: &SubsetOptions,
     ) -> Result<Vec<(Tag, Vec<u8>)>, FontError> {
         let mut tables = Vec::new();
 
         // 复制并更新 hhea 表
         if let Some(hhea_bytes) = self.font_data.get_table_bytes(Tag(*b"hhea")) {
+            if hhea_bytes.len() < 36 {
+                return Err(FontError::TableTooShort {
+                    table: "hhea".to_string(),
+                    min_size: 36,
+                    actual_size: hhea_bytes.len(),
+                });
+            }
             let mut hhea_data = hhea_bytes.to_vec();
 
-            // 更新 number_of_h_metrics 为子集后的字形数量
             // number_of_h_metrics 位于 offset 34-35
-            hhea_data[34] = (num_glyphs_subset >> 8) as u8;
-            hhea_data[35] = (num_glyphs_subset & 0xFF) as u8;
+            let num_h_metrics = subset_glyphs.len() as u16;
+            hhea_data[34..36].copy_from_slice(&num_h_metrics.to_be_bytes());
 
             tables.push((Tag(*b"hhea"), hhea_data));
         }
@@ -309,15 +371,34 @@ impl Font {
             tables.push((Tag(*b"name"), name_bytes.to_vec()));
         }
 
-        // 复制 os2（不变）
+        // OS/2 需要按子集字符集更新字符范围
         if let Some(os2_bytes) = self.font_data.get_table_bytes(Tag(*b"OS/2")) {
-            tables.push((Tag(*b"OS/2"), os2_bytes.to_vec()));
+            tables.push((Tag(*b"OS/2"), os2::update_os2(os2_bytes, codepoints)?));
         }
 
-        // post 表需要特殊处理：如果版本是 2.0，需要子集化字形名称
+        // post 表按策略保留或移除字形名称
         if let Some(post_bytes) = self.font_data.get_table_bytes(Tag(*b"post")) {
-            let subset_post = post::subset_post_table(self, post_bytes)?;
+            let strip_names = options.strip_glyph_names || options.optimize_post_table;
+            let subset_post = post::subset_post_table(post_bytes, subset_glyphs, strip_names)?;
             tables.push((Tag(*b"post"), subset_post));
+        }
+
+        // hinting 相关表按需保留
+        if options.keep_hinting {
+            for &tag in HINTING_TABLES {
+                if let Some(bytes) = self.font_data.get_table_bytes(tag) {
+                    tables.push((tag, bytes.to_vec()));
+                }
+            }
+        }
+
+        // 明确记录被丢弃的表，便于排查
+        for tag in self.font_data.get_table_records().keys() {
+            let kept = REBUILT_TABLES.contains(tag)
+                || (options.keep_hinting && HINTING_TABLES.contains(tag));
+            if !kept {
+                debug!(table = ?tag, "子集化丢弃未重映射的表");
+            }
         }
 
         Ok(tables)

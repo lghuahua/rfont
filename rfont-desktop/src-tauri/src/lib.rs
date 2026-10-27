@@ -125,15 +125,18 @@ async fn subset_font(
             return Err("No glyphs found for the specified text".to_string());
         }
 
+        let format: rfont::OutputFormat = rfont::OutputFormat::parse(&output_format)
+            .ok_or_else(|| format!("Unsupported output format: {}", output_format))?;
+
         let mut options = rfont::SubsetOptions {
-            output_format: output_format.clone(),
+            output_format: format,
             ..Default::default()
         };
 
-        match output_format.as_str() {
-            "woff" => options.compression_level = 9,
-            "woff2" => options.compression_level = 11,
-            _ => options.compression_level = 0,
+        match options.output_format {
+            rfont::OutputFormat::Woff => options.compression_level = 9,
+            rfont::OutputFormat::Woff2 => options.compression_level = 11,
+            rfont::OutputFormat::Ttf => options.compression_level = 0,
         }
 
         font.subset_with_options(&glyph_ids, &options)

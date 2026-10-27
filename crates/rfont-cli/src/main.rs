@@ -99,11 +99,15 @@ enum Commands {
         #[arg(long = "range")]
         ranges: Vec<String>,
 
-        /// 优化 post 表（移除字形名称）
-        #[arg(long = "strip-post-names")]
-        strip_post_names: bool,
+        /// 保留 hinting 数据（glyf 指令与 cvt/fpgm/prep/gasp 表）
+        #[arg(long = "keep-hinting")]
+        keep_hinting: bool,
 
-        /// 输出格式（ttf 或 woff）
+        /// 保留 post 表中的字形名称
+        #[arg(long = "keep-post-names")]
+        keep_post_names: bool,
+
+        /// 输出格式（ttf、woff 或 woff2）
         #[arg(long, default_value = "ttf")]
         format: String,
 
@@ -188,7 +192,8 @@ fn main() -> Result<()> {
             text,
             text_file,
             ranges,
-            strip_post_names,
+            keep_hinting,
+            keep_post_names,
             format,
             compression,
         } => {
@@ -210,11 +215,14 @@ fn main() -> Result<()> {
             commands::subset::run(
                 &input,
                 output.as_deref(),
-                text_source.as_deref(),
-                &ranges,
-                strip_post_names,
-                &format,
-                compression,
+                commands::subset::SubsetRequest {
+                    text: text_source.as_deref(),
+                    ranges: &ranges,
+                    keep_hinting,
+                    keep_post_names,
+                    format: &format,
+                    compression,
+                },
             )?;
         }
         Commands::Convert {

@@ -7,7 +7,7 @@
 //! 出错时返回的 `Err(JsValue)` 会被 wasm-bindgen 转换成 JS 抛出的异常，
 //! 前端用 `try/catch` 捕获即可。
 
-use rfont::{Font, SubsetOptions};
+use rfont::{Font, OutputFormat, SubsetOptions};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -138,7 +138,8 @@ pub fn subset(
     }
 
     let options = SubsetOptions {
-        output_format: format.to_string(),
+        output_format: OutputFormat::parse(format)
+            .ok_or_else(|| JsValue::from_str(&format!("Unsupported output format: {}", format)))?,
         compression_level,
         ..Default::default()
     };

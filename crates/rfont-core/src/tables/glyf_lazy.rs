@@ -307,9 +307,12 @@ impl<'a> GlyfLazyLoader<'a> {
                         new_glyf_data.extend_from_slice(glyph_bytes);
                         current_offset += glyph_bytes.len() as u32;
                     }
-                    // let glyph_bytes = &self.glyf_data[start as usize..end as usize];
-                    // new_glyf_data.extend_from_slice(glyph_bytes);
-                    // current_offset += glyph_bytes.len() as u32;
+
+                    // 字形数据按 2 字节对齐，short loca 才能用 offset/2 表示
+                    while !new_glyf_data.len().is_multiple_of(2) {
+                        new_glyf_data.push(0);
+                        current_offset += 1;
+                    }
                 }
             }
         }
@@ -515,6 +518,27 @@ mod tests {
         assert!(needed_glyphs.contains(&3));
         assert_eq!(composite_glyphs.len(), 1); // 只有 glyph 1 是复合字形
         assert!(composite_glyphs.contains_key(&1));
+    }
+
+    #[test]
+    fn test_resolve_and_extract_pads_glyph_to_even_boundary() {
+        let glyph_0: Vec<u8> = vec![];
+        // 13 字节的奇数长度字形（只读取 num_contours，不做完整解析）
+        let glyph_1: Vec<u8> = vec![0x00, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let glyf_data = [glyph_0.as_slice(), glyph_1.as_slice()].concat();
+        let loca_offsets = vec![0, 0, glyf_data.len() as u32];
+
+        let loader = GlyfLazyLoader::new(&glyf_data, &loca_offsets).unwrap();
+        let result = loader.resolve_and_extract(&[0, 1]).unwrap();
+
+        assert!(result.glyf_data.len().is_multiple_of(2));
+        // short loca：最后一个偏移是字节偏移的一半
+        let last = u16::from_be_bytes([
+            result.loca_data[result.loca_data.len() - 2],
+            result.loca_data[result.loca_data.len() - 1],
+        ]);
+        assert_eq!(last as usize * 2, result.glyf_data.len());
     }
 
     #[test]

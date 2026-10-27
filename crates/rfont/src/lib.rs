@@ -8,7 +8,7 @@ pub use font::Font;
 pub use font::GlyphIterator;
 pub use font_data::FontData;
 pub use info::{FontInfo, TableInfo};
-pub use subset::{FontSubsetBuilder, SubsetOptions};
+pub use subset::{FontSubsetBuilder, OutputFormat, SubsetOptions};
 
 /// 批量子集化处理（并行版本）
 ///
@@ -209,7 +209,7 @@ mod tests {
 
         // 使用 Web 优化预设
         let options = SubsetOptions::web_optimized();
-        assert_eq!(options.output_format, "woff");
+        assert_eq!(options.output_format, crate::OutputFormat::Woff);
         assert_eq!(options.compression_level, 9);
         assert!(options.optimize_post_table);
         assert!(options.strip_glyph_names);
@@ -225,7 +225,7 @@ mod tests {
         use crate::SubsetOptions;
 
         let options = SubsetOptions::print_optimized();
-        assert_eq!(options.output_format, "ttf");
+        assert_eq!(options.output_format, crate::OutputFormat::Ttf);
         assert_eq!(options.compression_level, 0);
         assert!(!options.optimize_post_table);
         assert!(!options.strip_glyph_names);
@@ -387,12 +387,137 @@ mod tests {
             strip_glyph_names: false,
             compression_level: 5,
             keep_hinting: true,
-            output_format: "ttf".to_string(),
+            output_format: crate::OutputFormat::Ttf,
         };
 
         let glyph_ids = font.text_to_glyph_ids("Test");
         let subset_data = font.subset_with_options(&glyph_ids, &options).unwrap();
 
         assert!(!subset_data.is_empty());
+    }
+
+    fn total_glyph_instructions(font: &crate::Font) -> usize {
+        use rfont_core::tables::glyf::{GlyfRecord, GlyphData};
+        use rfont_types::Reader;
+
+        let mut total = 0;
+        for (glyph_id, data) in font.glyph_iter() {
+            let Some(bytes) = data else { continue };
+            let Ok(record) = GlyfRecord::parse(&mut Reader::new(bytes), glyph_id) else {
+                continue;
+            };
+            if let GlyphData::Simple(simple) = record.data {
+                total += simple.instructions.len();
+            }
+        }
+        total
+    }
+
+    #[test]
+    fn test_subset_hinting_policy() {
+        use crate::{Font, OutputFormat, SubsetOptions};
+        use rfont_types::Tag;
+
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        let glyph_ids = font.text_to_glyph_ids("Hello");
+
+        let mut keep_options = SubsetOptions::print_optimized();
+        keep_options.output_format = OutputFormat::Ttf;
+
+        let kept = Font::from_bytes(&font.subset_with_options(&glyph_ids, &keep_options).unwrap())
+            .unwrap();
+        let stripped = Font::from_bytes(
+            &font
+                .subset_with_options(&glyph_ids, &SubsetOptions::default())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let hint_tags = [Tag(*b"cvt "), Tag(*b"fpgm"), Tag(*b"prep"), Tag(*b"gasp")];
+        let original_has_hints = hint_tags
+            .iter()
+            .any(|tag| font.font_data().get_table_bytes(*tag).is_some());
+        let stripped_has_hints = hint_tags
+            .iter()
+            .any(|tag| stripped.font_data().get_table_bytes(*tag).is_some());
+
+        if original_has_hints {
+            assert!(
+                hint_tags
+                    .iter()
+                    .any(|tag| kept.font_data().get_table_bytes(*tag).is_some())
+            );
+        }
+        assert!(!stripped_has_hints);
+        assert_eq!(total_glyph_instructions(&stripped), 0);
+        assert!(
+            total_glyph_instructions(&kept) >= total_glyph_instructions(&stripped),
+            "保留 hinting 时不应减少指令"
+        );
+    }
+
+    #[test]
+    fn test_subset_updates_head_modified_and_os2() {
+        use crate::Font;
+        use rfont_types::Tag;
+        use rfont_types::primitives::LONGDATETIME;
+        use std::time::SystemTime;
+
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        let glyph_ids = font.text_to_glyph_ids("Hello");
+        let subset = Font::from_bytes(&font.subset_and_serialize(&glyph_ids).unwrap()).unwrap();
+
+        let head: rfont_core::Head = subset.font_data().parse_table(Tag(*b"head")).unwrap();
+        let now = LONGDATETIME::from_system_time(SystemTime::now()).as_seconds();
+        let modified = head.modified.as_seconds();
+        assert!(
+            (modified - now).abs() < 300,
+            "head.modified 未更新: {modified} vs {now}"
+        );
+
+        let os2 = subset.font_data().get_table_bytes(Tag(*b"OS/2")).unwrap();
+        assert_eq!(u16::from_be_bytes([os2[64], os2[65]]), 0x48); // 'H'
+        assert_eq!(u16::from_be_bytes([os2[66], os2[67]]), 0x6F); // 'o'
+        let range1 = u32::from_be_bytes([os2[42], os2[43], os2[44], os2[45]]);
+        assert_ne!(range1 & 0x8000_0000, 0, "Basic Latin 位应被置位");
+    }
+
+    #[test]
+    fn test_subset_post_policy() {
+        use crate::{Font, SubsetOptions};
+        use rfont_types::Tag;
+
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        let glyph_ids = font.text_to_glyph_ids("Hello");
+
+        let stripped = Font::from_bytes(
+            &font
+                .subset_with_options(&glyph_ids, &SubsetOptions::default())
+                .unwrap(),
+        )
+        .unwrap();
+        let post = stripped.font_data().get_table_bytes(Tag(*b"post")).unwrap();
+        assert_eq!(
+            u32::from_be_bytes([post[0], post[1], post[2], post[3]]),
+            0x00030000
+        );
+
+        let kept = Font::from_bytes(
+            &font
+                .subset_with_options(&glyph_ids, &SubsetOptions::print_optimized())
+                .unwrap(),
+        )
+        .unwrap();
+        let post = kept.font_data().get_table_bytes(Tag(*b"post")).unwrap();
+        let version = u32::from_be_bytes([post[0], post[1], post[2], post[3]]);
+        if version == 0x00020000 {
+            // 名称数组长度必须与子集字形数一致
+            assert_eq!(
+                u16::from_be_bytes([post[32], post[33]]) as usize,
+                kept.maxp().num_glyphs as usize
+            );
+        } else {
+            assert_eq!(version, 0x00030000);
+        }
     }
 }

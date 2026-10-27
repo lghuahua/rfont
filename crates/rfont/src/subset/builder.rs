@@ -3,7 +3,7 @@ use anyhow::{Context, anyhow};
 use std::collections::HashSet;
 use tracing::debug;
 
-use super::options::SubsetOptions;
+use super::options::{OutputFormat, SubsetOptions};
 
 /// 字体子集化 Builder
 ///
@@ -175,13 +175,17 @@ impl<'a> FontSubsetBuilder<'a> {
 
     /// 设置输出格式（"ttf"、"woff" 或 "woff2"）
     ///
+    /// 名称不区分大小写；无法识别的名称会被忽略，保持当前设置。
+    ///
     /// # 参数
-    /// - `format`: 输出格式字符串（不区分大小写）
+    /// - `format`: 输出格式字符串
     ///
     /// # 返回值
     /// 更新后的 Builder（支持链式调用）
     pub fn output_format(mut self, format: &str) -> Self {
-        self.options.output_format = format.to_lowercase();
+        if let Some(parsed) = OutputFormat::parse(format) {
+            self.options.output_format = parsed;
+        }
         self
     }
 
