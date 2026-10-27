@@ -5,7 +5,7 @@ use rfont_core::tables::woff::{WoffHeader, WoffTableDirectoryEntry};
 use rfont_core::tables::woff2::{WOFF2_KNOWN_TAGS, Woff2Header, Woff2TableDirectoryEntry};
 use rfont_core::tables::woff2_transform::GlyfDecoder;
 use rfont_core::{Cmap, Head, Hhea, Hmtx, Loca, Maxp};
-use rfont_types::{FontError, ReadBytes, Reader, Tag};
+use rfont_types::{FontError, FontFormat, ReadBytes, Reader, Tag};
 use std::io::Read;
 use tracing::{Level, debug, info, span};
 
@@ -39,6 +39,11 @@ const MAX_TABLE_SIZE: usize = 256 * 1024 * 1024;
 /// ```
 pub struct Font {
     pub(crate) font_data: FontData,
+
+    // 原始容器格式与集合位置（单字体 face_count = 1）
+    pub(crate) format: FontFormat,
+    pub(crate) face_index: usize,
+    pub(crate) face_count: usize,
 
     // 核心表（预加载）
     pub(crate) head: Head,
@@ -135,13 +140,18 @@ impl Font {
             }),
             _ => {
                 debug!("检测到 TTF/OTF 格式");
-                Self::load_ttf(data)
+                let format = if &data[0..4] == b"OTTO" {
+                    FontFormat::Otf
+                } else {
+                    FontFormat::Ttf
+                };
+                Self::load_ttf(data, format)
             }
         }
     }
 
     /// 加载 TTF 格式字体（预加载核心表）
-    fn load_ttf(data: &[u8]) -> Result<Self, FontError> {
+    fn load_ttf(data: &[u8], format: FontFormat) -> Result<Self, FontError> {
         let span = span!(Level::DEBUG, "load_ttf");
         let _enter = span.enter();
 
@@ -202,6 +212,9 @@ impl Font {
 
         Ok(Font {
             font_data,
+            format,
+            face_index: 0,
+            face_count: 1,
             head,
             maxp,
             hhea,
@@ -291,7 +304,7 @@ impl Font {
         let sfnt_data = rfont_core::assemble_sfnt(woff_header.flavor, decompressed_tables)?;
 
         // 使用重组后的 SFNT 数据创建 Font
-        Self::load_ttf(&sfnt_data)
+        Self::load_ttf(&sfnt_data, FontFormat::Woff)
     }
 
     /// 加载 WOFF2 格式字体
@@ -341,9 +354,7 @@ impl Font {
         );
 
         // 使用重组后的 SFNT 数据创建 Font
-        let f = Self::load_ttf(&sfnt_data)?;
-
-        Ok(f)
+        Self::load_ttf(&sfnt_data, FontFormat::Woff2)
     }
 
     /// 获取原始字体数据
@@ -435,6 +446,15 @@ impl Font {
         let name_bytes = self.font_data.get_table_bytes(Tag(*b"name"))?;
         let mut reader = Reader::new(name_bytes);
         NameTable::read_from(&mut reader).ok()
+    }
+
+    /// 获取全部已解码的 name 记录
+    ///
+    /// 按 nameID、平台、编码、语言排序，便于前端分组展示。
+    pub fn name_entries(&self) -> Vec<crate::info::NameEntry> {
+        self.get_name_table()
+            .map(|table| crate::info::name_entries(&table))
+            .unwrap_or_default()
     }
 
     /// 检测 SFNT 格式（TTF/OTF）
@@ -799,62 +819,23 @@ impl Font {
     /// println!("字形数量: {}", info.glyph_count);
     /// println!("支持的字符数: {}", info.supported_char_count);
     /// ```
-    pub fn get_font_info(&self) -> anyhow::Result<crate::info::FontInfo> {
-        use crate::info::{FontInfo, TableInfo};
-
-        let mut info = FontInfo::new();
-
-        // 从 head 表提取信息
-        info.units_per_em = self.head.units_per_em;
-        info.x_min = self.head.x_min;
-        info.y_min = self.head.y_min;
-        info.x_max = self.head.x_max;
-        info.y_max = self.head.y_max;
-
-        // 从 maxp 表提取字形数量
-        info.glyph_count = self.maxp.num_glyphs;
-
-        // 从 hhea 表提取水平度量信息
-        info.number_of_h_metrics = self.hhea.number_of_h_metrics;
-        info.ascender = self.hhea.ascender.0;
-        info.descender = self.hhea.descender.0;
-        info.line_gap = self.hhea.line_gap.0;
-
-        // 提取表列表
-        info.tables = self
-            .font_data
-            .get_table_records()
-            .values()
-            .map(TableInfo::from_record)
-            .collect();
-
-        // 统计支持的字符数量
-        info.supported_char_count = self.cmap.supported_chars_count();
-
-        // 从 name 表提取 family_name, style_name, version
-        if let Some(name_table) = self.get_name_table() {
-            info.family_name = name_table.get_family_name_str();
-            info.style_name = name_table.get_subfamily_name_str();
-            info.version = name_table.get_version_str();
-        }
-
-        Ok(info)
+    pub fn get_font_info(&self) -> Result<crate::info::FontInfo, FontError> {
+        crate::info::extract(
+            &self.font_data,
+            self.format,
+            self.face_index,
+            self.face_count,
+        )
     }
 
     /// 获取所有表的列表
     ///
-    /// 返回字体中所有表的详细信息（标签、校验和、偏移量、长度）。
+    /// 返回字体中所有表的详细信息（标签、校验和、偏移量、长度），按 tag 排序。
     ///
     /// # 返回值
     /// `Vec<TableInfo>` 包含所有表的信息
     pub fn get_table_list(&self) -> Vec<crate::info::TableInfo> {
-        use crate::info::TableInfo;
-
-        self.font_data
-            .get_table_records()
-            .values()
-            .map(TableInfo::from_record)
-            .collect()
+        crate::info::collect_tables(&self.font_data)
     }
 
     /// 检查字体是否支持特定字符

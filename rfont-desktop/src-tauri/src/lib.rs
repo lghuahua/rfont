@@ -67,8 +67,9 @@ async fn get_font_info(state: State<'_, Mutex<AppState>>) -> Result<serde_json::
         match font.get_font_info() {
             Ok(info) => {
                 let json = serde_json::json!({
-                    "family": info.family_name.unwrap_or_default(),
-                    "style": info.style_name.unwrap_or_default(),
+                    "format": info.format.to_string(),
+                    "family": info.family.unwrap_or_default(),
+                    "subfamily": info.subfamily.unwrap_or_default(),
                     "version": info.version.unwrap_or_default(),
                     "units_per_em": info.units_per_em,
                     "glyph_count": info.glyph_count,

@@ -7,7 +7,8 @@ mod subset;
 pub use font::Font;
 pub use font::GlyphIterator;
 pub use font_data::FontData;
-pub use info::{FontInfo, TableInfo};
+pub use info::{FontInfo, NameEntry, TableInfo};
+pub use rfont_types::{FontError, FontFormat};
 pub use subset::{FontSubsetBuilder, OutputFormat, SubsetOptions};
 
 /// 批量子集化处理（并行版本）
@@ -295,6 +296,63 @@ mod tests {
         println!("  Glyph count: {}", info.glyph_count);
         println!("  Supported chars: {}", info.supported_char_count);
         println!("  Tables: {}", info.tables.len());
+    }
+
+    #[test]
+    fn test_font_info_reports_container_format_and_names() {
+        use crate::{Font, FontFormat};
+
+        let cases = [
+            ("src/AlimamaDaoLiTi.ttf", FontFormat::Ttf),
+            ("src/AlimamaDaoLiTi.woff", FontFormat::Woff),
+            ("src/AlimamaDaoLiTi.woff2", FontFormat::Woff2),
+        ];
+
+        for (path, expected_format) in cases {
+            let font = Font::load(path).unwrap();
+            let info = font.get_font_info().unwrap();
+
+            assert_eq!(info.format, expected_format, "format for {path}");
+            assert_eq!((info.face_index, info.face_count), (0, 1));
+            assert!(!info.names.is_empty(), "names for {path}");
+            assert!(info.family.is_some(), "family for {path}");
+            assert!(info.weight_class > 0, "weight for {path}");
+            assert!(
+                info.tables.windows(2).all(|w| w[0].tag <= w[1].tag),
+                "tables sorted for {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_name_entries_are_sorted_and_decoded() {
+        use crate::Font;
+
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        let entries = font.name_entries();
+
+        assert!(!entries.is_empty());
+        assert!(
+            entries.windows(2).all(|w| {
+                (
+                    w[0].name_id,
+                    w[0].platform_id,
+                    w[0].encoding_id,
+                    w[0].language_id,
+                ) <= (
+                    w[1].name_id,
+                    w[1].platform_id,
+                    w[1].encoding_id,
+                    w[1].language_id,
+                )
+            }),
+            "name entries should be sorted"
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.name_id == 1 && !e.value.is_empty())
+        );
     }
 
     #[test]

@@ -40,11 +40,12 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
     let info = font.get_font_info().context("获取字体信息失败")?;
 
     println!("\n{}", "基本信息:".bold());
+    println!("  格式:         {}", info.format);
     println!("  字形数量:     {}", info.glyph_count);
     println!("  Units per EM: {}", info.units_per_em);
     println!(
         "  边界框:       [{}, {}, {}, {}]",
-        info.x_min, info.y_min, info.x_max, info.y_max
+        info.bbox.0, info.bbox.1, info.bbox.2, info.bbox.3
     );
 
     if let Some(version) = &info.version {
@@ -108,20 +109,27 @@ fn output_json(font: &Font, verbose: bool) -> Result<()> {
     let info = font.get_font_info().context("获取字体信息失败")?;
 
     let mut result = json!({
+        "format": info.format.to_string(),
         "glyph_count": info.glyph_count,
         "units_per_em": info.units_per_em,
         "bbox": {
-            "x_min": info.x_min,
-            "y_min": info.y_min,
-            "x_max": info.x_max,
-            "y_max": info.y_max,
+            "x_min": info.bbox.0,
+            "y_min": info.bbox.1,
+            "x_max": info.bbox.2,
+            "y_max": info.bbox.3,
         },
         "horizontal_metrics": {
             "ascender": info.ascender,
             "descender": info.descender,
             "line_gap": info.line_gap,
         },
-        // "supported_characters_count": font.get_supported_characters().len(),
+        "family": info.family,
+        "subfamily": info.subfamily,
+        "designer": info.designer,
+        "manufacturer": info.manufacturer,
+        "copyright": info.copyright,
+        "postscript_name": info.postscript_name,
+        "supported_char_count": info.supported_char_count,
     });
 
     if let Some(version) = &info.version

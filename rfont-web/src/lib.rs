@@ -35,19 +35,19 @@ pub struct TableInfoJs {
 /// 前端 `JSON.parse` 后使用。
 #[derive(Serialize)]
 pub struct FontInfoJs {
-    pub family_name: Option<String>,
-    pub style_name: Option<String>,
+    pub format: String,
+    pub family: Option<String>,
+    pub subfamily: Option<String>,
     pub version: Option<String>,
+    pub designer: Option<String>,
+    pub copyright: Option<String>,
     pub glyph_count: u16,
     pub units_per_em: u16,
     pub supported_char_count: usize,
     pub ascender: i16,
     pub descender: i16,
     pub line_gap: i16,
-    pub x_min: i16,
-    pub y_min: i16,
-    pub x_max: i16,
-    pub y_max: i16,
+    pub bbox: (i16, i16, i16, i16),
     pub tables: Vec<TableInfoJs>,
 }
 
@@ -65,19 +65,19 @@ pub fn font_info(data: &[u8]) -> Result<String, JsValue> {
     let info = font.get_font_info().map_err(to_js_error)?;
 
     let js = FontInfoJs {
-        family_name: info.family_name,
-        style_name: info.style_name,
+        format: info.format.to_string(),
+        family: info.family,
+        subfamily: info.subfamily,
         version: info.version,
+        designer: info.designer,
+        copyright: info.copyright,
         glyph_count: info.glyph_count,
         units_per_em: info.units_per_em,
         supported_char_count: info.supported_char_count,
         ascender: info.ascender,
         descender: info.descender,
         line_gap: info.line_gap,
-        x_min: info.x_min,
-        y_min: info.y_min,
-        x_max: info.x_max,
-        y_max: info.y_max,
+        bbox: info.bbox,
         tables: info
             .tables
             .iter()

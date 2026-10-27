@@ -12,11 +12,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("📄 字体基本信息");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("字体格式:       {}", info.format);
     println!("字形总数:       {}", info.glyph_count);
     println!("每 EM 单位数:   {}", info.units_per_em);
     println!(
         "边界框:         ({}, {}) - ({}, {})",
-        info.x_min, info.y_min, info.x_max, info.y_max
+        info.bbox.0, info.bbox.1, info.bbox.2, info.bbox.3
     );
     println!();
 
