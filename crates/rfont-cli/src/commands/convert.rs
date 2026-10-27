@@ -10,12 +10,14 @@ pub fn run(
     output: Option<&Path>,
     format: &str,
     compression: Option<u8>,
+    face: usize,
 ) -> Result<()> {
     let span = span!(Level::INFO, "convert_command",
                      input = ?input,
                      output = ?output,
                      format = format,
-                     compression = ?compression);
+                     compression = ?compression,
+                     face = face);
     let _enter = span.enter();
 
     debug!("开始字体格式转换");
@@ -39,16 +41,11 @@ pub fn run(
     // 加载字体
     println!("{}", "📖 加载字体...".bold().cyan());
     debug!("正在加载字体文件");
-    let font =
-        Font::load(input).with_context(|| format!("无法加载字体文件: {}", input.display()))?;
+    let font = Font::load_with_face(input, face)
+        .with_context(|| format!("无法加载字体文件: {}", input.display()))?;
 
-    debug!(
-        glyph_count = font
-            .get_font_info()
-            .context("获取字体信息失败")?
-            .glyph_count,
-        "字体加载成功"
-    );
+    let font_info = font.get_font_info().context("获取字体信息失败")?;
+    debug!(glyph_count = font_info.glyph_count, "字体加载成功");
     println!("  ✓ 成功加载字体");
 
     // 创建进度条
@@ -102,7 +99,12 @@ pub fn run(
     progress.finish_with_message("完成！");
 
     // 计算文件大小变化
-    let original_size = std::fs::metadata(input)?.len();
+    // TTC 输入按提取出的单字面大小对比，避免与整个集合比较
+    let original_size = if font_info.face_count > 1 {
+        font.font_data().as_bytes().len() as u64
+    } else {
+        std::fs::metadata(input)?.len()
+    };
     let converted_size = converted_data.len() as u64;
     let ratio = (converted_size as f64 / original_size as f64) * 100.0;
 

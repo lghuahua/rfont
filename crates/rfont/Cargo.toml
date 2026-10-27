@@ -2,7 +2,7 @@
 name = "rfont"
 version.workspace = true
 edition = "2024"
-description = "高性能字体子集化和转换库，支持 TTF/WOFF/WOFF2 格式"
+description = "高性能字体子集化和转换库，支持 TTF/TTC/WOFF/WOFF2 格式"
 authors = ["lghuahua"]
 license = "MIT"
 repository = "https://github.com/lghuahua/rfont"

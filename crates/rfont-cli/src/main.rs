@@ -69,6 +69,10 @@ enum Commands {
         /// 字体文件路径
         font: PathBuf,
 
+        /// TTC 字体集合中的字面索引（单字体请保持 0）
+        #[arg(long, default_value_t = 0)]
+        face: usize,
+
         /// 以 JSON 格式输出
         #[arg(long)]
         json: bool,
@@ -78,10 +82,20 @@ enum Commands {
         verbose_info: bool,
     },
 
+    /// 列出或提取 TTC 字体集合中的字面
+    Ttc {
+        #[command(subcommand)]
+        command: TtcCommands,
+    },
+
     /// 创建字体子集
     Subset {
         /// 输入字体文件路径
         input: PathBuf,
+
+        /// TTC 字体集合中的字面索引
+        #[arg(long, default_value_t = 0)]
+        face: usize,
 
         /// 输出字体文件路径
         #[arg(short, long)]
@@ -121,6 +135,10 @@ enum Commands {
         /// 输入字体文件路径
         input: PathBuf,
 
+        /// TTC 字体集合中的字面索引
+        #[arg(long, default_value_t = 0)]
+        face: usize,
+
         /// 输出字体文件路径
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -143,11 +161,42 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
+enum TtcCommands {
+    /// 列出集合中的所有字面
+    List {
+        /// TTC 字体文件路径
+        font: PathBuf,
+
+        /// 以 JSON 格式输出
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// 提取指定字面为独立字体
+    Extract {
+        /// TTC 字体文件路径
+        font: PathBuf,
+
+        /// 字面索引（从 0 开始）
+        #[arg(long, default_value_t = 0)]
+        face: usize,
+
+        /// 输出文件路径（默认为 <文件名>.face<N>.ttf/otf）
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 enum BatchCommands {
     /// 批量转换字体格式
     Convert {
         /// 文件匹配模式（支持通配符，如 *.ttf）
         pattern: String,
+
+        /// TTC 字体集合中的字面索引
+        #[arg(long, default_value_t = 0)]
+        face: usize,
 
         /// 目标格式（可指定多个，如 -f woff -f woff2）
         #[arg(short, long = "format", required = true)]
@@ -181,13 +230,21 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Info {
             font,
+            face,
             json,
             verbose_info,
         } => {
-            commands::info::run(&font, json, verbose_info)?;
+            commands::info::run(&font, face, json, verbose_info)?;
         }
+        Commands::Ttc { command } => match command {
+            TtcCommands::List { font, json } => commands::ttc::list(&font, json)?,
+            TtcCommands::Extract { font, face, output } => {
+                commands::ttc::extract(&font, face, output.as_deref())?
+            }
+        },
         Commands::Subset {
             input,
+            face,
             output,
             text,
             text_file,
@@ -218,6 +275,7 @@ fn main() -> Result<()> {
                 commands::subset::SubsetRequest {
                     text: text_source.as_deref(),
                     ranges: &ranges,
+                    face,
                     keep_hinting,
                     keep_post_names,
                     format: &format,
@@ -227,15 +285,17 @@ fn main() -> Result<()> {
         }
         Commands::Convert {
             input,
+            face,
             output,
             format,
             compression,
         } => {
-            commands::convert::run(&input, output.as_deref(), &format, compression)?;
+            commands::convert::run(&input, output.as_deref(), &format, compression, face)?;
         }
         Commands::Batch { command } => match command {
             BatchCommands::Convert {
                 pattern,
+                face,
                 formats,
                 output_dir,
                 compression,
@@ -249,6 +309,7 @@ fn main() -> Result<()> {
                     output_dir,
                     compression,
                     overwrite,
+                    face,
                     #[cfg(feature = "parallel")]
                     jobs,
                 };

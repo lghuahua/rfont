@@ -13,6 +13,7 @@ pub struct BatchConvertArgs {
     pub output_dir: Option<PathBuf>, // 输出目录
     pub compression: Option<u8>,     // 压缩级别（不指定则按格式自动选择最优值）
     pub overwrite: bool,             // 是否覆盖已存在的文件
+    pub face: usize,                 // TTC 字面索引
     #[cfg(feature = "parallel")]
     pub jobs: Option<usize>, // 并行任务数
 }
@@ -110,38 +111,14 @@ pub fn run(args: &BatchConvertArgs) -> Result<()> {
             .num_threads(jobs)
             .build_global()
             .ok();
-        process_files_parallel(
-            &files,
-            &args.formats,
-            &args.output_dir,
-            args.compression,
-            args.overwrite,
-            &multi_progress,
-            &overall_progress,
-        )?
+        process_files_parallel(&files, args, &multi_progress, &overall_progress)?
     } else {
         // 使用默认线程数（CPU 核心数）
-        process_files_parallel(
-            &files,
-            &args.formats,
-            &args.output_dir,
-            args.compression,
-            args.overwrite,
-            &multi_progress,
-            &overall_progress,
-        )?
+        process_files_parallel(&files, args, &multi_progress, &overall_progress)?
     };
 
     #[cfg(not(feature = "parallel"))]
-    let all_results = process_files_sequential(
-        &files,
-        &args.formats,
-        &args.output_dir,
-        args.compression,
-        args.overwrite,
-        &multi_progress,
-        &overall_progress,
-    );
+    let all_results = process_files_sequential(&files, args, &multi_progress, &overall_progress);
 
     overall_progress.finish_with_message("批量转换完成！");
 
@@ -197,18 +174,16 @@ fn find_font_files(pattern: &str) -> Result<Vec<PathBuf>> {
 fn convert_single_file(
     input_path: &Path,
     format: &str,
-    output_dir: &Option<PathBuf>,
-    compression: Option<u8>,
-    overwrite: bool,
+    args: &BatchConvertArgs,
     progress: &ProgressBar,
 ) -> ConvertResult {
     progress.inc(10);
 
     // 确定输出路径
-    let output_path = determine_output_path(input_path, format, output_dir);
+    let output_path = determine_output_path(input_path, format, &args.output_dir);
 
     // 检查文件是否已存在
-    if output_path.exists() && !overwrite {
+    if output_path.exists() && !args.overwrite {
         return ConvertResult {
             input_path: input_path.to_path_buf(),
             output_path,
@@ -223,7 +198,7 @@ fn convert_single_file(
     progress.set_message("加载中...");
 
     // 加载字体
-    let font = match Font::load(input_path) {
+    let font = match Font::load_with_face(input_path, args.face) {
         Ok(f) => f,
         Err(e) => {
             return ConvertResult {
@@ -241,7 +216,7 @@ fn convert_single_file(
     progress.set_message("转换中...");
 
     // 执行转换
-    let converted_data = match perform_conversion(&font, format, compression) {
+    let converted_data = match perform_conversion(&font, format, args.compression) {
         Ok(data) => data,
         Err(e) => {
             return ConvertResult {
@@ -427,10 +402,7 @@ fn format_size(bytes: u64) -> String {
 /// 串行处理文件（未启用 parallel feature 时使用）
 fn process_files_sequential(
     files: &[PathBuf],
-    formats: &[String],
-    output_dir: &Option<PathBuf>,
-    compression: Option<u8>,
-    overwrite: bool,
+    args: &BatchConvertArgs,
     multi_progress: &MultiProgress,
     overall_progress: &ProgressBar,
 ) -> Vec<ConvertResult> {
@@ -446,7 +418,7 @@ fn process_files_sequential(
 
         overall_progress.set_message(format!("处理 {}/{}: {}", index + 1, files.len(), filename));
 
-        for format in formats {
+        for format in &args.formats {
             let file_progress =
                 multi_progress.insert_after(overall_progress, ProgressBar::new(100));
             file_progress.set_style(
@@ -457,14 +429,7 @@ fn process_files_sequential(
             );
             file_progress.set_message(format!("{} → {}", filename, format.to_uppercase()));
 
-            let result = convert_single_file(
-                input_path,
-                format,
-                output_dir,
-                compression,
-                overwrite,
-                &file_progress,
-            );
+            let result = convert_single_file(input_path, format, args, &file_progress);
 
             file_progress.finish_and_clear();
             overall_progress.inc(1);
@@ -480,10 +445,7 @@ fn process_files_sequential(
 #[cfg(feature = "parallel")]
 fn process_files_parallel(
     files: &[PathBuf],
-    formats: &[String],
-    output_dir: &Option<PathBuf>,
-    compression: Option<u8>,
-    overwrite: bool,
+    args: &BatchConvertArgs,
     multi_progress: &MultiProgress,
     overall_progress: &ProgressBar,
 ) -> Result<Vec<ConvertResult>> {
@@ -492,24 +454,18 @@ fn process_files_parallel(
 
     // 创建线程安全的进度计数器
     let completed = Mutex::new(0u64);
-    let total = (files.len() * formats.len()) as u64;
+    let total = (files.len() * args.formats.len()) as u64;
 
     // 并行处理所有文件和格式的组合
     let results: Vec<ConvertResult> = files
         .par_iter()
         .flat_map(|input_path| {
-            formats
+            args.formats
                 .par_iter()
                 .map(|format| {
                     // 注意：并行模式下不使用单个文件的进度条，因为会混乱
                     // 只更新总体进度
-                    let result = convert_single_file_simple(
-                        input_path,
-                        format,
-                        output_dir,
-                        compression,
-                        overwrite,
-                    );
+                    let result = convert_single_file_simple(input_path, format, args);
 
                     // 更新总体进度
                     {
@@ -533,14 +489,12 @@ fn process_files_parallel(
 fn convert_single_file_simple(
     input_path: &Path,
     format: &str,
-    output_dir: &Option<PathBuf>,
-    compression: Option<u8>,
-    overwrite: bool,
+    args: &BatchConvertArgs,
 ) -> ConvertResult {
     let original_size = std::fs::metadata(input_path).unwrap().len();
 
     // 加载字体
-    let font = match Font::load(input_path) {
+    let font = match Font::load_with_face(input_path, args.face) {
         Ok(f) => f,
         Err(e) => {
             return ConvertResult {
@@ -555,10 +509,10 @@ fn convert_single_file_simple(
     };
 
     // 确定输出路径
-    let output_path = determine_output_path(input_path, format, output_dir);
+    let output_path = determine_output_path(input_path, format, &args.output_dir);
 
     // 检查是否已存在
-    if !overwrite && output_path.exists() {
+    if !args.overwrite && output_path.exists() {
         return ConvertResult {
             input_path: input_path.to_path_buf(),
             output_path,
@@ -570,7 +524,7 @@ fn convert_single_file_simple(
     }
 
     // 执行转换
-    match perform_conversion(&font, format, compression) {
+    match perform_conversion(&font, format, args.compression) {
         Ok(data) => {
             let converted_size = data.len() as u64;
             if let Err(e) = std::fs::write(&output_path, &data) {

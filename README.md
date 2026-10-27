@@ -6,7 +6,7 @@
 [![Web Demo](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E4%BD%93%E9%AA%8C-Web%20Demo-brightgreen)](https://lghuahua.github.io/rfont/)
 [![Deploy Web](https://github.com/lghuahua/rfont/actions/workflows/deploy-web.yml/badge.svg)](https://github.com/lghuahua/rfont/actions/workflows/deploy-web.yml)
 
-一个基于 Rust 开发的高性能字体子集化和转换命令行工具，支持 TTF、WOFF 和 WOFF2 格式。
+一个基于 Rust 开发的高性能字体子集化和转换命令行工具，支持 TTF、TTC、WOFF 和 WOFF2 格式。
 
 ## 在线体验
 
@@ -16,7 +16,8 @@
 
 ## 功能特性
 
-- ✅ **多格式支持**：支持 TrueType (TTF)、WOFF 和 WOFF2
+- ✅ **多格式支持**：支持 TrueType (TTF)、TTC 字体集合、WOFF 和 WOFF2
+- ✅ **字体集合**：列出 TTC 中的字面、按索引提取，或用 `--face` 指定字面处理
 - ✅ **智能子集化**：根据指定文字生成精简的字体文件，大幅减小体积
 - ✅ **格式转换**：在 TTF、WOFF、WOFF2 之间互相转换
 - ✅ **批量处理**：支持批量转换多个字体文件
@@ -90,7 +91,27 @@ rfont -vv info font.ttf
 rfont info font.ttf --verbose-info
 ```
 
-### 2. 创建字体子集
+### 2. 处理 TTC 字体集合
+
+```bash
+# 列出集合中的字面
+rfont ttc list collection.ttc
+
+# JSON 输出
+rfont ttc list collection.ttc --json
+
+# 提取指定字面为独立字体（默认输出 collection.face1.ttf）
+rfont ttc extract collection.ttc --face 1 -o face1.ttf
+
+# 直接查看 / 子集化 / 转换集合中的某个字面
+rfont info collection.ttc --face 1
+rfont subset collection.ttc --face 1 --text "你好世界" -o subset.ttf
+rfont convert collection.ttc --face 1 --format woff2 -o face1.woff2
+```
+
+`--face` 从 0 开始计数；对普通单字体文件保持默认 `0` 即可。
+
+### 3. 创建字体子集
 
 ```bash
 # 基本用法
@@ -108,7 +129,7 @@ rfont -vv subset font.ttf --text "你好世界" -o subset.ttf
 - 子集字体：2.6 KB（5 个字形）
 - 压缩率：**99.9%** 🎉
 
-### 3. 格式转换
+### 4. 格式转换
 
 ```bash
 # TTF → WOFF
@@ -121,11 +142,14 @@ rfont convert font.ttf --format woff2 -o font.woff2
 rfont convert font.woff --format ttf -o font.ttf
 ```
 
-### 4. 批量转换
+### 5. 批量转换
 
 ```bash
 # 批量转换目录下所有 TTF 为 WOFF2
 rfont batch convert "fonts/*.ttf" --format woff2
+
+# TTC 默认处理第 0 个字面，可用 --face 指定
+rfont batch convert "fonts/*.ttc" --face 1 --format woff2
 
 # 同时转换为多种格式
 rfont batch convert "*.ttf" --format woff --format woff2
@@ -183,13 +207,14 @@ RUST_LOG=error rfont subset font.ttf --text "Hello"
 | TTF（TrueType 轮廓，`glyf`/`loca`） | ✅ | ✅ | ✅ |
 | WOFF（TrueType 轮廓） | ✅ | ✅ | ✅ |
 | WOFF2（TrueType 轮廓） | ✅ | ✅ | ✅ |
+| TTC/OTC（TrueType 轮廓） | ✅（`--face`） | ✅（`--face`） | ✅（`--face`） |
 | OTF（CFF 轮廓） | ❌ | ❌ | ❌ |
-| TTC / OTC（字体集合） | ❌ | ❌ | ❌ |
+| TTC/OTC（CFF 轮廓） | ❌ | ❌ | ❌ |
 
 ### 已知限制
 
-- 只处理 TrueType 轮廓（`glyf`/`loca`）。CFF 轮廓的 OTF 暂不支持加载，会在缺少 `loca` 表时返回错误。
-- 尚未支持 TTC/OTC 字体集合，需要先将其中的单个字面提取为独立字体。
+- 只处理 TrueType 轮廓（`glyf`/`loca`）。CFF 轮廓的 OTF 及其 TTC 集合暂不支持，会在缺少 `loca` 表时返回错误。
+- TTC 只支持按字面单独处理，不会直接输出新的集合文件。
 - WOFF2 使用 Brotli 压缩；文本类子集建议优先输出 WOFF2，体积更小。
 
 

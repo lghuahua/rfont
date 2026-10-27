@@ -4,14 +4,13 @@ use rfont::Font;
 use std::path::Path;
 use tracing::{Level, debug, info, span};
 
-pub fn run(font_path: &Path, json: bool, verbose: bool) -> Result<()> {
-    let span =
-        span!(Level::INFO, "info_command", path = ?font_path, json = json, verbose = verbose);
+pub fn run(font_path: &Path, face: usize, json: bool, verbose: bool) -> Result<()> {
+    let span = span!(Level::INFO, "info_command", path = ?font_path, face = face, json = json, verbose = verbose);
     let _enter = span.enter();
 
     debug!("开始加载字体文件");
 
-    let font = Font::load(font_path)
+    let font = Font::load_with_face(font_path, face)
         .with_context(|| format!("无法加载字体文件: {}", font_path.display()))?;
 
     debug!(glyph_count = font.maxp().num_glyphs, "字体加载成功");
@@ -37,6 +36,13 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
 
     println!("\n{}", "基本信息:".bold());
     println!("  格式:          {}", info.format);
+    if info.face_count > 1 {
+        println!(
+            "  字面:          {}/{}",
+            info.face_index + 1,
+            info.face_count
+        );
+    }
     println!("  字形数量:      {}", info.glyph_count);
     println!("  Units per EM:  {}", info.units_per_em);
     println!("  支持的字符:    {}", info.supported_char_count);

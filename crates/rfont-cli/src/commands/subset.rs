@@ -9,6 +9,7 @@ use tracing::{Level, debug, info, span, warn};
 pub struct SubsetRequest<'a> {
     pub text: Option<&'a str>,
     pub ranges: &'a [String],
+    pub face: usize,
     pub keep_hinting: bool,
     pub keep_post_names: bool,
     pub format: &'a str,
@@ -19,6 +20,7 @@ pub fn run(input: &Path, output: Option<&Path>, request: SubsetRequest<'_>) -> R
     let SubsetRequest {
         text,
         ranges,
+        face,
         keep_hinting,
         keep_post_names,
         format,
@@ -28,7 +30,8 @@ pub fn run(input: &Path, output: Option<&Path>, request: SubsetRequest<'_>) -> R
                      input = ?input,
                      output = ?output,
                      format = format,
-                     compression = ?compression);
+                     compression = ?compression,
+                     face = face);
     let _enter = span.enter();
 
     debug!("开始字体子集化处理");
@@ -37,8 +40,8 @@ pub fn run(input: &Path, output: Option<&Path>, request: SubsetRequest<'_>) -> R
     println!("{}", "📖 加载字体...".bold().cyan());
     debug!("正在加载字体文件: {:?}", input);
 
-    let font =
-        Font::load(input).with_context(|| format!("无法加载字体文件: {}", input.display()))?;
+    let font = Font::load_with_face(input, face)
+        .with_context(|| format!("无法加载字体文件: {}", input.display()))?;
 
     debug!(glyph_count = font.maxp().num_glyphs, "字体加载成功");
     println!("  ✓ 成功加载字体");
@@ -153,7 +156,12 @@ pub fn run(input: &Path, output: Option<&Path>, request: SubsetRequest<'_>) -> R
     debug!("文件写入成功");
 
     // 计算压缩率
-    let original_size = std::fs::metadata(input)?.len();
+    // TTC 输入按提取出的单字面大小对比，避免与整个集合比较
+    let original_size = if font_info.face_count > 1 {
+        font.font_data().as_bytes().len() as u64
+    } else {
+        std::fs::metadata(input)?.len()
+    };
     let subset_size = subset_data.len() as u64;
     let ratio = (subset_size as f64 / original_size as f64) * 100.0;
     let saved = original_size - subset_size;
