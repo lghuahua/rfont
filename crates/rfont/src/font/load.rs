@@ -97,9 +97,9 @@ impl Font {
         })
     }
 
-    /// 从内存字节加载字体（支持 TTF、WOFF 和 WOFF2）
+    /// 从内存字节加载单个字体（支持 TTF、WOFF 和 WOFF2）
     ///
-    /// 与 [`Font::load`] 不同，此方法不依赖文件系统，直接解析传入的字节数据，
+    /// TTC/OTC 字体集合请使用 [`Font::from_bytes_with_face`] 并指定字面索引。
     /// 适用于 WASM、网络传输、内嵌字节等没有文件路径的场景。
     ///
     /// 自动检测格式：`wOF2` → WOFF2，`wOFF` → WOFF，其余按 TTF/OTF 解析。
@@ -141,7 +141,7 @@ impl Font {
                 Self::load_woff(data)
             }
             b"ttcf" => Err(FontError::InvalidFileFormat {
-                reason: "暂不支持 TTC 字体集合，请先提取单个字面".to_string(),
+                reason: "TTC 字体集合请使用 Font::from_bytes_with_face 指定字面索引".to_string(),
                 actual_length: data.len(),
             }),
             _ => {
@@ -154,6 +154,37 @@ impl Font {
                 Self::load_ttf(data, format)
             }
         }
+    }
+
+    /// 从内存字节加载字体，并支持 TTC 集合的字面选择。
+    ///
+    /// 非集合字体只接受 `face == 0`；TTC 会提取对应字面后解析。
+    /// 返回字体的 `face_index`/`face_count` 会保留集合位置信息。
+    pub fn from_bytes_with_face(data: &[u8], face: usize) -> Result<Self, FontError> {
+        if crate::FontCollection::is_collection(data) {
+            crate::FontCollection::from_bytes(data.to_vec())?.face(face)
+        } else if face == 0 {
+            Self::from_bytes(data)
+        } else {
+            Err(FontError::FaceIndexOutOfRange {
+                index: face,
+                count: 1,
+            })
+        }
+    }
+
+    /// 从文件路径加载字体，并支持 TTC 集合的字面选择。
+    pub fn load_with_face(path: impl AsRef<Path>, face: usize) -> Result<Self, FontError> {
+        let path = path.as_ref();
+        let data = std::fs::read(path).map_err(|e| FontError::FontLoad {
+            path: path.to_path_buf(),
+            source: Box::new(FontError::Io(e)),
+        })?;
+
+        Self::from_bytes_with_face(&data, face).map_err(|e| FontError::FontLoad {
+            path: path.to_path_buf(),
+            source: Box::new(e),
+        })
     }
 
     /// 加载 TTF 格式字体（预加载核心表）

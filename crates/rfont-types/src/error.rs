@@ -13,6 +13,13 @@ pub enum FontError {
         actual_length: usize,
     },
 
+    // ==================== 字体集合错误 ====================
+    #[error("Invalid TTC collection: {reason}")]
+    TtcInvalid { reason: String },
+
+    #[error("TTC face index {index} out of range (expected 0..{count})")]
+    FaceIndexOutOfRange { index: usize, count: usize },
+
     // ==================== 表相关错误 ====================
     #[error("Table '{tag}' not found in font")]
     TableNotFound { tag: String },
@@ -123,6 +130,11 @@ impl FontError {
             }
             FontError::UnexpectedEndOfData { .. } => Some("文件被截断或不完整，请确保文件完整下载"),
             FontError::TableTooShort { .. } => Some("字体表长度不足，文件可能已损坏"),
+            FontError::TtcInvalid { .. } => Some("TTC 文件头或字面偏移无效，文件可能已损坏"),
+            FontError::FaceIndexOutOfRange { count, .. } => Some(match *count {
+                0 => "该集合没有可用字面",
+                _ => "请选择 0 到字面数量减一之间的索引",
+            }),
             FontError::WoffDecompressionError { .. } => {
                 Some("WOFF 解压缩失败，文件可能损坏或使用了不支持的压缩算法")
             }

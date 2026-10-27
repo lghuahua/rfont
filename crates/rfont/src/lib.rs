@@ -1,9 +1,11 @@
+mod collection;
 mod font;
 mod font_data;
 mod info;
 mod subset;
 
 // 重新导出公共 API
+pub use collection::{FaceSummary, FontCollection};
 pub use font::Font;
 pub use font::GlyphIterator;
 pub use font_data::FontData;
