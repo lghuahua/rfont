@@ -274,7 +274,11 @@ impl Font {
             all_tables.push((tag, data));
         }
 
-        let final_font = assemble_ttf(&mut all_tables)?;
+        let flavor = self
+            .font_data
+            .sfnt_flavor()
+            .unwrap_or(rfont_types::SFNT_VERSION_TTF);
+        let final_font = assemble_ttf(flavor, &all_tables)?;
 
         info!(size = final_font.len(), "子集字体生成完成");
 

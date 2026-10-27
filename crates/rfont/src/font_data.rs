@@ -78,6 +78,13 @@ impl FontData {
         &self.data
     }
 
+    /// SFNT flavor（TrueType 为 0x00010000，CFF 为 'OTTO'）。
+    pub fn sfnt_flavor(&self) -> Option<u32> {
+        self.data
+            .get(0..4)
+            .map(|bytes| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    }
+
     /// 获取表的原始字节（带懒加载缓存）
     ///
     /// 如果表数据已在缓存中，直接返回；否则从原始数据中提取。

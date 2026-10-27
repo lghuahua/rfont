@@ -99,7 +99,7 @@ impl WriteBytes for LONGDATETIME {
 }
 
 /// 4-byte OpenType tag.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Tag(pub [u8; 4]);
 
 impl Tag {

@@ -1,7 +1,9 @@
 pub mod checksum;
+pub mod sfnt;
 pub mod tables;
 
 pub use checksum::calc_sfnt_checksum;
+pub use sfnt::{SfntRepack, assemble_sfnt, table_header_fields};
 
 pub use tables::cmap::Cmap;
 pub use tables::glyf::{GlyfRecord, GlyphData};

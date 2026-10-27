@@ -39,22 +39,13 @@ impl Woff2Header {
     }
 
     pub fn to_ttf_offset_table(&self) -> Vec<u8> {
-        let mut data = Vec::with_capacity(10);
+        let mut data = Vec::with_capacity(12);
         data.extend_from_slice(&self.flavor.to_be_bytes());
         data.extend_from_slice(&self.num_tables.to_be_bytes());
 
-        // 计算 searchRange, entrySelector, rangeShift
-        let num_tables = self.num_tables as u32;
-        let max_pow2: u32 = if num_tables > 0 {
-            1 << (31 - num_tables.leading_zeros())
-        } else {
-            1
-        };
-        let search_range = max_pow2 * 16;
-        let entry_selector = max_pow2.trailing_zeros() as u16;
-        let range_shift = (num_tables * 16).saturating_sub(search_range) as u16;
-
-        data.extend_from_slice(&(search_range as u16).to_be_bytes());
+        let (search_range, entry_selector, range_shift) =
+            crate::sfnt::table_header_fields(self.num_tables);
+        data.extend_from_slice(&search_range.to_be_bytes());
         data.extend_from_slice(&entry_selector.to_be_bytes());
         data.extend_from_slice(&range_shift.to_be_bytes());
         data
