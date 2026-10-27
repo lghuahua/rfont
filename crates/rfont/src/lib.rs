@@ -1,4 +1,6 @@
+mod clock;
 mod collection;
+mod edit;
 mod font;
 mod font_data;
 mod info;
@@ -6,6 +8,7 @@ mod subset;
 
 // 重新导出公共 API
 pub use collection::{FaceSummary, FontCollection};
+pub use edit::FontMetaEdit;
 pub use font::Font;
 pub use font::GlyphIterator;
 pub use font_data::FontData;

@@ -12,7 +12,8 @@ pub use tables::hhea::Hhea;
 pub use tables::hmtx::{Hmtx, HmtxRecord};
 pub use tables::loca::Loca;
 pub use tables::maxp::Maxp;
-pub use tables::name::{NameId, NameRecord, NameTable, NameVersion, PlatformId};
+pub use tables::name::build_name_table;
+pub use tables::name::{NameEdit, NameId, NameRecord, NameTable, NameVersion, PlatformId};
 
 pub fn pad4(data: &mut Vec<u8>) {
     while !data.len().is_multiple_of(4) {

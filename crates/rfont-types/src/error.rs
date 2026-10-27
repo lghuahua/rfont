@@ -55,6 +55,9 @@ pub enum FontError {
     #[error("Unsupported output format: {format}")]
     UnsupportedOutputFormat { format: String },
 
+    #[error("Invalid PostScript name: {reason}")]
+    InvalidPostScriptName { reason: String },
+
     #[error("Unexpected end of data at offset {offset}, needed {needed} bytes{context}", context = context.as_ref().map(|c| format!(" (in {})", c)).unwrap_or_default())]
     UnexpectedEndOfData {
         offset: usize,
@@ -138,6 +141,9 @@ impl FontError {
             FontError::TableTooShort { .. } => Some("字体表长度不足，文件可能已损坏"),
             FontError::NoGlyphsFound => Some("请确认输入的文字在该字体中存在对应字形"),
             FontError::UnsupportedOutputFormat { .. } => Some("支持的输出格式为 ttf、woff、woff2"),
+            FontError::InvalidPostScriptName { .. } => Some(
+                "PostScript 名称只能包含 ASCII 可见字符，长度不超过 63，且不能包含空格与 [] {} () < > / %",
+            ),
             FontError::TtcInvalid { .. } => Some("TTC 文件头或字面偏移无效，文件可能已损坏"),
             FontError::FaceIndexOutOfRange { count, .. } => Some(match *count {
                 0 => "该集合没有可用字面",

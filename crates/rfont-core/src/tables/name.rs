@@ -355,6 +355,105 @@ impl WriteBytes for NameTable {
     }
 }
 
+/// 名称表编辑项：(nameID, 新的字符串值)
+pub type NameEdit = (u16, String);
+
+/// Windows 平台 ID
+const PLATFORM_WINDOWS: u16 = 3;
+/// Windows Unicode BMP 编码 ID
+const ENCODING_UNICODE_BMP: u16 = 1;
+/// en-US 语言 ID
+const LANGUAGE_EN_US: u16 = 0x0409;
+
+/// 把字符串编码为 UTF-16BE 字节
+fn encode_utf16be(value: &str) -> Vec<u8> {
+    value
+        .encode_utf16()
+        .flat_map(|unit| unit.to_be_bytes())
+        .collect()
+}
+
+/// 按编辑项重建 name 表并序列化。
+///
+/// 同 nameID 的既有记录会被全部替换为一条 Windows/Unicode(en-US) 记录，
+/// 未被编辑的记录原样保留。字体没有 name 表时按编辑项新建。
+///
+/// # 参数
+/// - `existing`: 原 name 表，字体可能没有该表
+/// - `edits`: 待写入的 `(nameID, 值)` 列表
+pub fn build_name_table(
+    existing: Option<&NameTable>,
+    edits: &[NameEdit],
+) -> Result<Vec<u8>, FontError> {
+    let mut records: Vec<NameRecord> = Vec::new();
+    let mut strings: Vec<u8> = Vec::new();
+
+    // 保留未被编辑的记录
+    if let Some(table) = existing {
+        for record in table.records() {
+            if edits.iter().any(|(name_id, _)| *name_id == record.name_id) {
+                continue;
+            }
+
+            let bytes = table.get_string(record).unwrap_or(&[]);
+            let offset = strings.len();
+            strings.extend_from_slice(bytes);
+            // UTF-16 字符串必须按 2 字节对齐，Mac 单字节字符串可能是奇数长度
+            if bytes.len() % 2 == 1 {
+                strings.push(0);
+            }
+
+            records.push(NameRecord {
+                platform_id: record.platform_id,
+                encoding_id: record.encoding_id,
+                language_id: record.language_id,
+                name_id: record.name_id,
+                length: bytes.len() as u16,
+                offset: offset as u16,
+            });
+        }
+    }
+
+    // 追加编辑后的记录
+    for (name_id, value) in edits {
+        let encoded = encode_utf16be(value);
+        let offset = strings.len();
+        strings.extend_from_slice(&encoded);
+
+        records.push(NameRecord {
+            platform_id: PLATFORM_WINDOWS,
+            encoding_id: ENCODING_UNICODE_BMP,
+            language_id: LANGUAGE_EN_US,
+            name_id: *name_id,
+            length: encoded.len() as u16,
+            offset: offset as u16,
+        });
+    }
+
+    // name 表的字符串区偏移与长度都是 u16
+    if strings.len() > u16::MAX as usize {
+        return Err(FontError::Generic(
+            "name: string storage exceeds 65535 bytes".to_string(),
+        ));
+    }
+    if records.len() > u16::MAX as usize {
+        return Err(FontError::Generic("name: too many records".to_string()));
+    }
+
+    let name = Name {
+        version: NameVersion::V0,
+        count: records.len() as u16,
+        string_offset: 0,
+        records,
+        lang_tag_records: Vec::new(),
+        strings,
+    };
+
+    let mut writer = Writer::new();
+    name.write_to(&mut writer)?;
+    Ok(writer.data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -657,5 +756,131 @@ mod tests {
         assert_eq!(restored.version(), original.version());
         assert_eq!(restored.count(), original.count());
         assert_eq!(restored.records().len(), original.records().len());
+    }
+
+    fn build_test_table(records: Vec<NameRecord>, strings: Vec<u8>) -> NameTable {
+        NameTable::new(rfont_types::name::Name {
+            version: NameVersion::V0,
+            count: records.len() as u16,
+            string_offset: 0,
+            records,
+            lang_tag_records: Vec::new(),
+            strings,
+        })
+    }
+
+    #[test]
+    fn test_build_name_table_replaces_edited_name_id() {
+        let existing = build_test_table(
+            vec![NameRecord {
+                platform_id: 3,
+                encoding_id: 1,
+                language_id: 0x0409,
+                name_id: 1,
+                length: 14,
+                offset: 0,
+            }],
+            encode_utf16be("OldFont"),
+        );
+
+        let bytes = build_name_table(Some(&existing), &[(1, "NewFont".to_string())]).unwrap();
+
+        let mut reader = Reader::new(&bytes);
+        let table = NameTable::read_from(&mut reader).unwrap();
+
+        assert_eq!(table.count(), 1);
+        assert_eq!(table.get_name_string(1).as_deref(), Some("NewFont"));
+    }
+
+    #[test]
+    fn test_build_name_table_keeps_unedited_records() {
+        let existing = build_test_table(
+            vec![
+                NameRecord {
+                    platform_id: 3,
+                    encoding_id: 1,
+                    language_id: 0x0409,
+                    name_id: 1,
+                    length: 14,
+                    offset: 0,
+                },
+                NameRecord {
+                    platform_id: 3,
+                    encoding_id: 1,
+                    language_id: 0x0409,
+                    name_id: 6,
+                    length: 12,
+                    offset: 14,
+                },
+            ],
+            [encode_utf16be("OldFont"), encode_utf16be("PSName")].concat(),
+        );
+
+        let bytes = build_name_table(Some(&existing), &[(1, "NewFont".to_string())]).unwrap();
+
+        let mut reader = Reader::new(&bytes);
+        let table = NameTable::read_from(&mut reader).unwrap();
+
+        assert_eq!(table.count(), 2);
+        assert_eq!(table.get_name_string(1).as_deref(), Some("NewFont"));
+        assert_eq!(table.get_name_string(6).as_deref(), Some("PSName"));
+    }
+
+    #[test]
+    fn test_build_name_table_without_existing_table() {
+        let bytes = build_name_table(None, &[(1, "Fresh".to_string())]).unwrap();
+
+        let mut reader = Reader::new(&bytes);
+        let table = NameTable::read_from(&mut reader).unwrap();
+
+        assert_eq!(table.count(), 1);
+        assert_eq!(table.get_name_string(1).as_deref(), Some("Fresh"));
+    }
+
+    #[test]
+    fn test_build_name_table_encodes_utf16be() {
+        let bytes = build_name_table(None, &[(1, "中文".to_string())]).unwrap();
+
+        let mut reader = Reader::new(&bytes);
+        let table = NameTable::read_from(&mut reader).unwrap();
+
+        assert_eq!(table.get_name_string(1).as_deref(), Some("中文"));
+    }
+
+    #[test]
+    fn test_build_name_table_keeps_offsets_even() {
+        // Mac 单字节字符串长度为奇数，后续 UTF-16 字符串的偏移仍需按 2 字节对齐
+        let existing = build_test_table(
+            vec![
+                NameRecord {
+                    platform_id: 1,
+                    encoding_id: 0,
+                    language_id: 0,
+                    name_id: 1,
+                    length: 3,
+                    offset: 0,
+                },
+                NameRecord {
+                    platform_id: 3,
+                    encoding_id: 1,
+                    language_id: 0x0409,
+                    name_id: 6,
+                    length: 4,
+                    offset: 3,
+                },
+            ],
+            [b"abc".to_vec(), encode_utf16be("PS")].concat(),
+        );
+
+        let bytes = build_name_table(Some(&existing), &[(9, "Designer".to_string())]).unwrap();
+
+        let mut reader = Reader::new(&bytes);
+        let table = NameTable::read_from(&mut reader).unwrap();
+
+        for record in table.records() {
+            assert_eq!(record.offset % 2, 0, "记录偏移必须按 2 字节对齐");
+        }
+        assert_eq!(table.get_name_string(9).as_deref(), Some("Designer"));
+        assert_eq!(table.get_name_string(1).as_deref(), Some("abc"));
     }
 }
