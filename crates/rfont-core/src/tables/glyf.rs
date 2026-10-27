@@ -133,10 +133,9 @@ impl GlyfRecord {
 
                 // 如果设置了 Repeat 位 (bit 3)，则后面跟着一个重复次数
                 if flag & FLAG_REPEAT != 0 {
-                    let repeat_count = reader.read_u8()? as usize;
-                    for _ in 0..repeat_count {
-                        flags.push(flag);
-                    }
+                    // 重复次数不能超过剩余点数，否则会溢出
+                    let repeat_count = (reader.read_u8()? as usize).min(remaining);
+                    flags.extend(std::iter::repeat_n(flag, repeat_count));
                     remaining -= repeat_count;
                 }
             }
@@ -602,6 +601,32 @@ mod tests {
     }
 
     // ==================== 复合字形测试 ====================
+
+    #[test]
+    fn test_glyf_simple_glyph_flag_repeat_overflow_is_clamped() {
+        // repeat 次数远超剩余点数时不应溢出或 panic
+        let data = vec![
+            0x00, 0x01, // num_contours = 1
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x0A, // bbox
+            0x00, 0x02, // end_pts_of_contours: [2] -> 3 个点
+            0x00, 0x00, // instruction_length = 0
+            0x3F, 0xFF, // flag（x/y 均为单字节正增量 + repeat）+ repeat count = 255
+            0x01, 0x01, 0x01, // x 增量（单字节正数）
+            0x02, 0x02, 0x02, // y 增量（单字节正数）
+        ];
+
+        let mut reader = Reader::new(&data);
+        let record = GlyfRecord::parse(&mut reader, 0).unwrap();
+
+        match &record.data {
+            GlyphData::Simple(simple) => {
+                assert_eq!(simple.flags.len(), 3);
+                assert_eq!(simple.x_coordinates, vec![1, 2, 3]);
+                assert_eq!(simple.y_coordinates, vec![2, 4, 6]);
+            }
+            _ => panic!("Expected Simple glyph"),
+        }
+    }
 
     #[test]
     fn test_glyf_composite_glyph_basic() {

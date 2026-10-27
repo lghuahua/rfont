@@ -11,6 +11,9 @@ use tracing::{Level, debug, info, span};
 
 use crate::font_data::FontData;
 
+/// 单张表解压后的字节上限，避免畸形文件触发超大内存分配
+const MAX_TABLE_SIZE: usize = 256 * 1024 * 1024;
+
 /// 高层字体对象（预加载核心表）
 ///
 /// `Font` 是 rfont 库的核心结构，代表一个已加载的字体文件。
@@ -80,19 +83,7 @@ impl Font {
 
         debug!(size = data.len(), "字体文件读取完成");
 
-        // 检查是否为 WOFF2 格式
-        if data.len() >= 4 && &data[0..4] == b"wOF2" {
-            info!("检测到 WOFF2 格式");
-            Self::load_woff2(&data).context(format!("解析 WOFF2 字体文件 '{}' 失败", path))
-        }
-        // 检查是否为 WOFF 格式
-        else if data.len() >= 4 && &data[0..4] == b"wOFF" {
-            info!("检测到 WOFF 格式");
-            Self::load_woff(&data).context(format!("解析 WOFF 字体文件 '{}' 失败", path))
-        } else {
-            info!("检测到 TTF/OTF 格式");
-            Self::load_ttf(&data).context(format!("解析 TTF/OTF 字体文件 '{}' 失败", path))
-        }
+        Self::from_bytes(&data).context(format!("解析字体文件 '{}' 失败", path))
     }
 
     /// 从内存字节加载字体（支持 TTF、WOFF 和 WOFF2）
@@ -122,15 +113,30 @@ impl Font {
 
         info!("开始从字节加载字体");
 
-        if data.len() >= 4 && &data[0..4] == b"wOF2" {
-            debug!("检测到 WOFF2 格式");
-            Self::load_woff2(data)
-        } else if data.len() >= 4 && &data[0..4] == b"wOFF" {
-            debug!("检测到 WOFF 格式");
-            Self::load_woff(data)
-        } else {
-            debug!("检测到 TTF/OTF 格式");
-            Self::load_ttf(data)
+        if data.len() < 4 {
+            return Err(FontError::InvalidFileFormat {
+                reason: "文件长度不足 4 字节，无法确定字体格式".to_string(),
+                actual_length: data.len(),
+            });
+        }
+
+        match &data[0..4] {
+            b"wOF2" => {
+                debug!("检测到 WOFF2 格式");
+                Self::load_woff2(data)
+            }
+            b"wOFF" => {
+                debug!("检测到 WOFF 格式");
+                Self::load_woff(data)
+            }
+            b"ttcf" => Err(FontError::InvalidFileFormat {
+                reason: "暂不支持 TTC 字体集合，请先提取单个字面".to_string(),
+                actual_length: data.len(),
+            }),
+            _ => {
+                debug!("检测到 TTF/OTF 格式");
+                Self::load_ttf(data)
+            }
         }
     }
 
@@ -238,24 +244,44 @@ impl Font {
             debug!(tag = ?entry.tag, comp_length = comp_length, orig_length = orig_length, "处理 WOFF 表");
 
             // 读取压缩数据（实际存储时按 4 字节对齐）
-            let start_offset = reader.offset;
             let padded_comp_length = (comp_length + 3) & !3; // 向上取整到 4 字节边界
-            let compressed_data = &data[start_offset..][..padded_comp_length];
-            reader.offset += padded_comp_length;
+
+            if orig_length > MAX_TABLE_SIZE {
+                return Err(FontError::WoffDecompressionError {
+                    message: format!(
+                        "表 {:?} 声明的解压后长度 {} 超过上限 {}",
+                        entry.tag, orig_length, MAX_TABLE_SIZE
+                    ),
+                });
+            }
+
+            let compressed_data = reader.read_bytes(padded_comp_length)?;
 
             // 解压缩（如果未压缩则直接复制）
             let decompressed = if comp_length == orig_length {
                 // 未压缩，直接复制（只取实际长度）
                 compressed_data[..comp_length].to_vec()
             } else {
-                // 已压缩，需要解压（只使用实际压缩长度）
+                // 已压缩，解压时按声明长度截断，防止压缩炸弹
                 let mut decoder = ZlibDecoder::new(&compressed_data[..comp_length]);
-                let mut buf = Vec::with_capacity(orig_length);
-                decoder
+                let mut buf = Vec::with_capacity(orig_length.min(1024 * 1024));
+                (&mut decoder)
+                    .take(orig_length as u64)
                     .read_to_end(&mut buf)
                     .map_err(|e| FontError::WoffDecompressionError {
                         message: format!("Failed to decompress table {:?}: {}", entry.tag, e),
                     })?;
+
+                if buf.len() != orig_length {
+                    return Err(FontError::WoffDecompressionError {
+                        message: format!(
+                            "表 {:?} 解压后长度为 {}，与声明值 {} 不符",
+                            entry.tag,
+                            buf.len(),
+                            orig_length
+                        ),
+                    });
+                }
                 buf
             };
 
@@ -285,12 +311,19 @@ impl Font {
 
         // 解析表目录
         let mut table_entries = Vec::new();
-        let mut transform_size = 0;
+        let mut transform_size: u32 = 0;
         for _ in 0..woff2_header.num_tables {
             let entry = Woff2TableDirectoryEntry::read_from(&mut reader, &WOFF2_KNOWN_TAGS)?;
             debug!(tag = ?entry.tag, orig_length = entry.orig_length, transform_length = entry.transform_length);
 
-            transform_size += entry.transform_length.unwrap_or(entry.orig_length);
+            let entry_size = entry.transform_length.unwrap_or(entry.orig_length);
+            transform_size =
+                transform_size
+                    .checked_add(entry_size)
+                    .ok_or(FontError::InvalidFileFormat {
+                        reason: "WOFF2 表长度累加溢出".to_string(),
+                        actual_length: data.len(),
+                    })?;
             table_entries.push(entry);
         }
 

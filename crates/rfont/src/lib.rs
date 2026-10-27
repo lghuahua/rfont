@@ -53,6 +53,35 @@ pub fn subset_batch_parallel(
 mod tests {
 
     #[test]
+    fn test_from_bytes_rejects_short_input() {
+        use crate::Font;
+        use rfont_types::FontError;
+
+        let err = match Font::from_bytes(&[0x00, 0x01]) {
+            Ok(_) => panic!("expected error for short input"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, FontError::InvalidFileFormat { .. }));
+    }
+
+    #[test]
+    fn test_from_bytes_rejects_ttc_with_clear_error() {
+        use crate::Font;
+        use rfont_types::FontError;
+
+        let err = match Font::from_bytes(b"ttcf\x00\x01\x00\x00") {
+            Ok(_) => panic!("expected error for TTC input"),
+            Err(err) => err,
+        };
+        match err {
+            FontError::InvalidFileFormat { reason, .. } => {
+                assert!(reason.contains("TTC"), "unexpected reason: {reason}");
+            }
+            other => panic!("expected InvalidFileFormat, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_tag_conversion() {
         use rfont_types::Tag;
         let tag = Tag(*b"head");

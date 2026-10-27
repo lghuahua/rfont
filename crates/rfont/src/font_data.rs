@@ -1,25 +1,22 @@
-use once_cell::sync::OnceCell;
 use rfont_types::{FontError, ReadBytes, Reader, TableRecord, Tag};
 use std::collections::HashMap;
 
 /// 原始字体数据和目录信息
 ///
 /// `FontData` 封装了字体的原始二进制数据和表目录信息。
-/// 提供懒加载缓存机制，避免重复解析相同的表数据。
+/// 目录解析阶段已校验每个表的范围，因此后续切片访问不会越界。
 ///
 /// # 注意
 /// 此结构体通常不直接创建，而是通过 `Font::load()` 方法间接使用。
 pub struct FontData {
     data: Vec<u8>,
     table_map: HashMap<Tag, TableRecord>,
-    // 懒加载缓存：存储已解析的表数据
-    parsed_tables: HashMap<Tag, OnceCell<Vec<u8>>>,
 }
 
 impl FontData {
     /// 从字节向量创建（拥有所有权）
     ///
-    /// 解析字体目录并初始化懒加载缓存。
+    /// 解析字体目录并校验所有表的范围。
     ///
     /// # 参数
     /// - `data`: 完整的字体文件数据
@@ -29,18 +26,12 @@ impl FontData {
     /// - `Err(FontError)`: 如果字体格式无效或目录解析失败
     pub fn new(data: Vec<u8>) -> Result<Self, FontError> {
         let table_map = Self::parse_directory(&data)?;
-        let parsed_tables = table_map
-            .keys()
-            .map(|tag| (*tag, OnceCell::new()))
-            .collect();
-        Ok(FontData {
-            data,
-            table_map,
-            parsed_tables,
-        })
+        Ok(FontData { data, table_map })
     }
 
     /// 解析字体目录
+    ///
+    /// 校验目录本身与每个表的范围，避免后续按偏移切片时越界。
     pub(crate) fn parse_directory(data: &[u8]) -> Result<HashMap<Tag, TableRecord>, FontError> {
         let mut reader = Reader::new(data);
 
@@ -51,8 +42,17 @@ impl FontData {
         let _entry_selector = reader.read_u16()?;
         let _range_shift = reader.read_u16()?;
 
+        let directory_end = 12usize + num_tables as usize * 16;
+        if directory_end > data.len() {
+            return Err(FontError::InvalidOffset {
+                table: "table directory".to_string(),
+                offset: directory_end as u32,
+                max: data.len() as u32,
+            });
+        }
+
         // 读取 Table Directory
-        let mut table_map = HashMap::new();
+        let mut table_map = HashMap::with_capacity(num_tables as usize);
         for _ in 0..num_tables {
             let tag_bytes = [
                 reader.read_u8()?,
@@ -67,6 +67,24 @@ impl FontData {
                 offset: reader.read_u32()?,
                 length: reader.read_u32()?,
             };
+
+            let start = record.offset as usize;
+            let end =
+                start
+                    .checked_add(record.length as usize)
+                    .ok_or(FontError::InvalidOffset {
+                        table: tag.to_string(),
+                        offset: record.offset,
+                        max: data.len() as u32,
+                    })?;
+            if end > data.len() {
+                return Err(FontError::InvalidOffset {
+                    table: tag.to_string(),
+                    offset: record.offset,
+                    max: data.len() as u32,
+                });
+            }
+
             table_map.insert(tag, record);
         }
 
@@ -85,70 +103,19 @@ impl FontData {
             .map(|bytes| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 
-    /// 获取表的原始字节（带懒加载缓存）
-    ///
-    /// 如果表数据已在缓存中，直接返回；否则从原始数据中提取。
+    /// 获取表的原始字节
     ///
     /// # 参数
     /// - `tag`: 表标签（如 `Tag(*b"head")`）
     ///
     /// # 返回值
     /// - `Some(&[u8])`: 表的原始字节数据
-    /// - `None`: 如果表中不存在
+    /// - `None`: 如果表不存在
     pub fn get_table_bytes(&self, tag: Tag) -> Option<&[u8]> {
-        self.table_map.get(&tag).map(|record| {
-            // 尝试从缓存获取
-            if let Some(cell) = self.parsed_tables.get(&tag)
-                && let Some(cached) = cell.get()
-            {
-                return cached.as_slice();
-            }
-
-            // 从原始数据提取并缓存
-            let start = record.offset as usize;
-            let end = start + record.length as usize;
-            &self.data[start..end]
-        })
-    }
-
-    /// 预加载指定的表到缓存中
-    ///
-    /// 强制将表数据加载到缓存中，适合需要多次访问同一表的场景。
-    ///
-    /// # 参数
-    /// - `tag`: 要预加载的表标签
-    ///
-    /// # 返回值
-    /// - `Ok(())`: 预加载成功
-    /// - `Err(FontError)`: 如果表不存在或缓存失败
-    pub fn preload_table(&self, tag: Tag) -> Result<(), FontError> {
-        if let Some(record) = self.table_map.get(&tag)
-            && let Some(cell) = self.parsed_tables.get(&tag)
-        {
-            let start = record.offset as usize;
-            let end = start + record.length as usize;
-            let data = self.data[start..end].to_vec();
-            cell.set(data)
-                .map_err(|_| FontError::Generic("Failed to cache table".to_string()))?;
-        }
-        Ok(())
-    }
-
-    /// 预加载多个表
-    ///
-    /// 批量预加载多个表到缓存中。如果任何一个表预加载失败，会立即返回错误。
-    ///
-    /// # 参数
-    /// - `tags`: 要预加载的表标签列表
-    ///
-    /// # 返回值
-    /// - `Ok(())`: 所有表预加载成功
-    /// - `Err(FontError)`: 如果任何表预加载失败
-    pub fn preload_tables(&self, tags: &[Tag]) -> Result<(), FontError> {
-        for &tag in tags {
-            self.preload_table(tag)?;
-        }
-        Ok(())
+        let record = self.table_map.get(&tag)?;
+        let start = record.offset as usize;
+        let end = start.checked_add(record.length as usize)?;
+        self.data.get(start..end)
     }
 
     /// 通用表解析方法
@@ -184,5 +151,68 @@ impl FontData {
     /// HashMap<Tag, TableRecord> 包含所有表的信息
     pub fn get_table_records(&self) -> &HashMap<Tag, TableRecord> {
         &self.table_map
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 构造只含一张表的 SFNT 头部 + 目录，并按需补零到 total_len
+    fn sfnt_with_one_table(offset: u32, length: u32, total_len: usize) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+        data.extend_from_slice(&1u16.to_be_bytes());
+        data.extend_from_slice(&16u16.to_be_bytes());
+        data.extend_from_slice(&0u16.to_be_bytes());
+        data.extend_from_slice(&0u16.to_be_bytes());
+        data.extend_from_slice(b"head");
+        data.extend_from_slice(&0u32.to_be_bytes());
+        data.extend_from_slice(&offset.to_be_bytes());
+        data.extend_from_slice(&length.to_be_bytes());
+        data.resize(total_len.max(28), 0);
+        data
+    }
+
+    #[test]
+    fn test_parse_directory_accepts_valid_table() {
+        let data = sfnt_with_one_table(28, 4, 32);
+        let font_data = FontData::new(data).unwrap();
+
+        let bytes = font_data.get_table_bytes(Tag(*b"head")).unwrap();
+        assert_eq!(bytes.len(), 4);
+    }
+
+    #[test]
+    fn test_parse_directory_rejects_truncated_directory() {
+        // 声明 1 张表，但连表目录项都不完整
+        let mut data = Vec::new();
+        data.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+        data.extend_from_slice(&1u16.to_be_bytes());
+        data.extend_from_slice(&[0u8; 6]);
+        data.extend_from_slice(b"head");
+
+        let err = FontData::new(data).err().unwrap();
+        assert!(matches!(err, FontError::InvalidOffset { .. }));
+    }
+
+    #[test]
+    fn test_parse_directory_rejects_out_of_bounds_table() {
+        let data = sfnt_with_one_table(100, 4, 32);
+        let err = FontData::new(data).err().unwrap();
+        assert!(matches!(err, FontError::InvalidOffset { .. }));
+    }
+
+    #[test]
+    fn test_parse_directory_rejects_overflowing_range() {
+        let data = sfnt_with_one_table(u32::MAX, 4, 32);
+        let err = FontData::new(data).err().unwrap();
+        assert!(matches!(err, FontError::InvalidOffset { .. }));
+    }
+
+    #[test]
+    fn test_parse_directory_rejects_short_header() {
+        let err = FontData::new(vec![0x00, 0x01, 0x00]).err().unwrap();
+        assert!(matches!(err, FontError::UnexpectedEndOfData { .. }));
     }
 }
