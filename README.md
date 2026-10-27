@@ -20,7 +20,7 @@
 - ✅ **智能子集化**：根据指定文字生成精简的字体文件，大幅减小体积
 - ✅ **格式转换**：在 TTF、WOFF、WOFF2 之间互相转换
 - ✅ **批量处理**：支持批量转换多个字体文件
-- ✅ **详细信息**：查看字体的完整信息和表结构
+- ✅ **详细信息**：查看格式、名称记录（家族/样式/作者/版权等）、样式与度量、表结构
 - ✅ **高性能**：基于 Rust 编译，速度快，内存占用低
 
 ## 快速开始
@@ -57,20 +57,37 @@ rfont -vv info font.ttf
 ────────────────────────────────────────────
 
 基本信息:
+  格式:         TrueType (TTF)
   字形数量:     7044
   Units per EM: 1000
+  支持的字符:   65535
   边界框:       [-32, -260, 1924, 940]
 
-水平度量:
+名称信息:
+  家族名称:     Alibaba PuHuiTi
+  样式:         Regular
+  完整名称:     Alibaba PuHuiTi Regular
+  PostScript:   AlibabaPuHuiTi-Regular
+  版本:         Version 1.000
+  设计者:       Alibaba
+  制造商:       Alibaba
+  版权:         Copyright ...
+  许可证:       ...
+
+样式与度量:
+  字重:         400
+  字宽:         5
+  嵌入权限:     0x0008
   Ascender:     880
   Descender:    -120
   Line Gap:     0
+  HMetrics:     7044
+```
 
-字符支持:
-  支持的 Unicode 字符数: 65535
+使用 `-V` 额外输出全部 name 记录与表列表：
 
-表信息:
-  head, hhea, maxp, cmap, glyf, loca, hmtx, post, name, OS/2
+```bash
+rfont info font.ttf --verbose-info
 ```
 
 ### 2. 创建字体子集
@@ -161,9 +178,19 @@ RUST_LOG=error rfont subset font.ttf --text "Hello"
 
 ### 支持的格式
 
-#### TTF (TrueType Font)
-#### WOFF (Web Open Font Format)
-#### WOFF2 (Web Open Font Format 2)
+| 格式 | 信息查看 | 格式转换 | 子集化 |
+| --- | --- | --- | --- |
+| TTF（TrueType 轮廓，`glyf`/`loca`） | ✅ | ✅ | ✅ |
+| WOFF（TrueType 轮廓） | ✅ | ✅ | ✅ |
+| WOFF2（TrueType 轮廓） | ✅ | ✅ | ✅ |
+| OTF（CFF 轮廓） | ❌ | ❌ | ❌ |
+| TTC / OTC（字体集合） | ❌ | ❌ | ❌ |
+
+### 已知限制
+
+- 只处理 TrueType 轮廓（`glyf`/`loca`）。CFF 轮廓的 OTF 暂不支持加载，会在缺少 `loca` 表时返回错误。
+- 尚未支持 TTC/OTC 字体集合，需要先将其中的单个字面提取为独立字体。
+- WOFF2 使用 Brotli 压缩；文本类子集建议优先输出 WOFF2，体积更小。
 
 
 ## 开发
@@ -176,8 +203,8 @@ rfont/
 │   ├── rfont-types/      # 基础类型定义和 IO Trait
 │   ├── rfont-core/       # 表解析和序列化逻辑
 │   ├── rfont/            # 高层 API 和子集化逻辑
-│   └── rfont-cli/        # 命令行工具
-│   └── font-macros/      # 自定义过程宏
+│   ├── rfont-cli/        # 命令行工具
+│   └── rfont-macros/     # 自定义过程宏
 ├── rfont-desktop/        # 桌面应用程序（Tauri）
 └── rfont-web/            # WASM 绑定 + Web 前端（www），部署到 GitHub Pages
 ```

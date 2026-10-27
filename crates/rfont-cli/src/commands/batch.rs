@@ -223,7 +223,7 @@ fn convert_single_file(
     progress.set_message("加载中...");
 
     // 加载字体
-    let font = match Font::load(input_path.to_str().unwrap()) {
+    let font = match Font::load(input_path) {
         Ok(f) => f,
         Err(e) => {
             return ConvertResult {
@@ -540,7 +540,7 @@ fn convert_single_file_simple(
     let original_size = std::fs::metadata(input_path).unwrap().len();
 
     // 加载字体
-    let font = match Font::load(input_path.to_str().unwrap()) {
+    let font = match Font::load(input_path) {
         Ok(f) => f,
         Err(e) => {
             return ConvertResult {

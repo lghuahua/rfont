@@ -28,7 +28,7 @@ async fn load_font(path: String, state: State<'_, Mutex<AppState>>) -> Result<St
     let font_path = PathBuf::from(&path);
 
     // 验证字体是否可以加载
-    match Font::load(path.as_str()) {
+    match Font::load(&path) {
         Ok(font) => {
             let mut app_state = state.lock().unwrap();
             app_state.current_font_path = Some(font_path);
@@ -91,8 +91,7 @@ async fn subset_font(
         Arc::clone(font)
     } else if let Some(ref path) = app_state.current_font_path {
         // 如果没有加载，才重新加载
-        let font_path = path.to_str().ok_or("Invalid font path")?;
-        Arc::new(Font::load(font_path).map_err(|e| format!("Failed to load font: {}", e))?)
+        Arc::new(Font::load(path).map_err(|e| format!("Failed to load font: {}", e))?)
     } else {
         return Err("No font loaded".to_string());
     };

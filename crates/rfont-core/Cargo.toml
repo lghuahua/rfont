@@ -13,7 +13,6 @@ rfont-types = { path = "../rfont-types" }
 tracing = "0.1"
 font_macros = { path = "../rfont-macros" }
 encoding_rs = { workspace = true }
-lru = { workspace = true }
 brotli = { workspace = true }
 
 [package.metadata.release]

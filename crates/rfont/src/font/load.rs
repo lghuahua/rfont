@@ -1,4 +1,3 @@
-use anyhow::Context;
 use brotli::Decompressor;
 use flate2::read::ZlibDecoder;
 use rfont_core::tables::woff::{WoffHeader, WoffTableDirectoryEntry};
@@ -7,6 +6,7 @@ use rfont_core::tables::woff2_transform::GlyfDecoder;
 use rfont_core::{Cmap, Head, Hhea, Hmtx, Loca, Maxp};
 use rfont_types::{FontError, FontFormat, ReadBytes, Reader, Tag};
 use std::io::Read;
+use std::path::Path;
 use tracing::{Level, debug, info, span};
 
 use crate::font_data::FontData;
@@ -61,11 +61,11 @@ impl Font {
     /// 对于压缩格式（WOFF/WOFF2），会先解压缩再解析。
     ///
     /// # 参数
-    /// - `path`: 字体文件的路径
+    /// - `path`: 字体文件的路径（`&str`、`String`、`Path`、`PathBuf` 均可）
     ///
     /// # 返回值
     /// - `Ok(Font)`: 成功加载的字体对象
-    /// - `Err(anyhow::Error)`: 加载失败时的错误信息，包含详细上下文
+    /// - `Err(FontError)`: 读取或解析失败；`FontLoad` 变体保留路径与底层原因
     ///
     /// # 错误
     /// - 文件读取失败
@@ -78,17 +78,23 @@ impl Font {
     ///
     /// let font = Font::load("path/to/font.ttf").expect("无法加载字体");
     /// ```
-    pub fn load(path: &str) -> anyhow::Result<Self> {
-        let span = span!(Level::INFO, "load_font", path = path);
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, FontError> {
+        let path = path.as_ref();
+        let span = span!(Level::INFO, "load_font", path = %path.display());
         let _enter = span.enter();
 
         info!("开始加载字体文件");
-        let data = std::fs::read(path)
-            .map_err(|e| anyhow::anyhow!("无法读取字体文件 '{}': {}", path, e))?;
+        let data = std::fs::read(path).map_err(|e| FontError::FontLoad {
+            path: path.to_path_buf(),
+            source: Box::new(FontError::Io(e)),
+        })?;
 
         debug!(size = data.len(), "字体文件读取完成");
 
-        Self::from_bytes(&data).context(format!("解析字体文件 '{}' 失败", path))
+        Self::from_bytes(&data).map_err(|e| FontError::FontLoad {
+            path: path.to_path_buf(),
+            source: Box::new(e),
+        })
     }
 
     /// 从内存字节加载字体（支持 TTF、WOFF 和 WOFF2）

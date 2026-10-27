@@ -40,7 +40,7 @@ pub fn run(
     println!("{}", "📖 加载字体...".bold().cyan());
     debug!("正在加载字体文件");
     let font =
-        Font::load(input.to_str().unwrap()).context(format!("无法加载字体文件: {:?}", input))?;
+        Font::load(input).with_context(|| format!("无法加载字体文件: {}", input.display()))?;
 
     debug!(
         glyph_count = font

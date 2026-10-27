@@ -67,6 +67,12 @@ pub enum FontError {
     Woff2DecompressionError { message: String },
 
     // ==================== 其他错误 ====================
+    #[error("Failed to load font from '{}': {source}", path.display())]
+    FontLoad {
+        path: std::path::PathBuf,
+        source: Box<FontError>,
+    },
+
     #[error("Invalid base date for LONGDATETIME calculation")]
     InvalidBaseDate,
 
@@ -132,6 +138,7 @@ impl FontError {
             FontError::Io(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
                 Some("没有权限访问该文件，请检查文件权限")
             }
+            FontError::FontLoad { source, .. } => source.suggestion(),
             _ => None,
         }
     }

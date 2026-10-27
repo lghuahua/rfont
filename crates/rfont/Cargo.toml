@@ -15,10 +15,7 @@ rfont-types = { path = "../rfont-types" }
 flate2 = { workspace = true }
 brotli = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-lru = { workspace = true }
 rayon = { workspace = true, optional = true }
-anyhow = { workspace = true }
 serde = { workspace = true, optional = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
@@ -31,6 +28,7 @@ serde = ["dep:serde", "rfont-types/serde"]
 
 [dev-dependencies]
 criterion = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [[bench]]
 name = "performance"

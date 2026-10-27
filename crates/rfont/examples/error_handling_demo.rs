@@ -2,36 +2,36 @@ use rfont::Font;
 use rfont_types::FontError;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 示例 1: 加载字体文件（使用 anyhow 的错误链）
+    // 示例 1: 加载字体文件（错误保留路径与底层原因）
     println!("📖 示例 1: 加载字体文件");
     match Font::load("AlimamaDaoLiTi.ttf") {
         Ok(font) => {
             println!("✅ 字体加载成功！");
             println!("   字形数量: {}", font.maxp().num_glyphs);
         }
-        Err(e) => {
-            eprintln!("❌ 字体加载失败: {}", e);
+        Err(font_error) => {
+            eprintln!("❌ 字体加载失败: {}", font_error);
 
-            // 尝试获取底层原因并显示建议
-            if let Some(source) = e.source()
-                && let Some(font_error) = source.downcast_ref::<FontError>()
-            {
-                if let Some(suggestion) = font_error.suggestion() {
-                    eprintln!("💡 建议: {}", suggestion);
-                }
+            if let Some(suggestion) = font_error.suggestion() {
+                eprintln!("💡 建议: {}", suggestion);
+            }
 
-                // 演示模式匹配具体的错误类型
-                match font_error {
-                    FontError::Io(io_err) => {
+            // 演示模式匹配具体的错误类型
+            match &font_error {
+                FontError::FontLoad { path, source } => {
+                    eprintln!("   文件路径: {}", path.display());
+                    eprintln!("   底层错误: {}", source);
+
+                    if let FontError::Io(io_err) = source.as_ref() {
                         eprintln!("   错误类型: IO 错误 - {}", io_err);
                     }
-                    FontError::InvalidMagicNumber { expected, actual } => {
-                        eprintln!("   错误类型: 无效的魔数");
-                        eprintln!("   期望: {:#010X}, 实际: {:#010X}", expected, actual);
-                    }
-                    _ => {
-                        eprintln!("   错误类型: {}", font_error);
-                    }
+                }
+                FontError::InvalidMagicNumber { expected, actual } => {
+                    eprintln!("   错误类型: 无效的魔数");
+                    eprintln!("   期望: {:#010X}, 实际: {:#010X}", expected, actual);
+                }
+                _ => {
+                    eprintln!("   错误类型: {}", font_error);
                 }
             }
         }

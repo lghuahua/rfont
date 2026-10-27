@@ -38,7 +38,7 @@ pub fn run(input: &Path, output: Option<&Path>, request: SubsetRequest<'_>) -> R
     debug!("正在加载字体文件: {:?}", input);
 
     let font =
-        Font::load(input.to_str().unwrap()).context(format!("无法加载字体文件: {:?}", input))?;
+        Font::load(input).with_context(|| format!("无法加载字体文件: {}", input.display()))?;
 
     debug!(glyph_count = font.maxp().num_glyphs, "字体加载成功");
     println!("  ✓ 成功加载字体");
