@@ -260,6 +260,10 @@ ci-check:
     just doc-check
     @echo "✅ CI 检查全部通过"
 
+# 外部校验生成的字体（需要 python + fonttools + brotli，可选 ots-sanitize）
+validate-fonts: build-cli
+    python scripts/validate_fonts.py
+
 # ==================== 帮助 ====================
 
 # 显示常用命令
@@ -305,6 +309,9 @@ help:
     @echo "📋 CHANGELOG:"
     @echo "  just changelog        - 生成 CHANGELOG"
     @echo "  just changelog-preview - 预览变更"
+    @echo ""
+    @echo "🔤 字体校验:"
+    @echo "  just validate-fonts   - 外部校验生成的字体"
     @echo ""
     @echo "🚀 发布:"
     @echo "  just pre-release-check   - 发布前检查"

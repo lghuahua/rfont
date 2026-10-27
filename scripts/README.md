@@ -128,6 +128,37 @@ git-cliff --config .cliff.toml
 
 ---
 
+### 3. validate_fonts.py
+
+**功能**: 调用 rfont CLI 生成 ttf/woff/woff2 子集，再用 fontTools（可选 OTS）做外部校验
+
+**校验内容**:
+- 文件头与必需表是否齐全
+- cmap 是否覆盖输入文本、子集字形数是否减少
+- OS/2 字符范围与 head.modified 是否更新
+- sfnt 表校验和与整文件校验和
+- woff2 转回 ttf 的往返结果
+- 安装了 `ots-sanitize` 时额外执行 OTS 严格校验
+
+**前置条件**:
+- Python 3.9+
+- `python -m pip install fonttools brotli`
+- 可选 OTS：Ubuntu `sudo apt-get install opentype-sanitizer`
+
+**使用**:
+
+```bash
+cargo build --release -p rfont-cli
+python scripts/validate_fonts.py
+
+# CI 模式：缺少 ots-sanitize 时失败
+python scripts/validate_fonts.py --require-ots
+```
+
+也可以直接运行 `just validate-fonts`。
+
+---
+
 ## 🔧 Conventional Commits 规范
 
 为了自动生成准确的 CHANGELOG，请使用规范的提交消息格式：

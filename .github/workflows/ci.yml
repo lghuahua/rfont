@@ -121,3 +121,26 @@ jobs:
 
       - name: Check WASM build
         run: cargo build -p rfont-web --target wasm32-unknown-unknown --release
+
+  # 字体外部校验：用 fontTools 与 OTS 检查 CLI 生成的 ttf/woff/woff2
+  font-validation:
+    name: Font Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y opentype-sanitizer
+          python3 -m venv .venv
+          .venv/bin/pip install fonttools brotli
+
+      - name: Build CLI
+        run: cargo build --release -p rfont-cli
+
+      - name: Validate generated fonts
+        run: .venv/bin/python scripts/validate_fonts.py --require-ots
