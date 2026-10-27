@@ -65,13 +65,48 @@
         </svg>
         <div class="flex-col gap-6 flex-1">
           <div class="font-name">{{ fontName }}</div>
-          <div class="flex-middle gap-6">
+          <div class="font-meta-line flex-middle gap-6">
             <span class="font-meta">{{ fontType }}</span>
+            <template v-if="fontInfo?.subfamily">
+              <span class="divider">·</span>
+              <span class="font-meta">{{ fontInfo.subfamily }}</span>
+            </template>
             <span class="divider">·</span>
             <span class="font-meta">{{ glyphCount }} 字形</span>
             <span class="divider">·</span>
             <span class="font-size">{{ originalSize }}</span>
           </div>
+
+          <!-- 字体详情：默认折叠，避免挤占预览区 -->
+          <details v-if="fontInfo" class="font-details">
+            <summary class="details-summary">字体详情</summary>
+            <div class="details-body">
+              <div v-for="row in detailRowsList" :key="row.label" class="detail-row">
+                <span class="detail-label">{{ row.label }}</span>
+                <span class="detail-value">{{ row.value }}</span>
+              </div>
+
+              <div v-if="fontInfo.names.length" class="details-section">
+                <div class="details-title">名称记录（{{ fontInfo.names.length }}）</div>
+                <div v-for="(name, index) in fontInfo.names" :key="index" class="name-row">
+                  <span class="name-meta">
+                    {{ nameIdLabel(name.name_id) }} · {{ platformLabel(name.platform_id) }}/{{
+                      languageLabel(name.platform_id, name.language_id)
+                    }}
+                  </span>
+                  <span class="name-value">{{ name.value }}</span>
+                </div>
+              </div>
+
+              <div v-if="fontInfo.tables.length" class="details-section">
+                <div class="details-title">字体表（{{ fontInfo.tables.length }}）</div>
+                <div v-for="table in fontInfo.tables" :key="table.tag" class="table-row">
+                  <span class="table-tag">{{ table.tag }}</span>
+                  <span class="table-length">{{ table.length }} B</span>
+                </div>
+              </div>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -102,14 +137,16 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { Button, Select, SelectOption, Input, Textarea } from "ant-design-vue";
 import { message } from "ant-design-vue";
-
-interface FontInfo {
-  family: string;
-  style: string;
-  version: string;
-  units_per_em: number;
-  glyph_count: number;
-}
+import {
+  cssFormat,
+  detailRows,
+  formatLabel,
+  languageLabel,
+  nameIdLabel,
+  platformLabel,
+  type FontFormat,
+  type FontInfo,
+} from "./fontInfo";
 
 // State
 const textContent = ref("");
@@ -119,6 +156,9 @@ const fileName = ref("");
 const fontPath = ref<string>("");
 const fontName = ref<string>("");
 const fontType = ref<string>("");
+const fontInfo = ref<FontInfo | null>(null);
+const fontFormat = ref<FontFormat | null>(null);
+const detailRowsList = computed(() => (fontInfo.value ? detailRows(fontInfo.value) : []));
 const glyphCount = ref<number>(0);
 const originalSize = ref<string>("");
 const loading = ref<boolean>(false);
@@ -134,7 +174,7 @@ const buttonText = computed(() => {
   }
 });
 // Watch fontDataUrl to apply @font-face
-watch(fontDataUrl, (newUrl, oldUrl) => {
+watch([fontDataUrl, fontFormat], ([newUrl, currentFormat], [oldUrl]) => {
   if (newUrl) {
     const styleId = 'dynamic-font-style';
     let styleElement = document.getElementById(styleId) as HTMLStyleElement;
@@ -145,20 +185,7 @@ watch(fontDataUrl, (newUrl, oldUrl) => {
       document.head.appendChild(styleElement);
     }
 
-    const ext = fontPath.value.split('.').pop()?.toLowerCase();
-    let formatType = 'truetype';
-
-    switch (ext) {
-      case 'otf':
-        formatType = 'opentype';
-        break;
-      case 'woff':
-        formatType = 'woff';
-        break;
-      case 'woff2':
-        formatType = 'woff2';
-        break;
-    }
+    const formatType = currentFormat ? cssFormat(currentFormat) : 'truetype';
 
     const fontFaceRule = `
       @font-face {
@@ -237,27 +264,15 @@ async function loadFont(path: string) {
   try {
     const base64Data = await invoke<string>("read_font_as_base64", { path });
 
-    const ext = path.split('.').pop()?.toLowerCase();
-    let mimeType = 'font/ttf';
-
-    switch (ext) {
-      case 'otf':
-        mimeType = 'font/otf';
-        break;
-      case 'woff':
-        mimeType = 'font/woff';
-        break;
-      case 'woff2':
-        mimeType = 'font/woff2';
-        break;
-    }
-
-    fontDataUrl.value = `data:${mimeType};base64,${base64Data}`;
-
     const info = await invoke<FontInfo>("get_font_info");
-    fontName.value = info.family || 'Custom Font';
-    fontType.value = info.glyph_count > 0 ? 'OpenType' : 'TrueType';
+    fontInfo.value = info;
+    fontFormat.value = info.format;
+    fontName.value = info.family || info.typographic_family || info.full_name || 'Custom Font';
+    fontType.value = formatLabel(info.format);
     glyphCount.value = info.glyph_count || 0;
+
+    // 预览直接用原始字节，MIME 取自解析出的容器格式
+    fontDataUrl.value = `data:font/${info.format};base64,${base64Data}`;
 
     const fileSize = (base64Data.length * 3 / 4 / 1024).toFixed(2);
     originalSize.value = `${fileSize} KB`;
@@ -266,6 +281,8 @@ async function loadFont(path: string) {
     message.error(`加载字体失败：${errorMsg}`);
     fontName.value = '';
     fontType.value = '';
+    fontInfo.value = null;
+    fontFormat.value = null;
     glyphCount.value = 0;
     originalSize.value = '';
   } finally {
@@ -562,6 +579,7 @@ body,
 
 /* Font Info Card */
 .font-info-card {
+  flex-shrink: 0;
   border-radius: 12px;
   border: 1px solid #e5e7eb;
   background-color: #ffffff;
@@ -599,6 +617,98 @@ body,
 
 .divider {
   color: #d1d5db;
+}
+
+.font-meta-line {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+/* Font details (collapsed by default) */
+.font-details {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #4b5563;
+}
+
+.details-summary {
+  cursor: pointer;
+  color: #3b82f6;
+  font-weight: 500;
+  list-style: none;
+}
+
+.details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.details-summary::before {
+  content: "▸ ";
+}
+
+.font-details[open] .details-summary::before {
+  content: "▾ ";
+}
+
+.details-body {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.detail-row,
+.name-row,
+.table-row {
+  display: flex;
+  gap: 8px;
+  line-height: 1.6;
+}
+
+.detail-label {
+  width: 68px;
+  flex-shrink: 0;
+  color: #9ca3af;
+}
+
+.detail-value {
+  color: #4b5563;
+  word-break: break-word;
+}
+
+.details-section {
+  margin-top: 10px;
+}
+
+.details-title {
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 2px;
+}
+
+.name-meta {
+  width: 132px;
+  flex-shrink: 0;
+  color: #9ca3af;
+}
+
+.name-value {
+  color: #4b5563;
+  word-break: break-word;
+}
+
+.table-row {
+  justify-content: space-between;
+  max-width: 240px;
+}
+
+.table-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #6b7280;
+}
+
+.table-length {
+  color: #9ca3af;
 }
 
 /* Preview Section */

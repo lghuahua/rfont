@@ -4,30 +4,18 @@
 // 这里改为：浏览器 File API 读字节 -> WASM 计算 -> Blob 下载 / 预览。
 // 对上层 App.vue 暴露与桌面版语义一致的高层函数。
 import { convert, font_info, subset } from "./wasm";
+import type { FontInfo } from "./fontInfo";
 
-export interface TableInfo {
-  tag: string;
-  checksum: number;
-  offset: number;
-  length: number;
-}
-
-export interface FontInfo {
-  family_name: string | null;
-  style_name: string | null;
-  version: string | null;
-  glyph_count: number;
-  units_per_em: number;
-  supported_char_count: number;
-  ascender: number;
-  descender: number;
-  line_gap: number;
-  x_min: number;
-  y_min: number;
-  x_max: number;
-  y_max: number;
-  tables: TableInfo[];
-}
+export type { FontFormat, FontInfo, NameEntry, TableInfo } from "./fontInfo";
+export {
+  cssFormat,
+  detailRows,
+  formatLabel,
+  fsTypeLabel,
+  languageLabel,
+  nameIdLabel,
+  platformLabel,
+} from "./fontInfo";
 
 /// 根据输出格式返回压缩级别（与桌面端一致：WOFF=9，WOFF2=11，TTF=0）。
 function levelFor(format: string): number {

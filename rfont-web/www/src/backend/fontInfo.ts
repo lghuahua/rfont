@@ -1,0 +1,220 @@
+// 与 Rust 端 `rfont::FontInfo` 一一对应的前端类型。
+//
+// 桌面端通过 Tauri invoke、网页端通过 WASM JSON 拿到同一份序列化结构，
+// 因此两端的类型与展示辅助函数保持一致（沿用桌面/Web 共用 UI 的 shim 做法）。
+
+export type FontFormat = "ttf" | "otf" | "woff" | "woff2";
+
+export interface TableInfo {
+  tag: string;
+  checksum: number;
+  offset: number;
+  length: number;
+}
+
+export interface NameEntry {
+  platform_id: number;
+  encoding_id: number;
+  language_id: number;
+  name_id: number;
+  value: string;
+}
+
+export interface FontInfo {
+  format: FontFormat;
+  face_index: number;
+  face_count: number;
+  names: NameEntry[];
+  family: string | null;
+  typographic_family: string | null;
+  subfamily: string | null;
+  full_name: string | null;
+  postscript_name: string | null;
+  version: string | null;
+  designer: string | null;
+  manufacturer: string | null;
+  copyright: string | null;
+  license: string | null;
+  glyph_count: number;
+  units_per_em: number;
+  bbox: [number, number, number, number];
+  ascender: number;
+  descender: number;
+  line_gap: number;
+  number_of_h_metrics: number;
+  supported_char_count: number;
+  weight_class: number;
+  width_class: number;
+  fs_type: number;
+  tables: TableInfo[];
+}
+
+const FORMAT_LABELS: Record<FontFormat, string> = {
+  ttf: "TrueType",
+  otf: "OpenType",
+  woff: "WOFF",
+  woff2: "WOFF2",
+};
+
+/// 界面展示用的格式名。
+export function formatLabel(format: FontFormat): string {
+  return FORMAT_LABELS[format] ?? format.toUpperCase();
+}
+
+const CSS_FORMATS: Record<FontFormat, string> = {
+  ttf: "truetype",
+  otf: "opentype",
+  woff: "woff",
+  woff2: "woff2",
+};
+
+/// `@font-face` 的 format() 提示值。
+export function cssFormat(format: FontFormat): string {
+  return CSS_FORMATS[format] ?? "truetype";
+}
+
+const NAME_ID_LABELS: Record<number, string> = {
+  0: "版权",
+  1: "家族名",
+  2: "样式名",
+  3: "唯一标识",
+  4: "完整名称",
+  5: "版本",
+  6: "PostScript 名",
+  7: "商标",
+  8: "制造商",
+  9: "设计者",
+  10: "描述",
+  11: "厂商网址",
+  12: "设计者网址",
+  13: "许可证",
+  14: "许可证网址",
+  16: "排版家族名",
+  17: "排版样式名",
+  18: "兼容完整名称",
+  19: "示例文本",
+  20: "PostScript CID",
+  21: "WWS 家族名",
+  22: "WWS 样式名",
+  25: "可变字体 PostScript 前缀",
+};
+
+export function nameIdLabel(nameId: number): string {
+  return NAME_ID_LABELS[nameId] ?? `nameID ${nameId}`;
+}
+
+export function platformLabel(platformId: number): string {
+  switch (platformId) {
+    case 0:
+      return "Unicode";
+    case 1:
+      return "Mac";
+    case 3:
+      return "Windows";
+    default:
+      return `平台 ${platformId}`;
+  }
+}
+
+const WINDOWS_LANGUAGES: Record<number, string> = {
+  0x0404: "zh-TW",
+  0x0409: "en-US",
+  0x0411: "ja-JP",
+  0x0412: "ko-KR",
+  0x0804: "zh-CN",
+};
+
+export function languageLabel(platformId: number, languageId: number): string {
+  if (platformId === 3) {
+    return WINDOWS_LANGUAGES[languageId] ?? `0x${languageId.toString(16).padStart(4, "0")}`;
+  }
+  if (platformId === 1 && languageId === 0) {
+    return "en";
+  }
+  return `0x${languageId.toString(16)}`;
+}
+
+const WEIGHT_LABELS: Record<number, string> = {
+  100: "Thin",
+  200: "ExtraLight",
+  300: "Light",
+  400: "Regular",
+  500: "Medium",
+  600: "SemiBold",
+  700: "Bold",
+  800: "ExtraBold",
+  900: "Black",
+};
+
+function weightLabel(weight: number): string {
+  const label = WEIGHT_LABELS[weight];
+  return label ? `${weight} ${label}` : String(weight);
+}
+
+const WIDTH_LABELS: Record<number, string> = {
+  1: "UltraCondensed",
+  2: "ExtraCondensed",
+  3: "Condensed",
+  4: "SemiCondensed",
+  5: "Normal",
+  6: "SemiExpanded",
+  7: "Expanded",
+  8: "ExtraExpanded",
+  9: "UltraExpanded",
+};
+
+function widthLabel(width: number): string {
+  const label = WIDTH_LABELS[width];
+  return label ? `${width} ${label}` : String(width);
+}
+
+const FS_TYPE_FLAGS: Array<[number, string]> = [
+  [0x0002, "禁止嵌入"],
+  [0x0004, "仅可预览与打印"],
+  [0x0008, "可编辑嵌入"],
+  [0x0100, "仅位图嵌入"],
+  [0x0200, "禁止子集化"],
+];
+
+/// OS/2.fsType 的可读描述。
+export function fsTypeLabel(fsType: number): string {
+  if (fsType === 0) {
+    return "可安装（无限制）";
+  }
+  const flags = FS_TYPE_FLAGS.filter(([bit]) => (fsType & bit) !== 0).map(([, label]) => label);
+  return flags.length > 0 ? flags.join("、") : `0x${fsType.toString(16)}`;
+}
+
+export interface DetailRow {
+  label: string;
+  value: string;
+}
+
+/// “字体详情”折叠区展示的行，空值自动省略。
+export function detailRows(info: FontInfo): DetailRow[] {
+  const rows: DetailRow[] = [];
+  const push = (label: string, value: string | null | undefined) => {
+    if (value) {
+      rows.push({ label, value });
+    }
+  };
+
+  push("样式", info.subfamily);
+  push("完整名称", info.full_name);
+  push("PostScript", info.postscript_name);
+  push("版本", info.version);
+  push("设计者", info.designer);
+  push("制造商", info.manufacturer);
+  push("版权", info.copyright);
+  push("许可证", info.license);
+  push("字重", weightLabel(info.weight_class));
+  push("字宽", widthLabel(info.width_class));
+  push("嵌入权限", fsTypeLabel(info.fs_type));
+  push(
+    "度量",
+    `${info.units_per_em} UPM · 字符 ${info.supported_char_count} · 上下 ${info.ascender}/${info.descender} · 行距 ${info.line_gap}`,
+  );
+  push("边界框", info.bbox.join(", "));
+
+  return rows;
+}
