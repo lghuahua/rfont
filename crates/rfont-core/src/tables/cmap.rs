@@ -56,7 +56,7 @@ impl WriteBytes for Cmap {
         let mut records: Vec<(CmapSubtableKey, Vec<u8>)> = self
             .subtables
             .iter()
-            .map(|(key, map)| (*key, Self::encode_subtable(map)))
+            .map(|(key, map)| (*key, Self::encode_subtable(key, map)))
             .collect();
 
         // 2. 按规范排序：先按 platform_id，再按 encoding_id
@@ -84,9 +84,35 @@ impl WriteBytes for Cmap {
 }
 
 impl Cmap {
-    fn encode_subtable(map: &HashMap<u32, u16>) -> Vec<u8> {
-        // 检查是否需要 Format 12（是否有超出 BMP 的字符）
-        let needs_format12 = map.keys().any(|&cp| cp > 0xFFFF);
+    /// Priority of a subtable for Unicode lookups; lower is preferred.
+    pub fn subtable_priority(key: &CmapSubtableKey) -> (u8, u16, u16) {
+        let rank = match (key.platform_id, key.encoding_id) {
+            (3, 10) => 0, // Windows UCS-4
+            (3, 1) => 1,  // Windows Unicode BMP
+            (0, 4) | (0, 6) => 2,
+            (0, 3) => 3,
+            (0, _) => 4,
+            (1, 0) => 5, // Mac Roman
+            _ => 6,
+        };
+        (rank, key.platform_id, key.encoding_id)
+    }
+
+    fn ordered_subtables(&self) -> Vec<(&CmapSubtableKey, &HashMap<u32, u16>)> {
+        let mut subtables: Vec<_> = self.subtables.iter().collect();
+        subtables.sort_by_key(|(key, _)| Self::subtable_priority(key));
+        subtables
+    }
+
+    /// The subtable used for character lookup and support counts.
+    pub fn preferred_subtable(&self) -> Option<(&CmapSubtableKey, &HashMap<u32, u16>)> {
+        self.ordered_subtables().into_iter().next()
+    }
+
+    fn encode_subtable(key: &CmapSubtableKey, map: &HashMap<u32, u16>) -> Vec<u8> {
+        // Windows UCS-4 subtables must use format 12; others need it only for
+        // characters outside the BMP.
+        let needs_format12 = key.encoding_id == 10 || map.keys().any(|&cp| cp > 0xFFFF);
 
         if needs_format12 {
             Self::encode_format12(map)
@@ -99,6 +125,7 @@ impl Cmap {
         // 收集并排序所有字符码位（使用 unstable sort 更快）
         let mut unicode_map = map
             .iter()
+            .filter(|(_, glyph_id)| **glyph_id > 0)
             .map(|(cp, glyph_id)| (*cp, *glyph_id))
             .collect::<Vec<_>>();
         unicode_map.sort_unstable_by_key(|&(unicode, _)| unicode);
@@ -202,7 +229,11 @@ impl Cmap {
         result
     }
     fn encode_format12(map: &HashMap<u32, u16>) -> Vec<u8> {
-        let mut chars: Vec<u32> = map.keys().copied().collect();
+        let mut chars: Vec<u32> = map
+            .iter()
+            .filter(|(_, glyph_id)| **glyph_id > 0)
+            .map(|(cp, _)| *cp)
+            .collect();
         chars.sort();
 
         // 构建组（groups）
@@ -253,15 +284,30 @@ impl Cmap {
         reader: &mut Reader,
         offset: usize,
     ) -> Result<HashMap<u32, u16>, FontError> {
-        let _format = reader.read_u16_at(offset)?;
+        let format = reader.read_u16_at(offset)?;
 
-        let length = reader.read_u16_at(offset + 2)? as usize;
+        // Format 12 stores a 32-bit length at offset+4; other formats use the
+        // 16-bit length at offset+2.
+        let length = match format {
+            12 => {
+                let high = reader.read_u16_at(offset + 4)? as usize;
+                let low = reader.read_u16_at(offset + 6)? as usize;
+                (high << 16) | low
+            }
+            _ => reader.read_u16_at(offset + 2)? as usize,
+        };
 
-        // 创建该子表的专属 Reader
-        match reader.slice(offset, length) {
-            Ok(mut sub_reader) => Self::parse_subtable(&mut sub_reader),
-            Err(e) => Err(e),
-        }
+        // Tolerate truncation or a bogus length by falling back to the
+        // remaining bytes of the table.
+        let available = reader.len().saturating_sub(offset);
+        let length = if length == 0 || length > available {
+            available
+        } else {
+            length
+        };
+
+        let mut sub_reader = reader.slice(offset, length)?;
+        Self::parse_subtable(&mut sub_reader)
     }
 
     fn parse_subtable(reader: &mut Reader) -> Result<HashMap<u32, u16>, FontError> {
@@ -347,32 +393,28 @@ impl Cmap {
                 // 情况1：连续映射，直接使用 delta 计算
                 for c in start..=end {
                     let glyph_id = (c as i32 + delta) as u16;
-                    // 根据规范，如果计算结果为0，应跳过此映射吗？这里保留与原始逻辑一致
-                    // if glyph_id != 0 {
-                    map.insert(c as u32, glyph_id);
-                    // }
+                    if glyph_id != 0 {
+                        map.insert(c as u32, glyph_id);
+                    }
                 }
             } else {
-                // 情况2：稀疏映射，需要从 glyphIdArray 中读取
-                // 计算公式：glyphIdArrayIndex = rangeOffset/2 + (c - start)
-
-                let range_offset_idx = range_offset / 2;
-                let seg_adjustment = i.wrapping_sub(seg_count) as usize;
-                let base_index = range_offset_idx.wrapping_add(seg_adjustment) as u16;
-
+                // 情况2：稀疏映射，从 glyphIdArray 读取。
+                // 规范公式（以 glyphIdArray 为基准的索引）：
+                //   rangeOffset/2 + (c - start) - (segCount - i)
                 for c in start..=end {
-                    let char_offset = c - start;
-                    let array_index = base_index + char_offset;
-
-                    if let Some(&gid) = glyph_id_array.get(array_index as usize) {
-                        if gid != 0 {
-                            let glyph_id = (gid as i32 + delta) as u16;
+                    let array_index = range_offset as isize / 2 + (c - start) as isize
+                        - (seg_count as isize - i as isize);
+                    if array_index < 0 {
+                        continue;
+                    }
+                    let Some(&gid) = glyph_id_array.get(array_index as usize) else {
+                        break;
+                    };
+                    if gid != 0 {
+                        let glyph_id = (gid as i32 + delta) as u16;
+                        if glyph_id != 0 {
                             map.insert(c as u32, glyph_id);
                         }
-                        // 如果 gid == 0，表示该字符无映射，跳过
-                    } else {
-                        // 数组越界，说明数据损坏或段结束
-                        break;
                     }
                 }
             }
@@ -390,8 +432,18 @@ impl Cmap {
             let end_char_code = reader.read_u32()?;
             let start_glyph_id = reader.read_u32()?;
 
+            if end_char_code < start_char_code {
+                continue;
+            }
+
             for i in 0..=(end_char_code - start_char_code) {
-                map.insert(start_char_code + i, (start_glyph_id + i) as u16);
+                let glyph_id = start_glyph_id + i;
+                if glyph_id > u16::MAX as u32 {
+                    break;
+                }
+                if glyph_id != 0 {
+                    map.insert(start_char_code + i, glyph_id as u16);
+                }
             }
         }
         Ok(map)
@@ -404,16 +456,17 @@ impl Cmap {
         self.get_glyph_id_by_code(code)
     }
     /// 获取字形 ID
+    ///
+    /// Subtables are consulted in a fixed priority order so that the result
+    /// does not depend on HashMap iteration order.
     pub fn get_glyph_id_by_code(&self, code: u32) -> Option<u16> {
-        // 直接查找 unicode_map
-        for map in self.subtables.values() {
+        for (_, map) in self.ordered_subtables() {
             if let Some(id) = map.get(&code)
                 && *id > 0
             {
                 return Some(*id);
             }
         }
-        // info!("No glyph found for char code: {}", code);
         None
     }
     /// 批量查询字形 ID（优化版本）
@@ -422,23 +475,27 @@ impl Cmap {
     }
 
     pub fn supported_chars(&self) -> Vec<char> {
-        let mut chars = Vec::new();
-        let mut iter = self.subtables.iter();
-        if let Some((_, map)) = iter.next() {
-            for char_code in map.keys() {
-                chars.push(char::from_u32(*char_code).unwrap());
-            }
-        }
+        let Some((_, map)) = self.preferred_subtable() else {
+            return Vec::new();
+        };
 
+        let mut chars: Vec<char> = map
+            .iter()
+            .filter(|(_, glyph_id)| **glyph_id > 0)
+            .filter_map(|(char_code, _)| char::from_u32(*char_code))
+            .collect();
+        chars.sort_unstable();
         chars
     }
 
     pub fn supported_chars_count(&self) -> usize {
-        let mut iter = self.subtables.iter();
-        if let Some((_, map)) = iter.next() {
-            return map.len();
-        }
-        0
+        let Some((_, map)) = self.preferred_subtable() else {
+            return 0;
+        };
+
+        map.iter()
+            .filter(|(char_code, glyph_id)| **glyph_id > 0 && char::from_u32(**char_code).is_some())
+            .count()
     }
 }
 
@@ -600,6 +657,173 @@ mod tests {
         let result = Cmap::parse_subtable(&mut reader);
 
         assert!(result.is_err());
+    }
+
+    fn subtable(
+        platform_id: u16,
+        encoding_id: u16,
+        entries: &[(u32, u16)],
+    ) -> (CmapSubtableKey, HashMap<u32, u16>) {
+        (
+            CmapSubtableKey {
+                platform_id,
+                encoding_id,
+            },
+            entries.iter().copied().collect(),
+        )
+    }
+
+    #[test]
+    fn test_cmap_lookup_prefers_ucs4_subtable() {
+        let cmap = Cmap {
+            subtables: [
+                subtable(3, 1, &[(0x41, 5)]),
+                subtable(3, 10, &[(0x41, 7)]),
+                subtable(1, 0, &[(0x41, 9)]),
+            ]
+            .into_iter()
+            .collect(),
+        };
+
+        assert_eq!(cmap.get_glyph_id('A'), Some(7));
+        assert_eq!(cmap.preferred_subtable().unwrap().0.platform_id, 3);
+        assert_eq!(cmap.preferred_subtable().unwrap().0.encoding_id, 10);
+    }
+
+    #[test]
+    fn test_cmap_lookup_falls_back_to_next_subtable() {
+        let cmap = Cmap {
+            subtables: [subtable(3, 10, &[(0x42, 7)]), subtable(3, 1, &[(0x41, 5)])]
+                .into_iter()
+                .collect(),
+        };
+
+        assert_eq!(cmap.get_glyph_id('A'), Some(5));
+        assert_eq!(cmap.get_glyph_id('B'), Some(7));
+        assert_eq!(cmap.get_glyph_id('C'), None);
+    }
+
+    #[test]
+    fn test_cmap_supported_chars_uses_preferred_subtable() {
+        let cmap = Cmap {
+            subtables: [
+                subtable(3, 1, &[(0x41, 5), (0x42, 6)]),
+                subtable(3, 10, &[(0x41, 5), (0x42, 6), (0x1F600, 7)]),
+            ]
+            .into_iter()
+            .collect(),
+        };
+
+        assert_eq!(cmap.supported_chars_count(), 3);
+        assert_eq!(cmap.supported_chars(), vec!['A', 'B', '😀']);
+    }
+
+    #[test]
+    fn test_cmap_supported_chars_skips_invalid_code_points() {
+        let cmap = Cmap {
+            subtables: [subtable(3, 1, &[(0x41, 5), (0x110000, 6)])]
+                .into_iter()
+                .collect(),
+        };
+
+        assert_eq!(cmap.supported_chars_count(), 1);
+        assert_eq!(cmap.supported_chars(), vec!['A']);
+    }
+
+    #[test]
+    fn test_cmap_format4_delta_zero_glyph_is_skipped() {
+        let data = vec![
+            0x00, 0x04, // format = 4
+            0x00, 0x18, // length = 24
+            0x00, 0x00, // language
+            0x00, 0x02, // seg_count_x2 = 2
+            0x00, 0x02, // search_range
+            0x00, 0x00, // entry_selector
+            0x00, 0x00, // range_shift
+            0x00, 0x41, // end_code[0] = 'A'
+            0x00, 0x00, // reserved_pad
+            0x00, 0x41, // start_code[0] = 'A'
+            0xFF, 0xBF, // id_delta[0] = -65, maps 'A' to glyph 0
+            0x00, 0x00, // id_range_offset[0]
+        ];
+
+        let mut reader = Reader::new(&data);
+        let map = Cmap::parse_subtable(&mut reader).unwrap();
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_cmap_format4_sparse_range_offset() {
+        let data = vec![
+            0x00, 0x04, // format = 4
+            0x00, 0x22, // length = 34
+            0x00, 0x00, // language
+            0x00, 0x04, // seg_count_x2 = 4 (2 segments)
+            0x00, 0x04, // search_range
+            0x00, 0x01, // entry_selector
+            0x00, 0x00, // range_shift
+            0x00, 0x41, // end_code[0] = 'A'
+            0xFF, 0xFF, // end_code[1] = sentinel
+            0x00, 0x00, // reserved_pad
+            0x00, 0x41, // start_code[0] = 'A'
+            0xFF, 0xFF, // start_code[1] = sentinel
+            0x00, 0x00, // id_delta[0] = 0
+            0x00, 0x01, // id_delta[1] = 1
+            0x00, 0x04, // id_range_offset[0] points to glyphIdArray[0]
+            0x00, 0x00, // id_range_offset[1]
+            0x00, 0x64, // glyphIdArray[0] = 100
+        ];
+
+        let mut reader = Reader::new(&data);
+        let map = Cmap::parse_subtable(&mut reader).unwrap();
+        assert_eq!(map.get(&0x41), Some(&100));
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn test_cmap_format12_skips_zero_glyph_id() {
+        let data = vec![
+            0x00, 0x0C, // format = 12
+            0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x1C, // length = 28
+            0x00, 0x00, 0x00, 0x00, // language
+            0x00, 0x00, 0x00, 0x01, // n_groups = 1
+            0x00, 0x00, 0x00, 0x41, // start_char_code = 'A'
+            0x00, 0x00, 0x00, 0x43, // end_char_code = 'C'
+            0x00, 0x00, 0x00, 0x00, // start_glyph_id = 0
+        ];
+
+        let mut reader = Reader::new(&data);
+        let map = Cmap::parse_subtable(&mut reader).unwrap();
+        assert_eq!(map.get(&0x41), None);
+        assert_eq!(map.get(&0x42), Some(&1));
+        assert_eq!(map.get(&0x43), Some(&2));
+    }
+
+    #[test]
+    fn test_cmap_read_format12_subtable() {
+        let data = vec![
+            0x00, 0x00, // version
+            0x00, 0x01, // numTables
+            0x00, 0x03, // platform 3
+            0x00, 0x0A, // encoding 10
+            0x00, 0x00, 0x00, 0x0C, // offset = 12
+            0x00, 0x0C, // format = 12
+            0x00, 0x00, // reserved
+            0x00, 0x00, 0x00, 0x1C, // length = 28
+            0x00, 0x00, 0x00, 0x00, // language
+            0x00, 0x00, 0x00, 0x01, // n_groups = 1
+            0x00, 0x00, 0x00, 0x41, // start = 'A'
+            0x00, 0x00, 0x00, 0x43, // end = 'C'
+            0x00, 0x00, 0x00, 0x41, // start glyph = 65
+        ];
+
+        let mut reader = Reader::new(&data);
+        let cmap = Cmap::read_from(&mut reader).unwrap();
+
+        assert_eq!(cmap.subtables.len(), 1);
+        assert_eq!(cmap.get_glyph_id('B'), Some(66));
+        assert_eq!(cmap.supported_chars_count(), 3);
     }
 
     #[test]
