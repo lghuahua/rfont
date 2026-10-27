@@ -275,7 +275,8 @@ impl Font {
     ///
     /// # 参数
     /// - `edit`: 需要修改的元信息
-    /// - `output_format`: 输出格式，"ttf" / "woff" / "woff2"
+    /// - `output_format`: 输出格式，"ttf" / "otf" / "woff" / "woff2"
+    ///   （"ttf" 与 "otf" 均输出原始 SFNT，保留字体原有的轮廓格式）
     /// - `compression_level`: 压缩级别（WOFF: 0-9，WOFF2: 0-11，TTF 忽略）
     pub fn edit_metadata_to(
         &self,
@@ -286,7 +287,7 @@ impl Font {
         let sfnt = self.edit_metadata(edit)?;
 
         match output_format.to_lowercase().as_str() {
-            "ttf" => Ok(sfnt),
+            "ttf" | "otf" => Ok(sfnt),
             "woff" => self.convert_to_woff(&sfnt, compression_level),
             "woff2" => self.convert_to_woff2(&sfnt, compression_level),
             _ => Err(FontError::UnsupportedOutputFormat {

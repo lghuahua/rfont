@@ -161,6 +161,28 @@ rfont batch convert "*.ttf" --format woff --format woff2
 rfont batch convert "*.ttf" --format woff2 --output-dir web-fonts/
 ```
 
+### 6. 修改字体元信息
+
+```bash
+# 修改家族名与作者（默认输出 font_edited.ttf）
+rfont edit font.ttf --family "My Font" --designer "张三"
+
+# 指定完整名称、PostScript 名称与版权
+rfont edit font.ttf --full-name "My Font Bold" \
+  --postscript-name "MyFont-Bold" \
+  --copyright "(c) 2026 Example"
+
+# 修改后直接输出 WOFF2
+rfont edit font.ttf --family "Web Font" --format woff2 -o web.woff2
+
+# 修改 TTC 集合中的某个字面
+rfont edit collection.ttc --face 1 --family "Extracted Family"
+```
+
+只改写 `name` 表并刷新 `head.modified`，字形、度量与布局保持不变。
+修改家族名或样式名时会自动推导完整名称与 PostScript 名称，无法推导时保留原值；
+显式指定的 PostScript 名称会按 OpenType 规则校验（ASCII 可见字符、不超过 63 个字符）。
+
 ## 日志控制
 
 CLI 工具支持多级日志输出，方便调试和监控：

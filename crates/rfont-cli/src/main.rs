@@ -152,6 +152,64 @@ enum Commands {
         compression: Option<u8>,
     },
 
+    /// 修改字体元信息（名称、作者、版权等）
+    Edit {
+        /// 输入字体文件路径
+        input: PathBuf,
+
+        /// TTC 字体集合中的字面索引
+        #[arg(long, default_value_t = 0)]
+        face: usize,
+
+        /// 输出字体文件路径（默认为 <文件名>_edited.<格式>）
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// 输出格式（ttf、otf、woff 或 woff2，不指定则沿用输入格式）
+        #[arg(short, long)]
+        format: Option<String>,
+
+        /// WOFF/WOFF2 压缩级别（WOFF: 0-9, WOFF2: 0-11，不指定则按格式自动选择最优值）
+        #[arg(long)]
+        compression: Option<u8>,
+
+        /// 家族名称（nameID 1）
+        #[arg(long)]
+        family: Option<String>,
+
+        /// 样式名称（nameID 2）
+        #[arg(long)]
+        subfamily: Option<String>,
+
+        /// 完整名称（nameID 4，不指定时由家族名与样式名组合）
+        #[arg(long = "full-name")]
+        full_name: Option<String>,
+
+        /// 版本字符串（nameID 5）
+        #[arg(long)]
+        version: Option<String>,
+
+        /// PostScript 名称（nameID 6，只能包含 ASCII 可见字符且不超过 63 个字符）
+        #[arg(long = "postscript-name")]
+        postscript_name: Option<String>,
+
+        /// 制造商（nameID 8）
+        #[arg(long)]
+        manufacturer: Option<String>,
+
+        /// 设计者 / 作者（nameID 9）
+        #[arg(long)]
+        designer: Option<String>,
+
+        /// 版权声明（nameID 0）
+        #[arg(long)]
+        copyright: Option<String>,
+
+        /// 许可证描述（nameID 13）
+        #[arg(long)]
+        license: Option<String>,
+    },
+
     /// 批量处理字体文件
     Batch {
         /// 子命令：convert（批量转换）
@@ -291,6 +349,44 @@ fn main() -> Result<()> {
             compression,
         } => {
             commands::convert::run(&input, output.as_deref(), &format, compression, face)?;
+        }
+        Commands::Edit {
+            input,
+            face,
+            output,
+            format,
+            compression,
+            family,
+            subfamily,
+            full_name,
+            version,
+            postscript_name,
+            manufacturer,
+            designer,
+            copyright,
+            license,
+        } => {
+            let edit = rfont::FontMetaEdit {
+                family,
+                subfamily,
+                full_name,
+                version,
+                postscript_name,
+                manufacturer,
+                designer,
+                copyright,
+                license,
+            };
+            commands::edit::run(
+                &input,
+                &commands::edit::EditRequest {
+                    face,
+                    output: output.as_deref(),
+                    format: format.as_deref(),
+                    compression,
+                    edit: &edit,
+                },
+            )?;
         }
         Commands::Batch { command } => match command {
             BatchCommands::Convert {

@@ -59,6 +59,16 @@ rfont convert font.woff --format ttf -o font.ttf
 rfont convert font.ttf --format woff --compression 9 -o font.woff
 ```
 
+### 修改字体元信息
+
+```bash
+# 修改家族名与作者
+rfont edit font.ttf --family "My Font" --designer "张三"
+
+# 修改后直接输出 WOFF2
+rfont edit font.ttf --family "Web Font" --format woff2 -o web.woff2
+```
+
 ## 📖 命令详解
 
 ### `info` - 显示字体信息
@@ -137,6 +147,44 @@ rfont convert font.woff --format ttf -o font.ttf
 # 高压缩比
 rfont convert font.ttf --format woff --compression 9 -o font.woff
 ```
+
+### `edit` - 修改字体元信息
+
+改写字体 `name` 表中的名称、作者、版权等字段，刷新 `head.modified`，
+字形、度量与布局保持不变。
+
+**参数：**
+- `<INPUT>`: 输入字体文件路径（必需）
+
+**选项：**
+- `--face <INDEX>`: TTC 集合中的字面索引（默认 0）
+- `-o, --output <OUTPUT>`: 输出文件路径（可选，默认为 `{name}_edited.{format}`）
+- `-f, --format <FORMAT>`: 输出格式（ttf、otf、woff、woff2，不指定则沿用输入格式）
+- `--compression <LEVEL>`: WOFF: 0-9, WOFF2: 0-11，仅在使用 WOFF/WOFF2 格式时有效
+- `--family <NAME>`: 家族名称（nameID 1）
+- `--subfamily <NAME>`: 样式名称（nameID 2）
+- `--full-name <NAME>`: 完整名称（nameID 4，不指定时由家族名与样式名组合）
+- `--version <VERSION>`: 版本字符串（nameID 5）
+- `--postscript-name <NAME>`: PostScript 名称（nameID 6）
+- `--manufacturer <NAME>`: 制造商（nameID 8）
+- `--designer <NAME>`: 设计者 / 作者（nameID 9）
+- `--copyright <TEXT>`: 版权声明（nameID 0）
+- `--license <TEXT>`: 许可证描述（nameID 13）
+
+**示例：**
+```bash
+# 修改家族名与作者
+rfont edit font.ttf --family "My Font" --designer "张三"
+
+# 显式指定完整名称与 PostScript 名称
+rfont edit font.ttf --full-name "My Font Bold" --postscript-name "MyFont-Bold"
+
+# 修改 TTC 集合中的某个字面
+rfont edit collection.ttc --face 1 --family "Extracted Family"
+```
+
+修改家族名或样式名时会自动推导完整名称与 PostScript 名称，无法推导时保留原值；
+显式指定的 PostScript 名称会按 OpenType 规则校验（ASCII 可见字符、不超过 63 个字符）。
 
 ## 💡 使用技巧
 

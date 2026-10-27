@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod convert;
+pub mod edit;
 pub mod info;
 pub mod subset;
 pub mod ttc;
