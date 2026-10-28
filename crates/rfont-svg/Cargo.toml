@@ -1,0 +1,15 @@
+[package]
+name = "rfont-svg"
+version.workspace = true
+edition = "2024"
+description = "将 TrueType 字形轮廓导出为 SVG 路径"
+authors = ["lghuahua"]
+license = "MIT"
+repository = "https://github.com/lghuahua/rfont"
+keywords = ["font", "svg", "glyph", "outline"]
+categories = ["text-processing"]
+
+[dependencies]
+rfont = { path = "../rfont" }
+rfont-core = { path = "../rfont-core" }
+rfont-types = { path = "../rfont-types" }
