@@ -69,6 +69,16 @@ rfont edit font.ttf --family "My Font" --designer "张三"
 rfont edit font.ttf --family "Web Font" --format woff2 -o web.woff2
 ```
 
+### 导出 SVG
+
+```bash
+# 文本轮廓
+rfont svg font.ttf --text "Hello" -o hello.svg
+
+# 单个字形
+rfont svg font.ttf --glyph 36 --size 128 --color "#1f6feb" -o glyph36.svg
+```
+
 ## 📖 命令详解
 
 ### `info` - 显示字体信息
@@ -192,6 +202,35 @@ rfont edit collection.ttc --face 1 --family "Extracted Family"
 改名和子集化前都会检查字体的授权声明（`fsType` 与 nameID 13/14）：声明了保留字体名、
 禁止嵌入或禁止子集化时打印提示但不阻止操作，加 `--strict` 则中止。声明只反映作者的填写，
 实际授权以随字体分发的协议文件为准。
+
+### `svg` - 导出 SVG
+
+把文本或单个字形按字体轮廓导出为 SVG 文档。
+
+**参数：**
+- `<INPUT>`: 输入字体文件路径（必需）
+
+**选项：**
+- `--text <TEXT>`: 要导出的文本（单行），与 `--glyph` 二选一
+- `--glyph <ID>`: 要导出的字形 ID
+- `-o, --output <OUTPUT>`: 输出文件路径（可选，默认为与输入同名的 `.svg`）
+- `--face <INDEX>`: TTC 集合中的字面索引（默认 0）
+- `--size <PX>`: 字号，即 SVG 的默认显示大小（默认 64）
+- `--color <CSS>`: 填充色（默认 `#000000`；无法识别的值回退为黑色）
+- `--padding <PX>`: 四周留白（默认 4）
+
+**示例：**
+```bash
+# 文本
+rfont svg font.ttf --text "字体Aa" -o text.svg
+
+# 单个字形
+rfont svg font.ttf --glyph 36 -o glyph36.svg
+```
+
+路径按 `unitsPerEm` 缩放到 `--size`，`viewBox` 用像素单位，放大不失真。
+文本按 `hmtx` 前进宽度排成一行，不含字距调整与复杂脚本重排。
+只支持 TrueType 轮廓（`glyf`），CFF 字体导出时报错。
 
 ## 💡 使用技巧
 

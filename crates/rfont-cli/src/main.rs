@@ -218,6 +218,40 @@ enum Commands {
         strict: bool,
     },
 
+    /// 将文本或字形导出为 SVG
+    Svg {
+        /// 输入字体文件路径
+        input: PathBuf,
+
+        /// TTC 字体集合中的字面索引
+        #[arg(long, default_value_t = 0)]
+        face: usize,
+
+        /// 要导出的文本（单行）
+        #[arg(long, conflicts_with = "glyph")]
+        text: Option<String>,
+
+        /// 要导出的字形 ID
+        #[arg(long)]
+        glyph: Option<u16>,
+
+        /// 输出 SVG 文件路径（默认与输入同名的 .svg）
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// 字号（像素）
+        #[arg(long, default_value_t = 64.0)]
+        size: f64,
+
+        /// 填充色（CSS 颜色）
+        #[arg(long, default_value = "#000000")]
+        color: String,
+
+        /// 四周留白（像素）
+        #[arg(long, default_value_t = 4.0)]
+        padding: f64,
+    },
+
     /// 批量处理字体文件
     Batch {
         /// 子命令：convert（批量转换）
@@ -397,6 +431,29 @@ fn main() -> Result<()> {
                     compression,
                     edit: &edit,
                     strict,
+                },
+            )?;
+        }
+        Commands::Svg {
+            input,
+            face,
+            text,
+            glyph,
+            output,
+            size,
+            color,
+            padding,
+        } => {
+            commands::svg::run(
+                &input,
+                output.as_deref(),
+                face,
+                commands::svg::SvgRequest {
+                    text: text.as_deref(),
+                    glyph,
+                    size,
+                    color: &color,
+                    padding,
                 },
             )?;
         }
