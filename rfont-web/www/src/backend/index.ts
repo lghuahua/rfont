@@ -3,17 +3,26 @@
 // 桌面版通过 Tauri 的 invoke/dialog 与本地 Rust 通信；网页版没有 Tauri 运行时，
 // 这里改为：浏览器 File API 读字节 -> WASM 计算 -> Blob 下载 / 预览。
 // 对上层 App.vue 暴露与桌面版语义一致的高层函数。
-import { convert, face_bytes, font_info, list_faces, subset } from "./wasm";
-import type { FaceSummary, FontInfo } from "./fontInfo";
+import { convert, edit_metadata, face_bytes, font_info, list_faces, subset } from "./wasm";
+import type { FaceSummary, FontInfo, FontMetaEdit } from "./fontInfo";
 
-export type { FaceSummary, FontFormat, FontInfo, NameEntry, TableInfo } from "./fontInfo";
+export type {
+  FaceSummary,
+  FontFormat,
+  FontInfo,
+  FontLicenseKind,
+  FontMetaEdit,
+  FontRestrictions,
+  NameEntry,
+  TableInfo,
+} from "./fontInfo";
 export {
   cssFormat,
   detailRows,
   faceLabel,
   formatLabel,
-  fsTypeLabel,
   languageLabel,
+  licenseLabel,
   nameIdLabel,
   platformLabel,
 } from "./fontInfo";
@@ -77,6 +86,18 @@ export function generateFont(
     return convert(data, fmt, level, face);
   }
   return subset(data, text, fmt, level, face);
+}
+
+/// 修改字体元信息，返回新的字体字节。
+/// 只改写 name 表并刷新 head.modified，字形与度量保持不变。
+export function editFontMeta(
+  data: Uint8Array,
+  edit: FontMetaEdit,
+  format: string,
+  face = 0,
+): Uint8Array {
+  const fmt = format.toLowerCase();
+  return edit_metadata(data, JSON.stringify(edit), fmt, levelFor(fmt), face);
 }
 
 /// 用字体字节创建可用于 @font-face / 预览的 Blob URL。

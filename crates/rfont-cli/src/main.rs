@@ -128,6 +128,10 @@ enum Commands {
         /// WOFF/WOFF2 压缩级别（WOFF: 0-9, WOFF2: 0-11，不指定则按格式自动选择最优值）
         #[arg(long)]
         compression: Option<u8>,
+
+        /// 遇到字体授权限制时中止而不是只提示
+        #[arg(long)]
+        strict: bool,
     },
 
     /// 转换字体格式
@@ -208,6 +212,10 @@ enum Commands {
         /// 许可证描述（nameID 13）
         #[arg(long)]
         license: Option<String>,
+
+        /// 遇到字体授权限制时中止而不是只提示
+        #[arg(long)]
+        strict: bool,
     },
 
     /// 批量处理字体文件
@@ -311,6 +319,7 @@ fn main() -> Result<()> {
             keep_post_names,
             format,
             compression,
+            strict,
         } => {
             // 合并 text 和 text_file 为一个文本源
             let text_source = match (text, text_file) {
@@ -338,6 +347,7 @@ fn main() -> Result<()> {
                     keep_post_names,
                     format: &format,
                     compression,
+                    strict,
                 },
             )?;
         }
@@ -365,6 +375,7 @@ fn main() -> Result<()> {
             designer,
             copyright,
             license,
+            strict,
         } => {
             let edit = rfont::FontMetaEdit {
                 family,
@@ -385,6 +396,7 @@ fn main() -> Result<()> {
                     format: format.as_deref(),
                     compression,
                     edit: &edit,
+                    strict,
                 },
             )?;
         }

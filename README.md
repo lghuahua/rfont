@@ -183,6 +183,22 @@ rfont edit collection.ttc --face 1 --family "Extracted Family"
 修改家族名或样式名时会自动推导完整名称与 PostScript 名称，无法推导时保留原值；
 显式指定的 PostScript 名称会按 OpenType 规则校验（ASCII 可见字符、不超过 63 个字符）。
 
+### 7. 授权限制提示
+
+字体文件里的 `OS/2.fsType` 与 name 表的许可证记录（nameID 13/14）能反映作者的授权声明。
+子集化或改名时会先检查这些声明并打印提示，但**不阻止操作**——声明只代表作者填写，实际授权以随字体分发的协议文件为准：
+
+- `subset`：声明禁止子集化（bit 8）、禁止嵌入（bit 1）、仅位图嵌入（bit 9）或仅预览打印（bit 2）时提示
+- `edit`：许可证声明了保留字体名（Reserved Font Name），或 `fsType` 禁止嵌入 / 仅预览打印时提示
+
+```bash
+# 提示输出到 stderr；CI 中可用 --strict 把提示升级为错误退出
+rfont subset font.ttf --text "Hello" --strict
+rfont edit font.ttf --family "My Font" --strict
+```
+
+`info` 命令会展示嵌入权限、识别出的许可证类型与许可证网址；`--json` 输出中对应 `fs_type`、`license_url` 与 `restrictions` 字段（含子集化 / 改名的提示文案）。Web 与桌面端在加载字体后同样会显示授权提示。
+
 ## 日志控制
 
 CLI 工具支持多级日志输出，方便调试和监控：

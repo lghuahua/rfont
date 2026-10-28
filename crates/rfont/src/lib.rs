@@ -4,6 +4,7 @@ mod edit;
 mod font;
 mod font_data;
 mod info;
+mod license;
 mod subset;
 
 // 重新导出公共 API
@@ -13,6 +14,7 @@ pub use font::Font;
 pub use font::GlyphIterator;
 pub use font_data::FontData;
 pub use info::{FontInfo, NameEntry, TableInfo};
+pub use license::{FontLicense, FontRestrictions};
 pub use rfont_types::{FontError, FontFormat};
 pub use subset::{FontSubsetBuilder, OutputFormat, SubsetOptions};
 
@@ -582,5 +584,82 @@ mod tests {
         } else {
             assert_eq!(version, 0x00030000);
         }
+    }
+
+    /// 把字体的 OS/2.fsType 改成指定值。
+    ///
+    /// 只用于测试：目录校验和不会重算，但 rfont 读取时不校验校验和。
+    fn with_fs_type(data: &[u8], fs_type: u16) -> Vec<u8> {
+        let num_tables = u16::from_be_bytes([data[4], data[5]]) as usize;
+        let mut patched = data.to_vec();
+
+        for index in 0..num_tables {
+            let record = 12 + index * 16;
+            if &data[record..record + 4] == b"OS/2" {
+                let offset = u32::from_be_bytes([
+                    data[record + 8],
+                    data[record + 9],
+                    data[record + 10],
+                    data[record + 11],
+                ]) as usize;
+                patched[offset + 8..offset + 10].copy_from_slice(&fs_type.to_be_bytes());
+                return patched;
+            }
+        }
+
+        panic!("OS/2 表不存在");
+    }
+
+    #[test]
+    fn test_no_subsetting_flag_is_detected_and_preserved() {
+        use crate::Font;
+
+        let raw = std::fs::read("src/AlimamaDaoLiTi.ttf").unwrap();
+        let font = Font::from_bytes(&with_fs_type(&raw, 0x0100)).unwrap();
+        let info = font.get_font_info().unwrap();
+
+        assert_eq!(info.fs_type, 0x0100);
+        assert!(info.restrictions.no_subsetting);
+        assert!(info.restrictions.is_restricted());
+        assert!(
+            info.restrictions
+                .subset_warnings
+                .iter()
+                .any(|w| w.contains("禁止子集化"))
+        );
+
+        let glyph_ids = font.text_to_glyph_ids("Hello");
+        let subset = Font::from_bytes(&font.subset_and_serialize(&glyph_ids).unwrap()).unwrap();
+        assert_eq!(subset.get_font_info().unwrap().fs_type, 0x0100);
+    }
+
+    #[test]
+    fn test_subset_and_edit_keep_license_records() {
+        use crate::{Font, FontMetaEdit};
+
+        let font = Font::load("src/AlimamaDaoLiTi.ttf").unwrap();
+        let info = font.get_font_info().unwrap();
+
+        let glyph_ids = font.text_to_glyph_ids("Hello");
+        let subset = Font::from_bytes(&font.subset_and_serialize(&glyph_ids).unwrap()).unwrap();
+        let subset_info = subset.get_font_info().unwrap();
+
+        assert_eq!(subset_info.fs_type, info.fs_type);
+        assert_eq!(subset_info.copyright, info.copyright);
+        assert_eq!(subset_info.license, info.license);
+        assert_eq!(subset_info.license_url, info.license_url);
+
+        let edit = FontMetaEdit {
+            family: Some("Licensed Rename".to_string()),
+            ..Default::default()
+        };
+        let edited = Font::from_bytes(&font.edit_metadata_to(&edit, "ttf", 0).unwrap()).unwrap();
+        let edited_info = edited.get_font_info().unwrap();
+
+        assert_eq!(edited_info.family.as_deref(), Some("Licensed Rename"));
+        assert_eq!(edited_info.fs_type, info.fs_type);
+        assert_eq!(edited_info.copyright, info.copyright);
+        assert_eq!(edited_info.license, info.license);
+        assert_eq!(edited_info.license_url, info.license_url);
     }
 }

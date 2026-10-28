@@ -59,7 +59,7 @@
     <!-- Right Panel -->
     <div class="right-panel flex-col">
       <!-- Font Info Card - Only show when font is loaded -->
-      <div v-if="fontName" class="font-info-card flex-middle gap-16">
+      <div v-if="fontName" class="font-info-card">
         <svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="60" height="60">
           <path
             d="M635 888.5c-41.5-4.3-63-13-78.6-25.9l-1.1-1.1c-13.5-14.6-20.5-46.9-20.5-97.6V221.6c0-7.6 5.9-14 14-14h87.3c78.2 0 83 10.8 107.7 32.9 26.9 21.1 38.8 31.9 52.8 102 1.6 6.5 7 11.3 14 11.3h5.4c8.1 0 14.5-6.5 14-14.6l-1.6-232.6H78.5c-7.6 0-13.5 5.9-14 13.5l-1.1 218.5c-0.5 8.1 5.9 14.6 14 14.6h5.4c7 0 12.4-4.8 14-11.3 14-69.6 25.9-80.4 52.8-101.4l0.5-0.5c24.3-21.6 29.6-32.4 107.3-32.4h87.3c7.6 0 14 5.9 14 14v525.6c0 60.4-6.5 96.6-20 108.4-1.1 0.5-1.6 1.6-2.2 2.2-11.9 16.1-31.8 26.4-73.2 30.7-7.6 0.5-13 6.5-13 14 0 7.6 5.9 14 14 14h369.6c7.6 0 14-5.9 14-14 0.1-7-5.3-13.5-12.9-14z m324.3-217.6l-0.7-99H638.4c-3.2 0-5.7 2.6-6 5.7l-0.5 93c-0.3 3.5 2.6 6.2 6 6.2h2.3c3 0 5.3-2.1 6-4.8 6-29.6 11-34.2 22.5-43.1l0.3-0.3c10.4-9.2 12.7-13.8 45.8-13.8h37.3c3.2 0 6 2.6 6 5.9v223.7c0 25.7-2.7 41-8.5 46.1-0.5 0.3-0.7 0.7-0.9 0.9-5 6.9-13.6 11.2-31.3 13-3.2 0.3-5.6 2.7-5.6 5.9s2.6 5.9 6 5.9h157.8c3.2 0 6-2.6 6-5.9 0-3-2.3-5.7-5.6-5.9-17.7-1.8-26.9-5.5-33.6-11l-0.5-0.5c-5.7-6.2-8.8-20-8.8-41.6V620.8c0-3.2 2.6-5.9 6-5.9h37.3c33.4 0 35.4 4.6 46 14 11.5 8.9 16.6 13.6 22.5 43.4 0.7 2.7 3 4.8 6 4.8h2.3c3.6 0 6.4-2.8 6.1-6.2z"
@@ -90,6 +90,14 @@
             </Select>
           </div>
 
+          <!-- 授权提示：字体自己声明的嵌入 / 子集化限制 -->
+          <div v-if="restrictionWarnings.length" class="restriction-box">
+            <div class="restriction-title">授权提示</div>
+            <div v-for="(warning, index) in restrictionWarnings" :key="index" class="restriction-item">
+              {{ warning }}
+            </div>
+          </div>
+
           <!-- 字体详情：默认折叠，避免挤占预览区 -->
           <details v-if="fontInfo" class="font-details">
             <summary class="details-summary">字体详情</summary>
@@ -117,6 +125,35 @@
                   <span class="table-tag">{{ table.tag }}</span>
                   <span class="table-length">{{ table.length }} B</span>
                 </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- 名称编辑：默认折叠，改动只作用于导出的文件 -->
+          <details v-if="fontInfo" class="font-details">
+            <summary class="details-summary">编辑名称</summary>
+            <div class="details-body">
+              <div class="edit-grid">
+                <div class="edit-field">
+                  <span class="edit-label">家族名</span>
+                  <Input v-model:value="editForm.family" size="small" :placeholder="fontInfo.family || '未命名'" />
+                </div>
+                <div class="edit-field">
+                  <span class="edit-label">样式名</span>
+                  <Input v-model:value="editForm.subfamily" size="small" :placeholder="fontInfo.subfamily || 'Regular'" />
+                </div>
+                <div class="edit-field">
+                  <span class="edit-label">作者</span>
+                  <Input v-model:value="editForm.designer" size="small" :placeholder="fontInfo.designer || '未署名'" />
+                </div>
+                <div class="edit-field">
+                  <span class="edit-label">版权</span>
+                  <Input v-model:value="editForm.copyright" size="small" :placeholder="fontInfo.copyright || '无'" />
+                </div>
+              </div>
+              <div class="edit-actions">
+                <Button size="small" type="primary" :loading="editing" @click="handleEdit">应用并下载</Button>
+                <span class="edit-hint">仅改名称信息，不影响字形；家族名或样式名变化时完整名称与 PostScript 名同步更新</span>
               </div>
             </div>
           </details>
@@ -152,6 +189,7 @@ import {
   cssFormat,
   detailRows,
   downloadBytes,
+  editFontMeta,
   errText,
   faceLabel,
   formatLabel,
@@ -167,6 +205,7 @@ import {
   type FaceSummary,
   type FontFormat,
   type FontInfo,
+  type FontMetaEdit,
 } from "./backend";
 
 // State
@@ -179,6 +218,13 @@ const fontType = ref("");        // 容器格式（来自解析结果）
 const fontInfo = ref<FontInfo | null>(null);
 const fontFormat = ref<FontFormat | null>(null);
 const detailRowsList = computed(() => (fontInfo.value ? detailRows(fontInfo.value) : []));
+const restrictionWarnings = computed(() => {
+  const restrictions = fontInfo.value?.restrictions;
+  if (!restrictions) {
+    return [];
+  }
+  return [...restrictions.subset_warnings, ...restrictions.rename_warnings];
+});
 const glyphCount = ref(0);
 const originalSize = ref("");
 const loading = ref(false);
@@ -188,6 +234,13 @@ const fontBytes = ref<Uint8Array | null>(null); // 原始字体字节
 const fileInput = ref<HTMLInputElement | null>(null);
 const faces = ref<FaceSummary[]>([]);  // 字体集合中的字面
 const selectedFace = ref(0);            // 当前字面索引
+const editing = ref(false);              // 名称编辑导出中
+const editForm = ref<{ family: string; subfamily: string; designer: string; copyright: string }>({
+  family: "",
+  subfamily: "",
+  designer: "",
+  copyright: "",
+});
 
 // 计算按钮文字
 const buttonText = computed(() =>
@@ -281,6 +334,9 @@ function applyFace() {
   revokeFontUrl(fontDataUrl.value);
   fontDataUrl.value = createFontUrl(faceBytes, info.format);
   originalSize.value = `${(faceBytes.byteLength / 1024).toFixed(2)} KB`;
+
+  // 切换字体后清空上一次的编辑内容，避免误用到新字体
+  resetEditForm();
 }
 
 /// 切换字面：刷新信息与预览。
@@ -308,6 +364,53 @@ function resetFontState() {
   fontDataUrl.value = "";
   faces.value = [];
   selectedFace.value = 0;
+  resetEditForm();
+}
+
+function resetEditForm() {
+  editForm.value = { family: "", subfamily: "", designer: "", copyright: "" };
+}
+
+/// 应用名称修改并导出新的字体文件。
+function handleEdit() {
+  if (!fontBytes.value) {
+    message.error("请先选择字体文件");
+    return;
+  }
+
+  const edit: FontMetaEdit = {};
+  const fields: Array<keyof FontMetaEdit> = ["family", "subfamily", "designer", "copyright"];
+  for (const field of fields) {
+    const value = editForm.value[field].trim();
+    if (value) {
+      edit[field] = value;
+    }
+  }
+
+  if (Object.keys(edit).length === 0) {
+    message.warning("请至少填写一项要修改的信息");
+    return;
+  }
+
+  editing.value = true;
+  try {
+    const renameWarnings = fontInfo.value?.restrictions.rename_warnings ?? [];
+    if (renameWarnings.length > 0) {
+      message.warning(renameWarnings.join(" "));
+    }
+
+    const fmt = format.value.toLowerCase();
+    const bytes = editFontMeta(fontBytes.value, edit, fmt, selectedFace.value);
+    const base = (fileName.value || "font").replace(/\.(ttf|otf|woff|woff2)$/i, "");
+    const outName = `${base}_edited.${fmt}`;
+    downloadBytes(bytes, outName, mimeFor(fmt));
+
+    message.success(`已生成 ${outName}（${(bytes.byteLength / 1024).toFixed(2)} KB）`);
+  } catch (err) {
+    message.error(`修改失败：${errText(err)}`);
+  } finally {
+    editing.value = false;
+  }
 }
 
 function handleGenerate() {
@@ -318,6 +421,14 @@ function handleGenerate() {
 
   loading.value = true;
   try {
+    const text = textContent.value.trim();
+    if (text) {
+      const subsetWarnings = fontInfo.value?.restrictions.subset_warnings ?? [];
+      if (subsetWarnings.length > 0) {
+        message.warning(subsetWarnings.join(" "));
+      }
+    }
+
     const fmt = format.value.toLowerCase();
     const base = (filename.value || "subset-font").replace(
       /\.(ttf|otf|woff|woff2)$/i,
@@ -565,12 +676,23 @@ body,
 
 /* Font Info Card */
 .font-info-card {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  column-gap: 16px;
+  row-gap: 12px;
+  align-items: center;
   flex-shrink: 0;
   border-radius: 12px;
   border: 1px solid #e5e7eb;
   background-color: #ffffff;
   padding: 15px;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* 折叠面板与授权提示横跨整行，避免挤在图标右侧的窄列里 */
+.font-info-card > .font-details,
+.font-info-card > .restriction-box {
+  grid-column: 1 / -1;
 }
 
 .info-icon-wrapper {
@@ -710,6 +832,58 @@ body,
 }
 
 .table-length {
+  color: #9ca3af;
+}
+
+/* 授权提示 */
+.restriction-box {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #fde68a;
+  background-color: #fffbeb;
+}
+
+.restriction-title {
+  font-weight: 600;
+  color: #b45309;
+}
+
+.restriction-item {
+  font-size: 11px;
+  line-height: 1.6;
+  color: #92400e;
+}
+
+/* 名称编辑 */
+.edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.edit-label {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.edit-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.edit-hint {
+  font-size: 11px;
+  line-height: 1.6;
   color: #9ca3af;
 }
 

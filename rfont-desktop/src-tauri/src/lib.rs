@@ -1,5 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-use rfont::{FaceSummary, Font, FontCollection};
+use rfont::{FaceSummary, Font, FontCollection, FontMetaEdit};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -243,6 +243,54 @@ async fn subset_font(
     }
 }
 
+/// 修改字体元信息（名称、作者、版权等）
+#[tauri::command]
+async fn edit_font(
+    edit: FontMetaEdit,
+    output_path: String,
+    output_format: String,
+    state: State<'_, Mutex<AppState>>,
+) -> Result<String, String> {
+    info!("Editing font metadata, output format: {}", output_format);
+
+    let app_state = state.lock().unwrap();
+
+    let font = if let Some(ref font) = app_state.font {
+        Arc::clone(font)
+    } else if let Some(ref path) = app_state.current_font_path {
+        Arc::new(
+            Font::load_with_face(path, app_state.selected_face)
+                .map_err(|e| format!("Failed to load font: {}", e))?,
+        )
+    } else {
+        return Err("No font loaded".to_string());
+    };
+
+    if edit.is_empty() {
+        return Err("No fields to edit".to_string());
+    }
+
+    edit.validate()
+        .map_err(|e| format!("Invalid metadata: {}", e))?;
+
+    let compression_level = match output_format.to_lowercase().as_str() {
+        "woff" => 9,
+        "woff2" => 11,
+        _ => 0,
+    };
+
+    let font_data = font
+        .edit_metadata_to(&edit, &output_format, compression_level)
+        .map_err(|e| format!("Failed to edit font metadata: {}", e))?;
+
+    let output_path_buf = PathBuf::from(&output_path);
+    std::fs::write(&output_path_buf, &font_data)
+        .map_err(|e| format!("Failed to save font: {}", e))?;
+
+    info!("Font saved to: {:?}", output_path_buf);
+    Ok(format!("Font saved successfully to {}", output_path))
+}
+
 pub fn run() {
     tracing_subscriber::fmt::init();
 
@@ -255,6 +303,7 @@ pub fn run() {
             load_font,
             get_font_info,
             subset_font,
+            edit_font,
             read_font_as_base64,
             list_faces,
             select_face

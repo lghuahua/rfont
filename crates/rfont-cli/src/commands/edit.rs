@@ -16,6 +16,8 @@ pub struct EditRequest<'a> {
     pub compression: Option<u8>,
     /// 待修改的元信息
     pub edit: &'a FontMetaEdit,
+    /// 遇到授权限制时中止而不是只提示
+    pub strict: bool,
 }
 
 /// 支持的输出格式
@@ -46,6 +48,9 @@ pub fn run(input: &Path, request: &EditRequest<'_>) -> Result<()> {
         .or(info.family.as_deref())
         .unwrap_or("<未知>");
     println!("  ✓ 成功加载字体：{}", original_name.bold());
+
+    // 授权提示：改名不影响字形，但保留字体名等声明会限制改名后的分发
+    super::report_restrictions(&info.restrictions.rename_warnings, request.strict)?;
 
     // 决定输出格式
     let format = match request.format {

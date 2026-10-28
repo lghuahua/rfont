@@ -63,6 +63,7 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
         ("制造商:       ", &info.manufacturer),
         ("版权:         ", &info.copyright),
         ("许可证:       ", &info.license),
+        ("许可证网址:   ", &info.license_url),
     ];
 
     let mut printed = false;
@@ -79,11 +80,24 @@ fn output_human(font: &Font, verbose: bool) -> Result<()> {
     println!("\n{}", "样式与度量:".bold());
     println!("  字重:          {}", info.weight_class);
     println!("  字宽:          {}", info.width_class);
-    println!("  嵌入权限:      0x{:04X}", info.fs_type);
+    println!(
+        "  嵌入权限:      0x{:04X} ({})",
+        info.fs_type, info.restrictions.embedding_label
+    );
+    println!("  许可证类型:    {}", info.restrictions.license.label());
     println!("  Ascender:      {}", info.ascender);
     println!("  Descender:     {}", info.descender);
     println!("  Line Gap:      {}", info.line_gap);
     println!("  HMetrics:      {}", info.number_of_h_metrics);
+
+    let mut restrictions = info.restrictions.subset_warnings.clone();
+    restrictions.extend(info.restrictions.rename_warnings.clone());
+    if !restrictions.is_empty() {
+        println!("\n{}", "授权提示:".bold().yellow());
+        for warning in restrictions {
+            println!("  • {warning}");
+        }
+    }
 
     if verbose {
         if !info.names.is_empty() {

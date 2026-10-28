@@ -73,12 +73,13 @@ rfont edit font.ttf --family "Web Font" --format woff2 -o web.woff2
 
 ### `info` - 显示字体信息
 
-显示字体的基本信息，包括字形数量、Units per EM、边界框等。
+显示字体的基本信息，包括字形数量、Units per EM、边界框等，以及 `fsType` 嵌入权限、
+从许可证记录（nameID 13/14）识别出的许可证类型与网址。存在授权限制时会附加提示信息。
 
 **选项：**
 - `<FONT>`: 字体文件路径（必需）
 - `-v, --verbose`: 显示详细信息（包括所有表）
-- `--json`: 以 JSON 格式输出
+- `--json`: 以 JSON 格式输出（授权信息在 `fs_type`、`license_url`、`restrictions` 字段）
 
 **示例：**
 ```bash
@@ -102,6 +103,7 @@ rfont info AlimamaDaoLiTi.ttf --json | jq '.glyph_count'
 - `--strip-post-names`: 优化 post 表（移除字形名称，减小文件大小）
 - `--format <FORMAT>`: 输出格式（ttf 或 woff，默认：ttf）
 - `--compression <LEVEL>`: WOFF: 0-9, WOFF2: 0-11，仅在使用 WOFF/WOFF2 格式时有效
+- `--strict`: 字体声明了子集化 / 嵌入限制时中止（默认只提示，不阻止）
 
 **示例：**
 ```bash
@@ -170,6 +172,7 @@ rfont convert font.ttf --format woff --compression 9 -o font.woff
 - `--designer <NAME>`: 设计者 / 作者（nameID 9）
 - `--copyright <TEXT>`: 版权声明（nameID 0）
 - `--license <TEXT>`: 许可证描述（nameID 13）
+- `--strict`: 许可证声明了保留字体名或 `fsType` 限制嵌入时中止（默认只提示，不阻止）
 
 **示例：**
 ```bash
@@ -185,6 +188,10 @@ rfont edit collection.ttc --face 1 --family "Extracted Family"
 
 修改家族名或样式名时会自动推导完整名称与 PostScript 名称，无法推导时保留原值；
 显式指定的 PostScript 名称会按 OpenType 规则校验（ASCII 可见字符、不超过 63 个字符）。
+
+改名和子集化前都会检查字体的授权声明（`fsType` 与 nameID 13/14）：声明了保留字体名、
+禁止嵌入或禁止子集化时打印提示但不阻止操作，加 `--strict` 则中止。声明只反映作者的填写，
+实际授权以随字体分发的协议文件为准。
 
 ## 💡 使用技巧
 

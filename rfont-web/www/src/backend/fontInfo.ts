@@ -20,6 +20,31 @@ export interface NameEntry {
   value: string;
 }
 
+/// 许可证类型（与 Rust 端 `rfont::FontLicense` 对应）。
+export type FontLicenseKind =
+  | "Unknown"
+  | "SilOpenFontLicense"
+  | "ApacheLicense"
+  | "GnuGeneralPublicLicense"
+  | "MitLicense"
+  | "Proprietary";
+
+/// 授权与嵌入限制（与 Rust 端 `rfont::FontRestrictions` 对应）。
+/// 提示文案由 Rust 端统一生成，这里只做展示。
+export interface FontRestrictions {
+  fs_type: number;
+  license: FontLicenseKind;
+  no_embedding: boolean;
+  preview_and_print_only: boolean;
+  editable_embedding: boolean;
+  no_subsetting: boolean;
+  bitmap_only: boolean;
+  reserved_font_name: boolean;
+  embedding_label: string;
+  subset_warnings: string[];
+  rename_warnings: string[];
+}
+
 export interface FontInfo {
   format: FontFormat;
   face_index: number;
@@ -35,6 +60,7 @@ export interface FontInfo {
   manufacturer: string | null;
   copyright: string | null;
   license: string | null;
+  license_url: string | null;
   glyph_count: number;
   units_per_em: number;
   bbox: [number, number, number, number];
@@ -46,6 +72,7 @@ export interface FontInfo {
   weight_class: number;
   width_class: number;
   fs_type: number;
+  restrictions: FontRestrictions;
   tables: TableInfo[];
 }
 
@@ -58,6 +85,15 @@ export interface FaceSummary {
   full_name: string | null;
   postscript_name: string | null;
   glyph_count: number;
+}
+
+/// 字体元信息编辑项（与 Rust 端 `rfont::FontMetaEdit` 对应）。
+/// 未出现的字段保持原值。
+export interface FontMetaEdit {
+  family?: string;
+  subfamily?: string;
+  designer?: string;
+  copyright?: string;
 }
 
 const FORMAT_LABELS: Record<FontFormat, string> = {
@@ -189,21 +225,18 @@ function widthLabel(width: number): string {
   return label ? `${width} ${label}` : String(width);
 }
 
-const FS_TYPE_FLAGS: Array<[number, string]> = [
-  [0x0002, "禁止嵌入"],
-  [0x0004, "仅可预览与打印"],
-  [0x0008, "可编辑嵌入"],
-  [0x0100, "仅位图嵌入"],
-  [0x0200, "禁止子集化"],
-];
+const LICENSE_LABELS: Record<FontLicenseKind, string> = {
+  Unknown: "未声明",
+  SilOpenFontLicense: "SIL Open Font License",
+  ApacheLicense: "Apache License",
+  GnuGeneralPublicLicense: "GNU GPL",
+  MitLicense: "MIT License",
+  Proprietary: "专有授权",
+};
 
-/// OS/2.fsType 的可读描述。
-export function fsTypeLabel(fsType: number): string {
-  if (fsType === 0) {
-    return "可安装（无限制）";
-  }
-  const flags = FS_TYPE_FLAGS.filter(([bit]) => (fsType & bit) !== 0).map(([, label]) => label);
-  return flags.length > 0 ? flags.join("、") : `0x${fsType.toString(16)}`;
+/// 许可证类型的展示名称。
+export function licenseLabel(kind: FontLicenseKind): string {
+  return LICENSE_LABELS[kind] ?? kind;
 }
 
 export interface DetailRow {
@@ -228,9 +261,14 @@ export function detailRows(info: FontInfo): DetailRow[] {
   push("制造商", info.manufacturer);
   push("版权", info.copyright);
   push("许可证", info.license);
+  push("许可证类型", licenseLabel(info.restrictions.license));
+  push("许可证网址", info.license_url);
   push("字重", weightLabel(info.weight_class));
   push("字宽", widthLabel(info.width_class));
-  push("嵌入权限", fsTypeLabel(info.fs_type));
+  push(
+    "嵌入权限",
+    `0x${info.fs_type.toString(16).padStart(4, "0").toUpperCase()} · ${info.restrictions.embedding_label}`,
+  );
   push(
     "度量",
     `${info.units_per_em} UPM · 字符 ${info.supported_char_count} · 上下 ${info.ascender}/${info.descender} · 行距 ${info.line_gap}`,

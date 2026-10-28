@@ -10,7 +10,10 @@
 //! 每个导出函数都有一层纯 Rust 实现（`*_impl`）：它只返回 [`FontError`]，
 //! 不触碰 JS 运行时，因此可以在原生平台上直接测试错误分支。
 
-use rfont::{FaceSummary, Font, FontCollection, FontError, FontInfo, OutputFormat, SubsetOptions};
+use rfont::{
+    FaceSummary, Font, FontCollection, FontError, FontInfo, FontMetaEdit, OutputFormat,
+    SubsetOptions,
+};
 use wasm_bindgen::prelude::*;
 
 /// 将任意实现了 `Display` 的错误转换成可抛给 JS 的 `JsValue`。
@@ -87,6 +90,18 @@ fn subset_impl(
     };
 
     font.subset_with_options(&glyph_ids, &options)
+}
+
+/// 修改字体元信息（名称、作者、版权等）。
+fn edit_metadata_impl(
+    data: &[u8],
+    edit: &FontMetaEdit,
+    format: &str,
+    compression_level: u8,
+    face: usize,
+) -> Result<Vec<u8>, FontError> {
+    let font = Font::from_bytes_with_face(data, face)?;
+    font.edit_metadata_to(edit, format, compression_level)
 }
 
 /// 列出 TTC 字体集合中的字面摘要。
@@ -178,6 +193,32 @@ pub fn subset(
     subset_impl(data, text, format, compression_level, face as usize).map_err(to_js_error)
 }
 
+/// 修改字体元信息，返回新的字体字节。
+///
+/// 只改写 `name` 表并刷新 `head.modified`，字形与度量保持不变。
+///
+/// # 参数
+/// - `data`: 原始字体字节
+/// - `edit`: [`rfont::FontMetaEdit`] 的 JSON 序列化结果，未出现的字段保持原值
+/// - `format`: 输出格式，"ttf" / "otf" / "woff" / "woff2"
+/// - `compression_level`: 压缩级别（WOFF: 0-9，WOFF2: 0-11，TTF 忽略）
+/// - `face`: 字面索引，TTC 集合内按索引选择
+///
+/// # 返回
+/// - `Ok(Vec<u8>)`: 修改后的字体字节（JS 侧为 `Uint8Array`）
+/// - `Err(JsValue)`: 参数非法或修改失败时的错误信息
+#[wasm_bindgen]
+pub fn edit_metadata(
+    data: &[u8],
+    edit: &str,
+    format: &str,
+    compression_level: u8,
+    face: u32,
+) -> Result<Vec<u8>, JsValue> {
+    let edit: FontMetaEdit = serde_json::from_str(edit).map_err(to_js_error)?;
+    edit_metadata_impl(data, &edit, format, compression_level, face as usize).map_err(to_js_error)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,6 +232,16 @@ mod tests {
         let data = test_font();
         let json = font_info(&data, 0).unwrap();
         assert!(json.contains("glyph_count"));
+    }
+
+    #[test]
+    fn font_info_includes_license_restrictions() {
+        let data = test_font();
+        let json = font_info(&data, 0).unwrap();
+
+        assert!(json.contains("license_url"));
+        assert!(json.contains("restrictions"));
+        assert!(json.contains("embedding_label"));
     }
 
     #[test]
@@ -229,6 +280,48 @@ mod tests {
         assert!(matches!(
             font_info_impl(&data, 1),
             Err(FontError::FaceIndexOutOfRange { index: 1, count: 1 })
+        ));
+    }
+
+    #[test]
+    fn edit_metadata_updates_family_name() {
+        let data = test_font();
+        let edit = FontMetaEdit {
+            family: Some("Wasm Edited".to_string()),
+            ..Default::default()
+        };
+
+        let out = edit_metadata_impl(&data, &edit, "ttf", 0, 0).unwrap();
+        let info = Font::from_bytes(&out).unwrap().get_font_info().unwrap();
+
+        assert_eq!(info.family.as_deref(), Some("Wasm Edited"));
+        assert_eq!(info.glyph_count, 7044);
+    }
+
+    #[test]
+    fn edit_metadata_parses_partial_json() {
+        let data = test_font();
+        let edit: FontMetaEdit = serde_json::from_str(r#"{"designer":"Alice"}"#).unwrap();
+
+        assert_eq!(edit.designer.as_deref(), Some("Alice"));
+        assert!(edit.family.is_none());
+
+        let out = edit_metadata_impl(&data, &edit, "ttf", 0, 0).unwrap();
+        let info = Font::from_bytes(&out).unwrap().get_font_info().unwrap();
+        assert_eq!(info.designer.as_deref(), Some("Alice"));
+    }
+
+    #[test]
+    fn edit_metadata_rejects_invalid_postscript_name() {
+        let data = test_font();
+        let edit = FontMetaEdit {
+            postscript_name: Some("Bad Name".to_string()),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            edit_metadata_impl(&data, &edit, "ttf", 0, 0),
+            Err(FontError::InvalidPostScriptName { .. })
         ));
     }
 }

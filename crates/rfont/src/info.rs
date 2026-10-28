@@ -2,6 +2,7 @@ use rfont_core::{Cmap, Head, Hhea, Maxp, NameTable};
 use rfont_types::{FontError, FontFormat, TableRecord, Tag};
 
 use crate::font_data::FontData;
+use crate::license::FontRestrictions;
 
 /// 字体表信息
 ///
@@ -95,6 +96,8 @@ pub struct FontInfo {
     pub copyright: Option<String>,
     /// 许可证描述（nameID 13）
     pub license: Option<String>,
+    /// 许可证网址（nameID 14）
+    pub license_url: Option<String>,
     /// 字形总数
     pub glyph_count: u16,
     /// 每 EM 单位数
@@ -117,6 +120,8 @@ pub struct FontInfo {
     pub width_class: u16,
     /// 嵌入权限位（OS/2.fsType）
     pub fs_type: u16,
+    /// 授权与嵌入限制（由 fsType 与许可证记录推导）
+    pub restrictions: FontRestrictions,
     /// 所有表的列表（按 tag 排序）
     pub tables: Vec<TableInfo>,
 }
@@ -145,6 +150,7 @@ impl FontInfo {
             manufacturer: None,
             copyright: None,
             license: None,
+            license_url: None,
             glyph_count: 0,
             units_per_em: 0,
             bbox: (0, 0, 0, 0),
@@ -156,6 +162,7 @@ impl FontInfo {
             weight_class: 0,
             width_class: 0,
             fs_type: 0,
+            restrictions: FontRestrictions::default(),
             tables: Vec::new(),
         }
     }
@@ -203,6 +210,7 @@ pub(crate) fn extract(
         info.manufacturer = name_table.get_name_string(8);
         info.copyright = name_table.get_name_string(0);
         info.license = name_table.get_name_string(13);
+        info.license_url = name_table.get_name_string(14);
     }
 
     if let Some(bytes) = font_data.get_table_bytes(Tag(*b"OS/2"))
@@ -212,6 +220,12 @@ pub(crate) fn extract(
         info.width_class = width;
         info.fs_type = fs_type;
     }
+
+    info.restrictions = FontRestrictions::new(
+        info.fs_type,
+        info.license.as_deref(),
+        info.license_url.as_deref(),
+    );
 
     Ok(info)
 }

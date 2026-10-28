@@ -14,6 +14,8 @@ pub struct SubsetRequest<'a> {
     pub keep_post_names: bool,
     pub format: &'a str,
     pub compression: Option<u8>,
+    /// 遇到授权限制时中止而不是只提示
+    pub strict: bool,
 }
 
 pub fn run(input: &Path, output: Option<&Path>, request: SubsetRequest<'_>) -> Result<()> {
@@ -25,6 +27,7 @@ pub fn run(input: &Path, output: Option<&Path>, request: SubsetRequest<'_>) -> R
         keep_post_names,
         format,
         compression,
+        strict,
     } = request;
     let span = span!(Level::INFO, "subset_command",
                      input = ?input,
@@ -48,6 +51,9 @@ pub fn run(input: &Path, output: Option<&Path>, request: SubsetRequest<'_>) -> R
 
     let font_info = font.get_font_info().context("获取字体信息失败")?;
     println!("  字形总数: {}", font_info.glyph_count);
+
+    // 授权提示：子集化会改变字形集合，字体声明的限制在这里最有意义
+    super::report_restrictions(&font_info.restrictions.subset_warnings, strict)?;
 
     // 收集要包含的字符
     let mut all_text = String::new();

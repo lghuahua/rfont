@@ -26,6 +26,14 @@ export const subset = wasm.subset as unknown as (
   face: number,
 ) => Uint8Array;
 
+export const edit_metadata = wasm.edit_metadata as unknown as (
+  data: Uint8Array,
+  edit: string,
+  format: string,
+  compression_level: number,
+  face: number,
+) => Uint8Array;
+
 let initPromise: Promise<void> | null = null;
 
 /// 初始化 WASM 模块（幂等，仅首次真正加载）。
