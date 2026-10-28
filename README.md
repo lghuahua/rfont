@@ -22,6 +22,7 @@
 - ✅ **格式转换**：在 TTF、WOFF、WOFF2 之间互相转换
 - ✅ **批量处理**：支持批量转换多个字体文件
 - ✅ **详细信息**：查看格式、名称记录（家族/样式/作者/版权等）、样式与度量、表结构
+- ✅ **SVG 导出**：把文本或单个字形按字体轮廓导出为 SVG，三端均支持
 - ✅ **高性能**：基于 Rust 编译，速度快，内存占用低
 
 ## 快速开始
@@ -199,6 +200,26 @@ rfont edit font.ttf --family "My Font" --strict
 
 `info` 命令会展示嵌入权限、识别出的许可证类型与许可证网址；`--json` 输出中对应 `fs_type`、`license_url` 与 `restrictions` 字段（含子集化 / 改名的提示文案）。Web 与桌面端在加载字体后同样会显示授权提示。
 
+### 8. 导出 SVG
+
+```bash
+# 按字体轮廓导出文本（默认 64px、黑色、4px 留白）
+rfont svg font.ttf --text "Hello" -o hello.svg
+
+# 导出单个字形
+rfont svg font.ttf --glyph 36 -o glyph36.svg
+
+# 指定字号、颜色与留白
+rfont svg font.ttf --text "字体" --size 128 --color "#1f6feb" --padding 8 -o font.svg
+```
+
+SVG 的 `viewBox` 使用像素单位，`--size` 只决定默认显示大小，路径按 `unitsPerEm` 缩放，放大不会失真。
+文本按 `hmtx` 的前进宽度排成一行，不做字距调整（kerning），也不处理阿拉伯文、印度系文字的重排——
+需要复杂排版时请先用排版引擎生成字形序列，再用 `--glyph` 逐个导出。
+
+只支持 TrueType 轮廓（`glyf`），CFF 字体导出时会返回错误。网页版与桌面端在预览区右上角提供
+“导出 SVG”按钮，按当前预览字号导出输入框中的文本。
+
 ## 日志控制
 
 CLI 工具支持多级日志输出，方便调试和监控：
@@ -243,14 +264,14 @@ RUST_LOG=error rfont subset font.ttf --text "Hello"
 
 ### 支持的格式
 
-| 格式 | 信息查看 | 格式转换 | 子集化 |
-| --- | --- | --- | --- |
-| TTF（TrueType 轮廓，`glyf`/`loca`） | ✅ | ✅ | ✅ |
-| WOFF（TrueType 轮廓） | ✅ | ✅ | ✅ |
-| WOFF2（TrueType 轮廓） | ✅ | ✅ | ✅ |
-| TTC/OTC（TrueType 轮廓） | ✅（`--face`） | ✅（`--face`） | ✅（`--face`） |
-| OTF（CFF 轮廓） | ❌ | ❌ | ❌ |
-| TTC/OTC（CFF 轮廓） | ❌ | ❌ | ❌ |
+| 格式 | 信息查看 | 格式转换 | 子集化 | 导出 SVG |
+| --- | --- | --- | --- | --- |
+| TTF（TrueType 轮廓，`glyf`/`loca`） | ✅ | ✅ | ✅ | ✅ |
+| WOFF（TrueType 轮廓） | ✅ | ✅ | ✅ | ✅ |
+| WOFF2（TrueType 轮廓） | ✅ | ✅ | ✅ | ✅ |
+| TTC/OTC（TrueType 轮廓） | ✅（`--face`） | ✅（`--face`） | ✅（`--face`） | ✅（`--face`） |
+| OTF（CFF 轮廓） | ❌ | ❌ | ❌ | ❌ |
+| TTC/OTC（CFF 轮廓） | ❌ | ❌ | ❌ | ❌ |
 
 ### 已知限制
 

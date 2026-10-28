@@ -29,6 +29,7 @@ base64 = "0.22"
 
 # rfont 核心库
 rfont = { path = "../../crates/rfont", features = ["serde"] }
+rfont-svg = { path = "../../crates/rfont-svg" }
 
 # 日志依赖
 tracing = "0.1"

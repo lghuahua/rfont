@@ -34,6 +34,22 @@ export const edit_metadata = wasm.edit_metadata as unknown as (
   face: number,
 ) => Uint8Array;
 
+export const svg_text = wasm.svg_text as unknown as (
+  data: Uint8Array,
+  text: string,
+  font_size: number,
+  fill: string,
+  face: number,
+) => string;
+
+export const svg_glyph = wasm.svg_glyph as unknown as (
+  data: Uint8Array,
+  glyph_id: number,
+  font_size: number,
+  fill: string,
+  face: number,
+) => string;
+
 let initPromise: Promise<void> | null = null;
 
 /// 初始化 WASM 模块（幂等，仅首次真正加载）。

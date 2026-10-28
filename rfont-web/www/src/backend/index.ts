@@ -3,7 +3,7 @@
 // 桌面版通过 Tauri 的 invoke/dialog 与本地 Rust 通信；网页版没有 Tauri 运行时，
 // 这里改为：浏览器 File API 读字节 -> WASM 计算 -> Blob 下载 / 预览。
 // 对上层 App.vue 暴露与桌面版语义一致的高层函数。
-import { convert, edit_metadata, face_bytes, font_info, list_faces, subset } from "./wasm";
+import { convert, edit_metadata, face_bytes, font_info, list_faces, subset, svg_text } from "./wasm";
 import type { FaceSummary, FontInfo, FontMetaEdit } from "./fontInfo";
 
 export type {
@@ -98,6 +98,17 @@ export function editFontMeta(
 ): Uint8Array {
   const fmt = format.toLowerCase();
   return edit_metadata(data, JSON.stringify(edit), fmt, levelFor(fmt), face);
+}
+
+/// 将单行文本导出为 SVG 文档（TrueType 轮廓，按 hmtx 步进排版）。
+export function svgText(
+  data: Uint8Array,
+  text: string,
+  fontSize: number,
+  fill = "#000000",
+  face = 0,
+): string {
+  return svg_text(data, text, fontSize, fill, face);
 }
 
 /// 用字体字节创建可用于 @font-face / 预览的 Blob URL。

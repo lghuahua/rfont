@@ -161,11 +161,16 @@
       <div class="flex-col gap-16 flex-1">
         <div class="preview-header flex-middle">
           <div class="preview-title">字体预览</div>
-          <div class="font-size-control flex-middle gap-8">
-            <span class="size-label">A</span>
-            <input type="range" v-model.number="fontSize" min="12" max="72" class="size-slider" />
-            <span class="size-label">A</span>
-            <span class="size-value">{{ fontSize }}px</span>
+          <div class="preview-actions flex-middle gap-8">
+            <div class="font-size-control flex-middle gap-8">
+              <span class="size-label">A</span>
+              <input type="range" v-model.number="fontSize" min="12" max="72" class="size-slider" />
+              <span class="size-label">A</span>
+              <span class="size-value">{{ fontSize }}px</span>
+            </div>
+            <Button size="small" :disabled="!fontPath || !textContent.trim()" @click="handleExportSvg">
+              导出 SVG
+            </Button>
           </div>
         </div>
         <div class="preview-canvas flex-col gap-20 flex-1">
@@ -516,6 +521,48 @@ async function handleGenerate() {
     message.error(`生成失败：${errorMsg}`);
   } finally {
     loading.value = false;
+  }
+}
+
+/// 按当前预览字号把输入文本导出为 SVG 轮廓。
+async function handleExportSvg() {
+  if (!fontPath.value) {
+    message.error("请先选择字体文件");
+    return;
+  }
+
+  const text = textContent.value.trim();
+  if (!text) {
+    return;
+  }
+
+  const fileNamePart = fontPath.value.split(/[\\/]/).pop() || 'font';
+  const baseName = fileNamePart.replace(/\.(ttf|otf|woff|woff2)$/i, '');
+
+  const outputPath = await save({
+    defaultPath: `${baseName}.svg`,
+    filters: [
+      {
+        name: 'SVG',
+        extensions: ['svg']
+      }
+    ]
+  });
+
+  if (!outputPath) {
+    return;
+  }
+
+  try {
+    const result = await invoke<string>("export_svg", {
+      text: text,
+      fontSize: fontSize.value,
+      outputPath: outputPath
+    });
+    message.success(result || "SVG 导出成功");
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    message.error(`导出失败：${errorMsg}`);
   }
 }
 
@@ -965,6 +1012,11 @@ body,
   justify-content: space-between;
   height: 28px;
   width: 100%;
+}
+
+/* 右侧一组：字号滑杆 + 导出按钮 */
+.preview-actions {
+  gap: 12px;
 }
 
 .font-size-control {

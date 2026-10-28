@@ -14,6 +14,7 @@ use rfont::{
     FaceSummary, Font, FontCollection, FontError, FontInfo, FontMetaEdit, OutputFormat,
     SubsetOptions,
 };
+use rfont_svg::SvgOptions;
 use wasm_bindgen::prelude::*;
 
 /// 将任意实现了 `Display` 的错误转换成可抛给 JS 的 `JsValue`。
@@ -219,6 +220,84 @@ pub fn edit_metadata(
     edit_metadata_impl(data, &edit, format, compression_level, face as usize).map_err(to_js_error)
 }
 
+fn svg_options(font_size: f64, fill: &str) -> SvgOptions {
+    SvgOptions {
+        font_size,
+        fill: fill.to_string(),
+        padding: 4.0,
+    }
+}
+
+/// 将单行文本导出为 SVG 文档。
+fn svg_text_impl(
+    data: &[u8],
+    text: &str,
+    font_size: f64,
+    fill: &str,
+    face: usize,
+) -> Result<String, FontError> {
+    let font = Font::from_bytes_with_face(data, face)?;
+    rfont_svg::text_to_svg(&font, text, &svg_options(font_size, fill))
+}
+
+/// 将单个字形导出为 SVG 文档。
+fn svg_glyph_impl(
+    data: &[u8],
+    glyph_id: u16,
+    font_size: f64,
+    fill: &str,
+    face: usize,
+) -> Result<String, FontError> {
+    let font = Font::from_bytes_with_face(data, face)?;
+    rfont_svg::glyph_to_svg(&font, glyph_id, &svg_options(font_size, fill))
+}
+
+/// 将单行文本导出为 SVG。
+///
+/// # 参数
+/// - `data`: 原始字体字节
+/// - `text`: 要导出的文本（单行）
+/// - `font_size`: 字号（像素），决定输出尺寸
+/// - `fill`: 填充色，接受 `#rgb`、`#rrggbb`、`rgb(...)` 等 CSS 颜色
+/// - `face`: 字面索引，TTC 集合内按索引选择
+///
+/// # 返回
+/// - `Ok(String)`: 完整的 SVG 文档
+/// - `Err(JsValue)`: 文本为空、字体无对应字形或轮廓不支持时的错误信息
+#[wasm_bindgen]
+pub fn svg_text(
+    data: &[u8],
+    text: &str,
+    font_size: f64,
+    fill: &str,
+    face: u32,
+) -> Result<String, JsValue> {
+    svg_text_impl(data, text, font_size, fill, face as usize).map_err(to_js_error)
+}
+
+/// 将单个字形导出为 SVG。
+///
+/// # 参数
+/// - `data`: 原始字体字节
+/// - `glyph_id`: 字形 ID
+/// - `font_size`: 字号（像素）
+/// - `fill`: 填充色
+/// - `face`: 字面索引，TTC 集合内按索引选择
+///
+/// # 返回
+/// - `Ok(String)`: 完整的 SVG 文档
+/// - `Err(JsValue)`: 字形越界或轮廓不支持时的错误信息
+#[wasm_bindgen]
+pub fn svg_glyph(
+    data: &[u8],
+    glyph_id: u16,
+    font_size: f64,
+    fill: &str,
+    face: u32,
+) -> Result<String, JsValue> {
+    svg_glyph_impl(data, glyph_id, font_size, fill, face as usize).map_err(to_js_error)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,6 +401,32 @@ mod tests {
         assert!(matches!(
             edit_metadata_impl(&data, &edit, "ttf", 0, 0),
             Err(FontError::InvalidPostScriptName { .. })
+        ));
+    }
+
+    #[test]
+    fn svg_text_returns_document() {
+        let data = test_font();
+        let svg = svg_text(&data, "AB", 64.0, "#000000", 0).unwrap();
+
+        assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""));
+        assert!(svg.contains("<path d=\"M"));
+    }
+
+    #[test]
+    fn svg_glyph_returns_document() {
+        let data = test_font();
+        let svg = svg_glyph(&data, 36, 48.0, "#ff0000", 0).unwrap();
+
+        assert!(svg.contains("fill=\"#ff0000\""));
+    }
+
+    #[test]
+    fn svg_text_rejects_empty_text() {
+        let data = test_font();
+        assert!(matches!(
+            svg_text_impl(&data, "", 64.0, "#000000", 0),
+            Err(FontError::NoGlyphsFound)
         ));
     }
 }

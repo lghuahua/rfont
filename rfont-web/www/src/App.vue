@@ -164,11 +164,16 @@
       <div class="flex-col gap-16 flex-1">
         <div class="preview-header flex-middle">
           <div class="preview-title">字体预览</div>
-          <div class="font-size-control flex-middle gap-8">
-            <span class="size-label">A</span>
-            <input type="range" v-model.number="fontSize" min="12" max="72" class="size-slider" />
-            <span class="size-label">A</span>
-            <span class="size-value">{{ fontSize }}px</span>
+          <div class="preview-actions flex-middle gap-8">
+            <div class="font-size-control flex-middle gap-8">
+              <span class="size-label">A</span>
+              <input type="range" v-model.number="fontSize" min="12" max="72" class="size-slider" />
+              <span class="size-label">A</span>
+              <span class="size-value">{{ fontSize }}px</span>
+            </div>
+            <Button size="small" :disabled="!fontBytes || !textContent.trim()" @click="handleExportSvg">
+              导出 SVG
+            </Button>
           </div>
         </div>
         <div class="preview-canvas flex-col gap-20 flex-1">
@@ -202,6 +207,7 @@ import {
   nameIdLabel,
   platformLabel,
   revokeFontUrl,
+  svgText,
   type FaceSummary,
   type FontFormat,
   type FontInfo,
@@ -444,6 +450,24 @@ function handleGenerate() {
     message.error(`生成失败：${errText(err)}`);
   } finally {
     loading.value = false;
+  }
+}
+
+/// 按当前预览字号把输入文本导出为 SVG 轮廓。
+function handleExportSvg() {
+  const bytes = fontBytes.value;
+  const text = textContent.value.trim();
+  if (!bytes || !text) {
+    return;
+  }
+
+  try {
+    const svg = svgText(bytes, text, fontSize.value, "#000000", selectedFace.value);
+    const base = (fileName.value || "font").replace(/\.(ttf|otf|woff|woff2)$/i, "");
+    downloadBytes(new TextEncoder().encode(svg), `${base}.svg`, "image/svg+xml");
+    message.success(`已导出 ${base}.svg`);
+  } catch (err) {
+    message.error(`导出失败：${errText(err)}`);
   }
 }
 </script>
@@ -892,6 +916,11 @@ body,
   justify-content: space-between;
   height: 28px;
   width: 100%;
+}
+
+/* 右侧一组：字号滑杆 + 导出按钮 */
+.preview-actions {
+  gap: 12px;
 }
 
 .font-size-control {

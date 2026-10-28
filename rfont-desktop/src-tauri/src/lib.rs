@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use rfont::{FaceSummary, Font, FontCollection, FontMetaEdit};
+use rfont_svg::{text_to_svg, SvgOptions};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -291,6 +292,43 @@ async fn edit_font(
     Ok(format!("Font saved successfully to {}", output_path))
 }
 
+/// 将文本导出为 SVG 轮廓文件
+#[tauri::command]
+async fn export_svg(
+    text: String,
+    font_size: f64,
+    output_path: String,
+    state: State<'_, Mutex<AppState>>,
+) -> Result<String, String> {
+    info!("Exporting text to SVG, font size: {}", font_size);
+
+    let app_state = state.lock().unwrap();
+
+    let font = if let Some(ref font) = app_state.font {
+        Arc::clone(font)
+    } else if let Some(ref path) = app_state.current_font_path {
+        Arc::new(
+            Font::load_with_face(path, app_state.selected_face)
+                .map_err(|e| format!("Failed to load font: {}", e))?,
+        )
+    } else {
+        return Err("No font loaded".to_string());
+    };
+
+    let options = SvgOptions {
+        font_size,
+        ..SvgOptions::default()
+    };
+    let svg =
+        text_to_svg(&font, &text, &options).map_err(|e| format!("Failed to export SVG: {}", e))?;
+
+    let output_path_buf = PathBuf::from(&output_path);
+    std::fs::write(&output_path_buf, svg).map_err(|e| format!("Failed to save SVG: {}", e))?;
+
+    info!("SVG saved to: {:?}", output_path_buf);
+    Ok(format!("SVG saved successfully to {}", output_path))
+}
+
 pub fn run() {
     tracing_subscriber::fmt::init();
 
@@ -304,6 +342,7 @@ pub fn run() {
             get_font_info,
             subset_font,
             edit_font,
+            export_svg,
             read_font_as_base64,
             list_faces,
             select_face
