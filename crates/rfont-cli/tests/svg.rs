@@ -37,28 +37,42 @@ fn svg_text_writes_document() {
 #[test]
 fn svg_glyph_respects_color_and_size() {
     let dir = temp_dir("glyph");
-    let output = dir.join("glyph.svg");
 
-    let status = Command::new(env!("CARGO_BIN_EXE_rfont"))
-        .args([
-            "svg",
-            font_path().to_str().unwrap(),
-            "--glyph",
-            "36",
-            "--size",
-            "128",
-            "--color",
-            "#ff0000",
-            "-o",
-            output.to_str().unwrap(),
-        ])
-        .status()
-        .unwrap();
+    let render = |name: &str, size: &str| -> String {
+        let output = dir.join(name);
+        let status = Command::new(env!("CARGO_BIN_EXE_rfont"))
+            .args([
+                "svg",
+                font_path().to_str().unwrap(),
+                "--glyph",
+                "36",
+                "--size",
+                size,
+                "--color",
+                "#ff0000",
+                "--padding",
+                "0",
+                "-o",
+                output.to_str().unwrap(),
+            ])
+            .status()
+            .unwrap();
 
-    assert!(status.success());
-    let svg = std::fs::read_to_string(&output).unwrap();
-    assert!(svg.contains("fill=\"#ff0000\""));
-    assert!(svg.contains("scale(0.128 -0.128)"));
+        assert!(status.success());
+        std::fs::read_to_string(&output).unwrap()
+    };
+
+    let small = render("small.svg", "64");
+    let large = render("large.svg", "128");
+    assert!(large.contains("fill=\"#ff0000\""));
+
+    // 留白为 0 时画布尺寸与字号成正比，同时能确认 path 使用了相同的比例
+    let width = |svg: &str| -> f64 {
+        let start = svg.find("width=\"").unwrap() + 7;
+        let end = svg[start..].find('"').unwrap() + start;
+        svg[start..end].parse().unwrap()
+    };
+    assert!((width(&large) - width(&small) * 2.0).abs() < 0.01);
 }
 
 #[test]

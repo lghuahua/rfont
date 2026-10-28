@@ -72,8 +72,8 @@ rfont edit font.ttf --family "Web Font" --format woff2 -o web.woff2
 ### 导出 SVG
 
 ```bash
-# 文本轮廓
-rfont svg font.ttf --text "Hello" -o hello.svg
+# 文本：每个字符一个 <symbol>
+rfont svg font.ttf --text "字体" -o text.svg
 
 # 单个字形
 rfont svg font.ttf --glyph 36 --size 128 --color "#1f6feb" -o glyph36.svg
@@ -205,17 +205,18 @@ rfont edit collection.ttc --face 1 --family "Extracted Family"
 
 ### `svg` - 导出 SVG
 
-把文本或单个字形按字体轮廓导出为 SVG 文档。
+把文本或单个字形导出为 SVG 文档。每个不同字符是一个 `<symbol id="icon-字符">`，
+正文用 `<use>` 按步进宽度排开，直接打开可以看到文本，也可以把 `<symbol>` 当图标单独使用。
 
 **参数：**
 - `<INPUT>`: 输入字体文件路径（必需）
 
 **选项：**
 - `--text <TEXT>`: 要导出的文本（单行），与 `--glyph` 二选一
-- `--glyph <ID>`: 要导出的字形 ID
+- `--glyph <ID>`: 要导出的字形 ID（导出的 symbol 为 `icon-glyph<ID>`）
 - `-o, --output <OUTPUT>`: 输出文件路径（可选，默认为与输入同名的 `.svg`）
 - `--face <INDEX>`: TTC 集合中的字面索引（默认 0）
-- `--size <PX>`: 字号，即 SVG 的默认显示大小（默认 64）
+- `--size <PX>`: 排版后的显示字号（默认 64）
 - `--color <CSS>`: 填充色（默认 `#000000`；无法识别的值回退为黑色）
 - `--padding <PX>`: 四周留白（默认 4）
 
@@ -228,7 +229,14 @@ rfont svg font.ttf --text "字体Aa" -o text.svg
 rfont svg font.ttf --glyph 36 -o glyph36.svg
 ```
 
-路径按 `unitsPerEm` 缩放到 `--size`，`viewBox` 用像素单位，放大不失真。
+在页面中引入这份 SVG（或只复制 `<defs>` 里的 `<symbol>`）后，可以单独取用某个字：
+
+```html
+<svg class="icon" aria-hidden="true"><use xlink:href="#icon-字"></use></svg>
+```
+
+无法写进 id 的字符（标点等）用码位命名，例如 `/` → `icon-u2f`。
+`--size` 只决定排版后的显示大小，`<symbol>` 内部保留字体单位，作为图标使用时由 CSS 宽高缩放。
 文本按 `hmtx` 前进宽度排成一行，不含字距调整与复杂脚本重排。
 只支持 TrueType 轮廓（`glyf`），CFF 字体导出时报错。
 
