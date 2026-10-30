@@ -25,6 +25,3 @@ serde_json = { workspace = true }
 # 跳过 wasm-opt 不影响正确性。待 wasm-pack 升级内置 binaryen 后，可改回：
 # wasm-opt = ["-O", "--enable-bulk-memory", "--enable-sign-ext", "--enable-mutable-globals", "--enable-nontrapping-float-to-int"]
 wasm-opt = false
-
-[profile.release]
-lto = true

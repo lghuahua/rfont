@@ -281,7 +281,7 @@ enum TtcCommands {
         #[arg(long, default_value_t = 0)]
         face: usize,
 
-        /// 输出文件路径（默认为 <文件名>.face<N>.ttf/otf）
+        /// 输出文件路径（默认为 `<文件名>.face<N>.ttf/otf`）
         #[arg(short, long)]
         output: Option<PathBuf>,
     },

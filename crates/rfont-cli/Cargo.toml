@@ -12,6 +12,8 @@ categories = ["command-line-utilities"]
 [[bin]]
 name = "rfont"
 path = "src/main.rs"
+# 与 rfont 库同名，生成文档时会和目标目录冲突，二进制无需 rustdoc
+doc = false
 
 [dependencies]
 rfont = { path = "../rfont", features = ["serde"] }
